@@ -1,0 +1,184 @@
+# Configuration file format 2
+
+experience_name: flocking_with_obstacles_2
+
+# ******* ROBOTS *******
+# The number of robots in the fleet
+robots_number: 4
+
+# The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
+# Example : x500_0, x500_1, x500_2, etc.
+robots_model: px4vision_lidar
+
+# The IP address of the network, i.e. for 192.168.0.0, the addresses allocated to the robots will be 192.168.0.1, 192.168.0.2, etc.
+# We only support mask of 255.255.255.0 (for now :) )
+ip_network: 192.168.0.0
+ip_mask: 255.255.255.0
+
+# ******* FLOCKING *******
+VAT_flocking_parameters:
+  v_flock: 1
+  v_max: 1
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08
+  r_0_att: 5
+  p_rep: 0.13
+  r_0_rep: 5
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3
+  v_shill: 13.622
+
+target_altitude: 14.0 # Flocking is done at fixed altitude for now.
+
+# ******* WORLD *******
+world_sdf_path: /home/theotime/simulation_ws/src/worlds/default.sdf
+
+# Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
+buildings:
+  - name: high_building_1
+    x: 15
+    y: 5
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_2
+    x: 15
+    y: -15
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_3
+    x: 40
+    y: 10
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_4
+    x: 25
+    y: -10
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_5
+    x: 50
+    y: 0
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_6
+    x: 50
+    y: -10
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_7
+    x: 65
+    y: -5
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_8
+    x: 65
+    y: 5
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_9
+    x: 70
+    y: -20
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_10
+    x: 65
+    y: 20
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: high_building_10
+    x: 80
+    y: 5
+    height: 20
+    size_x: 3
+    size_y: 3
+  - name: east_wall
+    x: 170
+    y: 0
+    height: 30
+    size_x: 10
+    size_y: 200
+  - name: west_wall
+    x: -20
+    y: 0
+    height: 30
+    size_x: 10
+    size_y: 200
+  - name: north_wall
+    x: 70
+    y: 95
+    height: 30
+    size_x: 190
+    size_y: 10
+  - name: south_wall
+    x: 70
+    y: -95
+    height: 30
+    size_x: 190
+    size_y: 10
+  # - name: high_building_2
+  #   x: 0
+  #   y: 30
+  #   height: 5
+  #   size_x: 20
+  #   size_y: 10
+
+# ******* NS-3 *******
+ns3_seed: 15
+wifi_type: 'spectrum_3GPP_V2V_urban_channel'
+
+# ******* SYSTEM *******
+
+update_rate: 400 # in Hz | The objective rate at which Gazebo tries to run simulation loops. 
+
+# Simulation timings. BE CAREFUL : sync_window must be divisible by phy_step_size, phy_step_size must be divisible by net_step_size 
+# and phy_step_size must a multiple of step_length
+sync_window: 10000 # in us | the duration between two position exchange and clock synchronization between Gazebo and ns-3
+phy_step_size: 10000 # in us | the duration of 1 Gazebo simulation loop
+net_step_size: 2000 # in us
+
+bridge_ip: '11.0.0.100'
+
+print_debug: true
+
+save_compute_time: false
+
+net_use_uds: true
+phy_use_uds: true
+
+do_driver_transfer: false
+
+net_uds_server_address: /tmp/net_server_socket
+
+netsim_ip_server_address: 'localhost'
+netsim_ip_server_port: 10000
+netsim_ip_ranging_port: 10005
+
+phy_uds_server_address: /tmp/phy_server_socket
+
+phy_ip_server_address: 'localhost'
+phy_ip_server_port: 10001
+
+phy_driver_uds_server_address: '/tmp/phy_driver_socket'
+net_driver_uds_server_address: '/tmp/net_driver_socket'
+
+responsiveness_timeout: 2
+
+packet_holding_duration: 50
+driver_sync_time: 0.01
+
+broadcast_address: '4294967295'  # 255.255.255.255 stored as string since yaml doesn't support long ints
