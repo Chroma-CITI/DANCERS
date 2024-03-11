@@ -45,7 +45,7 @@ def generate_launch_description():
     
     set_FASTRTPS_DEFAULT_PROFILE_FILE = SetEnvironmentVariable(
         name='FASTRTPS_DEFAULT_PROFILE_FILE',
-        value=[ws_path + '/src/config/profile_simulation_coms.xml']
+        value=[ws_path + '/src/config/fastrtps_whitelist_profile.xml']
     )
     
     coordinator = Node(
