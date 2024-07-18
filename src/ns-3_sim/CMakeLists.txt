@@ -41,6 +41,7 @@ target_link_libraries(ns-3_sim_adhoc_no_tap
   ns3::libwifi
   ns3::libmobility
   ns3::libolsr
+  ns3::libaodv
   ns3::libinternet
   ns3::libbuildings
   ns3::libpropagation
@@ -179,6 +180,7 @@ ament_target_dependencies(ns-3_only_ap
   protobuf_msgs
   rclcpp)
 
+  include_directories(include/${PROJECT_NAME})
 
 INSTALL(
   TARGETS 

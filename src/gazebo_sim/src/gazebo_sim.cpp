@@ -12,6 +12,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "udp_tcp_socket.hpp"
+
 #include <gz/common/Console.hh>
 #include <gz/sim/Server.hh>
 #include "gz/sim/ServerConfig.hh"
@@ -25,7 +27,6 @@
 #include <protobuf_msgs/channel_data.pb.h>
 #include "protobuf_msgs/robots_positions.pb.h"
 
-#include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 
 #include <boost/filesystem.hpp>
@@ -78,94 +79,6 @@ static std::string gzip_decompress(const std::string &data)
 
     return decompressed.str();
 }
-
-class Socket
-{
-public:
-    virtual void accept(const std::string &host, unsigned short port) = 0;
-    virtual void send_one_message(const std::string &message) = 0;
-    virtual std::string receive_one_message() = 0;
-    virtual void close() = 0;
-};
-
-class UDSSocket : public Socket
-{
-public:
-    UDSSocket(boost::asio::io_context &io_context) : socket_(io_context) {}
-    void accept(const std::string &host, unsigned short port) override
-    {
-        ::unlink(host.c_str());
-        boost::asio::local::stream_protocol::acceptor acceptor(socket_.get_executor(), boost::asio::local::stream_protocol::endpoint(host));
-        acceptor.accept(socket_);
-    }
-    void send_one_message(const std::string &message) override
-    {
-        // Send Preamble
-        std::size_t response_size = message.size();
-        uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-        socket_.send(boost::asio::buffer(&send_length, 4));
-        // Send Message
-        socket_.send(boost::asio::buffer(message.data(), message.size()));
-    }
-    std::string receive_one_message() override
-    {
-        // Read Preamble
-        uint32_t data_preamble[4];
-        size_t length = socket_.receive(boost::asio::buffer(data_preamble, 4));
-        uint32_t receive_length = ntohl(*data_preamble);
-        // Read Message
-        char *data = new char[receive_length];
-        length = socket_.receive(boost::asio::buffer(data, receive_length));
-        std::string data_string(data, length);
-        return data_string;
-    }
-    void close() override
-    {
-        socket_.close();
-    }
-
-private:
-    boost::asio::local::stream_protocol::socket socket_;
-};
-
-class TCPSocket : public Socket
-{
-public:
-    TCPSocket(boost::asio::io_context &io_context) : socket_(io_context) {}
-    void accept(const std::string &host, unsigned short port) override
-    {
-        boost::asio::ip::tcp::acceptor acceptor(socket_.get_executor(), boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port));
-        acceptor.accept(socket_);   
-    }
-    void send_one_message(const std::string &message) override
-    {
-        // Send Preamble
-        std::size_t response_size = message.size();
-        uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-        socket_.send(boost::asio::buffer(&send_length, 4));
-        // Send Message
-        socket_.send(boost::asio::buffer(message.data(), message.size()));
-    }
-    std::string receive_one_message() override
-    {
-        // Read Preamble
-        uint32_t data_preamble[4];
-        size_t length = socket_.receive(boost::asio::buffer(data_preamble, 4));
-        uint32_t receive_length = ntohl(*data_preamble);
-        // Read Message
-        char *data = new char[receive_length];
-        length = socket_.receive(boost::asio::buffer(data, receive_length));
-        std::string data_string(data, length);
-        return data_string;
-    }
-    void close() override
-    {
-        socket_.close();
-    }
-
-private:
-    boost::asio::ip::tcp::socket socket_;
-};
 
 /**
  * \brief Receives a message from a socket.
@@ -516,6 +429,56 @@ public:
             if (respo.data())
             {
                 RCLCPP_DEBUG(this->get_logger(), "Created building %s", name.c_str());
+            }
+        }
+
+        if (config["VAT_flocking_parameters"]["secondary_objective_flag"].as<bool>() == true)
+        {
+            for (auto secondary_objective : config["VAT_flocking_parameters"]["secondary_objectives"])
+            {
+                std::string name = "objective_robot_" + std::to_string(secondary_objective.first.as<uint32_t>());
+                uint32_t x = secondary_objective.second[0].as<uint32_t>();
+                uint32_t y = secondary_objective.second[1].as<uint32_t>();
+                uint32_t z = secondary_objective.second[2].as<uint32_t>();
+                std::string objectiveSdf = R"(
+                        <?xml version="1.0" ?>
+                        <sdf version='1.7'>
+                            <model name=')" +
+                                          name + R"('>
+                                <static>true</static>
+                                <link name='link'>
+                                    <pose>)" +
+                                          std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z) + R"( 0 0 0</pose>
+                                    <visual name='visual'>
+                                        <geometry>
+                                            <sphere>
+                                                <radius>0.2</radius>
+                                            </sphere>
+                                        </geometry>
+                                        <material>
+                                            <ambient>0.2 0.2 0.2 0.3</ambient>
+                                            <diffuse>1.0 0.05 0.05 1</diffuse>
+                                            <specular>0.0 0.0 0.0 1</specular>
+                                        </material>
+                                    </visual>
+                                </link>
+                            </model>
+                        </sdf>
+                    )";
+
+                req.set_sdf(objectiveSdf);
+
+                if (this->get_parameter("verbose").get_parameter_value().get<bool>())
+                {
+                    RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
+                }
+
+                executed = node.Request(service, req, timeout, respo, result);
+                check_service_results(service, executed, result);
+                if (respo.data())
+                {
+                    RCLCPP_DEBUG(this->get_logger(), "Created objective %s", name.c_str());
+                }
             }
         }
 

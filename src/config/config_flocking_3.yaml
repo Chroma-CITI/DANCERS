@@ -45,17 +45,17 @@ world_sdf_path: /home/theotime/simulation_ws/src/worlds/default.sdf
 # Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
 buildings:
   - name: high_building_1
-    x: 15
-    y: 5
+    x: 20
+    y: 0
     height: 20
-    size_x: 3
-    size_y: 3
+    size_x: 10
+    size_y: 10
   - name: high_building_2
-    x: 15
-    y: -15
+    x: 0
+    y: 30
     height: 20
-    size_x: 3
-    size_y: 3
+    size_x: 10
+    size_y: 30
   - name: high_building_3
     x: 40
     y: 10

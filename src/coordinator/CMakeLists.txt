@@ -25,6 +25,7 @@ ament_target_dependencies(coordinator
 target_link_libraries(coordinator
   yaml-cpp)
 
+include_directories(include/${PROJECT_NAME})
 
 INSTALL(
   TARGETS

@@ -486,6 +486,22 @@ public:
         // [Buildings] -- Aggregate the building module to the nodes, so that we can use BuildingsPropagationLossModels with them
         BuildingsHelper::Install(nodes);
 
+
+        //**************** ROUTING MODULE ****************
+        Ipv4ListRoutingHelper list;
+        OlsrHelper olsr;
+        InternetStackHelper internet;
+        list.Add(olsr, 100);
+
+        internet.SetRoutingHelper(list);
+        internet.Install(nodes);
+
+        Ipv4AddressHelper addressAdhoc;
+        addressAdhoc.SetBase("10.0.0.0", "255.255.255.0");
+        Ipv4InterfaceContainer adhocInterfaces;
+        adhocInterfaces = addressAdhoc.Assign(devices);
+
+
         // **************** TAP-BRIDGE MODULE ****************
         TapBridgeHelper tapBridge;
         tapBridge.SetAttribute("Mode", StringValue("UseLocal"));
@@ -545,10 +561,10 @@ public:
             robots_positions_proto::RobotsPositions robots_positions_msg;
             if (!NetworkUpdate_msg.robots_positions().empty())
             {
-                RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
+                // RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
                 robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
 
-                // RCLCPP_INFO(this->get_logger(), "Received robots positions from Coordinator: %s", robots_positions_msg.DebugString().c_str());
+                RCLCPP_INFO(this->get_logger(), "Received robots positions from Coordinator: %s", robots_positions_msg.DebugString().c_str());
 
                 // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                 // Then, update the node's positions (orientation is ignored for now)

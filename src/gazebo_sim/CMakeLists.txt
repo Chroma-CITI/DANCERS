@@ -54,6 +54,7 @@ ament_target_dependencies(gazebo_only
   geometry_msgs
 )
 
+include_directories(include/${PROJECT_NAME})
 
 INSTALL(
   TARGETS 

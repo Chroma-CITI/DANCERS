@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ordered_neighbors_proto;
+
+message OrderedNeighborsList {
+    repeated OrderedNeighbors ordered_neighbors = 1;
+}
+
+message OrderedNeighbors {
+    uint32 agentId = 1;
+    repeated uint32 neighborId = 2;
+    repeated double linkQuality = 3;
+    repeated uint32 time_val = 4;
+}

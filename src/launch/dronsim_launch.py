@@ -232,7 +232,7 @@ def generate_launch_description():
     def remove_network(event, context):
         os.system('sudo '+ws_path+'/src/launch/remove_network.bash '+str(config['robots_number']))
         os.system('pkill -2 parameter_bridg')
-        os.system('pkill -3 robotics_coord')
+        os.system('pkill -3 gazebo_sim')
         return [
             LogInfo(msg=['Launch was asked to shutdown: ', LocalSubstitution('event.reason')])
         ]

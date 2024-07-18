@@ -12,6 +12,7 @@ set(PROTO_FILES
   protobuf/physics_update.proto
   protobuf/network_update.proto
   protobuf/robots_positions.proto
+  protobuf/ordered_neighbors.proto
 )
 # creates custom commands in cmake to generate protobuf code, if included in a
 # target

@@ -12,10 +12,13 @@
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/fiber/barrier.hpp>
 
+#include "udp_tcp_socket.hpp"
+
 #include <yaml-cpp/yaml.h>
 
 #include <protobuf_msgs/physics_update.pb.h>
 #include <protobuf_msgs/network_update.pb.h>
+#include <protobuf_msgs/robots_positions.pb.h>
 
 static std::string m_computation_time_file;
 
@@ -57,126 +60,6 @@ static std::string gzip_decompress(const std::string &data)
     return decompressed.str();
 }
 
-template <typename SocketType>
-class MySocket
-{
-public:
-    MySocket(boost::asio::io_context &io_context) : socket_(io_context) {}
-
-    void connect(const typename SocketType::endpoint &endpoint)
-    {
-        for (int i = 0; i < 20; i++)
-        {
-            try
-            {
-                socket_.connect(endpoint);
-                return;
-            }
-            catch (std::exception &e)
-            {
-                std::cerr << "Error connecting to socket on try " << i << " : " << e.what() << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            }
-        }
-        std::cerr << "Couldn't connecting to socket after 20 tries." << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    void send_one_message(const std::string &message)
-    {
-        // Send Preamble
-        std::size_t response_size = message.size();
-        uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-        socket_.send(boost::asio::buffer(&send_length, 4));
-        // Send Message
-        socket_.send(boost::asio::buffer(message.data(), message.size()));
-    }
-
-    std::string receive_one_message()
-    {
-        // Read Preamble
-        uint32_t data_preamble[4];
-        size_t length = socket_.receive(boost::asio::buffer(data_preamble, 4));
-        uint32_t receive_length = ntohl(*data_preamble);
-        // Read Message
-        //   char data[receive_length];
-        char *data = new char[receive_length];
-        length = socket_.receive(boost::asio::buffer(data, receive_length));
-        std::string data_string(data, length);
-
-        return data_string;
-    }
-
-    void close()
-    {
-        socket_.close();
-    }
-
-private:
-    typename SocketType::socket socket_;
-};
-
-/**
- * \brief Receives a message from a socket.
- *
- * This function will block until the next message is received, read its header (first 4 bytes)
- * and then read the content of the message and return it as a string.
- *
- * \param sock The socket on which to listen for the next message.
- * \return The received message as a std::string.
- */
-template <class Sock>
-std::string receive_one_message(Sock &sock)
-{
-    // Read Preamble
-    uint32_t data_preamble[4];
-    size_t length = sock.receive(boost::asio::buffer(data_preamble, 4));
-    uint32_t receive_length = ntohl(*data_preamble);
-    // Read Message
-    //   char data[receive_length];
-    char *data = new char[receive_length];
-    length = sock.receive(boost::asio::buffer(data, receive_length));
-    std::string data_string(data, length);
-
-    return data_string;
-}
-
-/**
- * \brief Sends a message from a socket.
- *
- * \param sock The socket used to send the message.
- * \param str The string message to send.
- */
-template <class Sock>
-void send_one_message(Sock &sock, std::string str)
-{
-    // Send Preamble
-    std::size_t response_size = str.size();
-    uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-    sock.send(boost::asio::buffer(&send_length, 4));
-    // Send Message
-    sock.send(boost::asio::buffer(str.data(), str.size()));
-}
-
-template <class Sock, class Endpoint>
-static void try_connecting(Sock &sock, Endpoint &endpoint)
-{
-    for (int i = 0; i < 20; i++)
-    {
-        try
-        {
-            sock.connect(endpoint);
-            return;
-        }
-        catch (std::exception &e)
-        {
-            std::cerr << "Error connecting to socket on try " << i << " : " << e.what() << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    }
-    std::cerr << "Couldn't connecting to socket after 20 tries." << std::endl;
-    exit(EXIT_FAILURE);
-}
 
 class Coordinator : public rclcpp::Node
 {
@@ -259,33 +142,15 @@ public:
         this->phy_step_size = config["phy_step_size"].as<uint32_t>();
         this->net_step_size = config["net_step_size"].as<uint32_t>();
         this->sync_window = config["sync_window"].as<uint32_t>();
-        if (this->phy_step_size % this->net_step_size != 0)
+        if (this->sync_window % this->net_step_size != 0 || this->sync_window % this->phy_step_size != 0)
         {
-            RCLCPP_FATAL(this->get_logger(), "The step sizes of the physics and network simulator must be divisible. Aborting.");
+            RCLCPP_FATAL(this->get_logger(), "The synchronization window size (sync_window) must be divisible by both the physics and network step sizes (phy_step_size ; net_step_size). Aborting.");
             exit(EXIT_FAILURE);
         }
 
-        if (this->phy_use_uds_socket)
-        {
-            boost::asio::local::stream_protocol::endpoint endpoint(this->phy_uds_server_address.c_str());
-            this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_<boost::asio::local::stream_protocol>, this, endpoint);
-        }
-        else
-        {
-            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::address::from_string(this->phy_ip_server_address), this->phy_ip_server_port);
-            this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_<boost::asio::ip::tcp>, this, endpoint);
-        }
+        this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_, this);
+        this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_, this);
 
-        if (this->net_use_uds_socket)
-        {
-            boost::asio::local::stream_protocol::endpoint endpoint(this->net_uds_server_address.c_str());
-            this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_<boost::asio::local::stream_protocol>, this, endpoint);
-        }
-        else
-        {
-            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::address::from_string(this->net_ip_server_address), this->net_ip_server_port);
-            this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_<boost::asio::ip::tcp>, this, endpoint);
-        }
 
         phy_protobuf_thread.join();
         net_protobuf_thread.join();
@@ -303,7 +168,9 @@ private:
     uint32_t net_step_size; // us
     uint32_t sync_window;
     std::string compressed_robots_positions;
-    std::mutex channel_data_mutex;
+    std::string compressed_ordered_neighbors;
+    std::mutex robots_positions_mutex;
+    std::mutex ordered_neighbors_mutex;
 
     bool phy_use_uds_socket;
     bool net_use_uds_socket;
@@ -319,59 +186,87 @@ private:
 
     rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_publisher_;
 
-    template <typename Protocol>
-    void run_phy_protobuf_client_(typename Protocol::endpoint endpoint);
-    template <typename Protocol>
-    void run_net_protobuf_client_(typename Protocol::endpoint endpoint);
+    void run_phy_protobuf_client_();
+    void run_net_protobuf_client_();
 
     std::thread phy_protobuf_thread;
     std::thread net_protobuf_thread;
-
 };
 
-template <typename Protocol>
-void Coordinator::run_phy_protobuf_client_(typename Protocol::endpoint endpoint)
+
+void Coordinator::run_phy_protobuf_client_()
 {
     RCLCPP_INFO(this->get_logger(), "Starting PHY protobuf client in thread.");
 
     try
     {
-        boost::asio::io_context io_ctx;
-        MySocket<Protocol> socket = MySocket<Protocol>(io_ctx);
+        Socket *socket;
+        boost::asio::io_context io_context;
 
-        socket.connect(endpoint);
+        if (this->phy_use_uds_socket)
+        {
+            socket = new UDSSocket(io_context);
+            socket->connect(this->phy_uds_server_address);
+        }
+        else 
+        {
+            socket = new TCPSocket(io_context);
+            socket->connect(this->phy_ip_server_address);
+        }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected PHY socket !\x1b[0m");
 
         while (this->should_run)
         {
             this->rendezvous_threads.wait();
 
-            // Send start request
-            physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
-            PhysicsUpdate_msg.set_time_val(static_cast<uint32_t>(this->current_sim_time.nanoseconds()));
-            PhysicsUpdate_msg.set_msg_type(physics_update_proto::PhysicsUpdate::BEGIN);
-
-            std::string request = gzip_compress(PhysicsUpdate_msg.SerializeAsString());
-
-            socket.send_one_message(request);
-
-            // Get response
-            std::string response = gzip_decompress(socket.receive_one_message());
-
-            if (response.length() == 0)
+            for (uint32_t i = 0; i < this->sync_window / this->phy_step_size; i++)
             {
-                continue;
-            }
-            PhysicsUpdate_msg.ParseFromString(response);
-            if (PhysicsUpdate_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
-            {
-                throw "Coordinator received a non-END message from physics simulator !";
-            }
-            else
-            {
-                RCLCPP_INFO(this->get_logger(), "Finished 1 iteration of PHY simulator.");
-                std::lock_guard<std::mutex> lock(this->channel_data_mutex);
-                this->compressed_robots_positions = PhysicsUpdate_msg.robots_positions();
+
+                // Send start request
+                physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
+                PhysicsUpdate_msg.set_time_val(static_cast<uint32_t>(this->current_sim_time.nanoseconds()));
+                PhysicsUpdate_msg.set_msg_type(physics_update_proto::PhysicsUpdate::BEGIN);
+
+                // Add the neighbors list if we received one from the network simulator
+                this->ordered_neighbors_mutex.lock();
+                if (!this->compressed_ordered_neighbors.empty())
+                {
+                    PhysicsUpdate_msg.set_ordered_neighbors(this->compressed_ordered_neighbors);
+                    this->compressed_ordered_neighbors.clear();
+                }
+                this->ordered_neighbors_mutex.unlock();
+
+                std::string request = gzip_compress(PhysicsUpdate_msg.SerializeAsString());
+
+                socket->send_one_message(request);
+
+                // Get response
+                std::string response = gzip_decompress(socket->receive_one_message());
+
+                if (response.length() == 0)
+                {
+                    RCLCPP_INFO(this->get_logger(), "Empty message");
+                    continue;
+                }
+                PhysicsUpdate_msg.ParseFromString(response);
+
+                robots_positions_proto::RobotsPositions robots_positions_msg;
+                robots_positions_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.robots_positions()));
+                
+                RCLCPP_INFO(this->get_logger(), "Received robots positions from viragh simulator: %s", robots_positions_msg.DebugString().c_str());
+
+
+                if (PhysicsUpdate_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
+                {
+                    throw "Coordinator received a non-END message from physics simulator !";
+                }
+                else
+                {
+                    RCLCPP_DEBUG(this->get_logger(), "Finished 1 iteration of PHY simulator.");
+
+                    std::lock_guard<std::mutex> lock(this->robots_positions_mutex);
+                    this->compressed_robots_positions = PhysicsUpdate_msg.robots_positions();
+                }
             }
         }
 
@@ -379,24 +274,34 @@ void Coordinator::run_phy_protobuf_client_(typename Protocol::endpoint endpoint)
     catch (std::exception &e)
     {
         RCLCPP_ERROR(this->get_logger(), e.what());
+        exit(EXIT_FAILURE);
     }
     catch (...)
     {
         RCLCPP_ERROR(this->get_logger(), "Error happened in the Physics protobuf thread !");
+        exit(EXIT_FAILURE);
     }
 }
 
-template <typename Protocol>
-void Coordinator::run_net_protobuf_client_(typename Protocol::endpoint endpoint)
+void Coordinator::run_net_protobuf_client_()
 {
     RCLCPP_INFO(this->get_logger(), "Starting NET protobuf client in thread.");
 
     try
     {
-        boost::asio::io_context io_ctx;
-        MySocket<Protocol> socket = MySocket<Protocol>(io_ctx);
+        Socket *socket;
+        boost::asio::io_context io_context;
 
-        socket.connect(endpoint);
+        if (this->net_use_uds_socket)
+        {
+            socket = new UDSSocket(io_context);
+            socket->connect(this->net_uds_server_address);
+        }
+        else 
+        {
+            socket = new TCPSocket(io_context);
+            socket->connect(this->net_ip_server_address);
+        }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected NET socket !\x1b[0m");
 
         while (this->should_run)
@@ -422,20 +327,20 @@ void Coordinator::run_net_protobuf_client_(typename Protocol::endpoint endpoint)
                 NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::BEGIN);
 
                 // Add the positions of the robots only if we received them from the physics simulator !
-                this->channel_data_mutex.lock();
-                if (this->compressed_robots_positions.length() > 0)
+                this->robots_positions_mutex.lock();
+                if (!this->compressed_robots_positions.empty())
                 {
                     NetworkUpdate_msg.set_robots_positions(this->compressed_robots_positions);
-                    this->compressed_robots_positions = "";
+                    this->compressed_robots_positions.clear();
                 }
-                this->channel_data_mutex.unlock();
+                this->robots_positions_mutex.unlock();
 
                 std::string request = gzip_compress(NetworkUpdate_msg.SerializeAsString());
 
-                socket.send_one_message(request);
+                socket->send_one_message(request);
 
                 // Get response
-                std::string response = gzip_decompress(socket.receive_one_message());
+                std::string response = gzip_decompress(socket->receive_one_message());
                 if (response.length() == 0)
                 {
                     continue;
@@ -454,6 +359,9 @@ void Coordinator::run_net_protobuf_client_(typename Protocol::endpoint endpoint)
                     rosgraph_msgs::msg::Clock clock_msg;
                     clock_msg.set__clock(this->current_sim_time);
                     this->clock_publisher_->publish(clock_msg);
+
+                    std::lock_guard<std::mutex> lock(this->ordered_neighbors_mutex);
+                    this->compressed_ordered_neighbors = NetworkUpdate_msg.ordered_neighbors();
                 }
             }
         }

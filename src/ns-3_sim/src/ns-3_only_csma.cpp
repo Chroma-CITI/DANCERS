@@ -375,8 +375,8 @@ class Ns3Simulation : public rclcpp::Node
             SeedManager::SetRun(config["ns3_seed"].as<int>());
 
             // we interact with the "real world" through tap bridges, so we need to use the real-time implementation of the simulator
-            GlobalValue::Bind("SimulatorImplementationType", StringValue("ns3::RealtimeSimulatorImpl"));
-            GlobalValue::Bind("ChecksumEnabled", BooleanValue(true));
+            // GlobalValue::Bind("SimulatorImplementationType", StringValue("ns3::RealtimeSimulatorImpl"));
+            // GlobalValue::Bind("ChecksumEnabled", BooleanValue(true));
 
 
             double frequency = 5.2e9;          // operating frequency in Hz
@@ -451,47 +451,109 @@ class Ns3Simulation : public rclcpp::Node
             //
             // ./ns3 run "tap-csma-virtual-machine --ns3::CsmaChannel::DataRate=10000000"
             //
+
+            InternetStackHelper internet;
+            internet.Install(nodes);
+
             CsmaHelper csma;
+            csma.SetChannelAttribute("DataRate", DataRateValue(DataRate(5000000)));
+            csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
+            csma.SetDeviceAttribute("Mtu", UintegerValue(1400));
             NetDeviceContainer devices = csma.Install(nodes);
+
+            Address serverAddress;
+            Ipv4AddressHelper ipv4;
+            ipv4.SetBase("10.1.1.0", "255.255.255.0");
+            Ipv4InterfaceContainer i = ipv4.Assign(devices);
+            serverAddress = Address(i.GetAddress(1));
+
+            // UDP server on all nodes to receive the UDP pose broadcast traffic
+            uint16_t port = 4000;
+            UdpServerHelper server(port);
+            ApplicationContainer serverApp = server.Install(nodes.Get(1));
+            serverApp.Start(Seconds(1.0));
+            serverApp.Stop(Seconds(20.0));
+            int nodeId = 0;
+            for (ApplicationContainer::Iterator app = serverApp.Begin(); app != serverApp.End(); ++app) {
+                if ((*app)->TraceConnectWithoutContext("Rx", MakeCallback(&Ns3Simulation::server_receive_clbk, this)))
+                {
+                    std::cout << "Connected trace Rx" << std::endl;
+                }
+                else
+                {
+                    std::cout << "Could not connect trace Rx" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+                nodeId++;
+            }
+
+            // UDP client on all nodes that regularly sends a small UDP broadcast packet, simulating pose sharing between agents
+            uint32_t MaxPacketSize = 1024;
+            Time interPacketInterval = Seconds(0.05);
+            uint32_t maxPacketCount = 320;
+            UdpClientHelper client(serverAddress, port);
+            client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+            client.SetAttribute("Interval", TimeValue(interPacketInterval));
+            client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
+            ApplicationContainer clientApp = client.Install(nodes.Get(0));
+            clientApp.Start(Seconds(2.0));
+            clientApp.Stop(Seconds(20.0));
+
 
             
             // [Buildings] -- Aggregate the building module to the nodes, so that we can use BuildingsPropagationLossModels with them
             BuildingsHelper::Install(nodes);
 
             // **************** TAP-BRIDGE MODULE ****************
-            TapBridgeHelper tapBridge;
-            tapBridge.SetAttribute("Mode", StringValue("UseLocal"));
-            char buffer[10];
-            for (uint32_t i=0; i<numNodes; i++) {
-                sprintf(buffer, "wifi_tap%d", i+1);
-                tapBridge.SetAttribute ("DeviceName", StringValue(buffer));
-                tapBridge.Install(nodes.Get(i), devices.Get(i));
-            }
+            // TapBridgeHelper tapBridge;
+            // tapBridge.SetAttribute("Mode", StringValue("UseLocal"));
+            // char buffer[10];
+            // for (uint32_t i=0; i<numNodes; i++) {
+            //     sprintf(buffer, "wifi_tap%d", i+1);
+            //     tapBridge.SetAttribute ("DeviceName", StringValue(buffer));
+            //     tapBridge.Install(nodes.Get(i), devices.Get(i));
+            // }
 
-            for(auto netDevice = devices.Begin(); netDevice != devices.End(); ++netDevice){
-                (*netDevice)->SetReceiveCallback(MakeCallback(&Ns3Simulation::node_receive_clbk, this, (*netDevice)->GetNode()->GetId()));
-            }
-            // devices.Get(0)->SetReceiveCallback(MakeCallback(&Ns3Simulation::node_receive_clbk, this));
-            // devices.Get(2)->SetReceiveCallback(MakeCallback(&Ns3Simulation::node_receive_clbk, this));
+            // for(auto netDevice = devices.Begin(); netDevice != devices.End(); ++netDevice){
+            //     (*netDevice)->SetReceiveCallback(MakeCallback(&Ns3Simulation::node_receive_clbk, this, (*netDevice)->GetNode()->GetId()));
+            // }
 
 
-
-            Simulator::Stop(Seconds(1000));
+            // Simulator::Stop(Seconds(100));
             std::cout << "Network simulator ready" << std::endl;
 
             Simulator::Run();
+            Simulator::Destroy();
+            std::cout << "End of simulation" << std::endl;
+            exit(EXIT_SUCCESS);
 
         }
     private:
         bool save_compute_time;
         std::ofstream f;
         void node_receive_clbk(uint32_t nodeId);
+        void server_receive_clbk(const Ptr< const Packet > packet);
         std::vector<int> numReceivedPackets;
 };
 
 void
 Ns3Simulation::node_receive_clbk(uint32_t nodeId){
     this->numReceivedPackets[nodeId] += 1;
+    std::cout << "Node " << nodeId << " received a packet" << std::endl;
+}
+
+void
+Ns3Simulation::server_receive_clbk(Ptr< const Packet > packet)
+{
+    // int receiverId = std::stoi();
+    // int srcId;
+    // for (auto node = this->nodes.Begin() ; node != this->nodes.End() ; ++node){
+    //     if ((*node)->GetObject<Address>()-> == srcAddress){
+    //         srcId = (*node)->GetId();
+    //     }
+    // }
+    // this->ordered_neighbors_list_msg.ordered_neighbors().at(receiverId).add_neighborid(srcId);
+    std::cout << "Packet " << packet->GetUid() << " received a packet from Node " << std::endl;
 }
 
 /**

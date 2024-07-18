@@ -1,7 +1,7 @@
 import os
 import yaml
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, LogInfo
+from launch.actions import ExecuteProcess, LogInfo, TimerAction
 from launch_ros.actions import Node
 from pathlib import Path
 
@@ -23,7 +23,11 @@ def generate_launch_description():
     num_run = len(os.listdir(data_path)) + 1
     Path(data_path+"/run_"+str(num_run)).mkdir(parents=True, exist_ok=True)
 
-
+    source_robot_id = config['source_robot_id']
+    sink_robot_id = config['sink_robot_id']
+    start_traffic_time = config['start_traffic_time'] # s
+    stop_traffic_time = config['stop_traffic_time'] # s
+    
     def flocking_instance(i):
         return Node(
             package='offboard_flocking',
@@ -55,10 +59,38 @@ def generate_launch_description():
                 {"file_name": data_path+"/run_"+str(num_run)+"/pose_robot_"+str(robot_id)+".csv"},
             ]
         )
+        
+    start_sender = TimerAction(period=start_traffic_time, actions=[ExecuteProcess(
+        cmd=['netns-exec', 'net'+str(source_robot_id), 'zsh', '-c', 'source install/setup.zsh && ROS_DOMAIN_ID='+str(10+source_robot_id)+' ros2 run simple_coms udp_sender --ros-args -p experience_name:='+config['experience_name']+' -p dest_ip:=10.0.0.'+str(sink_robot_id)+' -p port:='+str(config['port'])+' -p freq:='+str(config['frequency'])+' -p use_sim_time:=true'],
+        name='congestion_sender',
+        output='screen',
+    )], cancel_on_shutdown=True)
     
+    start_receiver = TimerAction(period=start_traffic_time, actions=[ExecuteProcess(
+        cmd=['netns-exec', 'net'+str(sink_robot_id), 'zsh', '-c', 'source install/setup.zsh && ROS_DOMAIN_ID='+str(10+sink_robot_id)+' ros2 run simple_coms udp_receiver --ros-args -p experience_name:='+str(config['experience_name'])+' -p port:='+str(config['port'])+' -p use_sim_time:=true'],
+        name='congestion_receiver',
+        output='screen',
+    )], cancel_on_shutdown=True)
+    
+    stop_congestion = TimerAction(period=stop_traffic_time, actions=[
+        ExecuteProcess(
+            cmd=['pkill', '-9', 'udp_sender'],
+            name='kill_all',
+            output='screen',
+        ),
+        ExecuteProcess(
+            cmd=['pkill', '-9', 'udp_receiver'],
+            name='kill_all',
+            output='screen',
+        )
+        ])
 
+    
     ld = LaunchDescription([
-        LogInfo(msg='Launching flocking nodes...')
+        LogInfo(msg='Launching flocking nodes...'),
+        start_sender,
+        start_receiver,
+        stop_congestion
     ])
 
     for i in range(1, config['robots_number']+1):
