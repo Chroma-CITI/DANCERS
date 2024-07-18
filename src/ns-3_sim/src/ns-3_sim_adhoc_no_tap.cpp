@@ -44,7 +44,6 @@
 #include "ns3/flow-monitor-helper.h"
 
 #include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/channel_data.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 

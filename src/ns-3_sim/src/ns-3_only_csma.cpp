@@ -43,7 +43,6 @@
 #include "ns3/packet-sink.h"
 
 #include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/channel_data.pb.h"
 
 #include <yaml-cpp/yaml.h>
 
