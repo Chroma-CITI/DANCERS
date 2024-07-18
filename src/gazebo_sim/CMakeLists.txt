@@ -19,8 +19,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-    find_package(gz-sim7 REQUIRED)
-    set(GZ_SIM_VER ${gz-sim7_VERSION_MAJOR})
+    find_package(gz-sim8 REQUIRED)
+    set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
     find_package(gz-common5 REQUIRED)
     set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
     

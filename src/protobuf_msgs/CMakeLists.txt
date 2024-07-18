@@ -77,12 +77,6 @@ ament_export_targets(${PROJECT_NAME}_protoTargets HAS_LIBRARY_TARGET)
 # export dependencies to downstream packages. This is necessary so that the user of the library does not have to call find_package for those dependencies, too.
 ament_export_dependencies(Protobuf)
 
-# # install the header files which should be available to clients.
-# install(
-#   DIRECTORY include/
-#   DESTINATION include
-# )
-
 install(
   TARGETS ${PROJECT_NAME}_proto
   EXPORT ${PROJECT_NAME}_protoTargets
