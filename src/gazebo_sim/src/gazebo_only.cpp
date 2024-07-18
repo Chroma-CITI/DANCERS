@@ -21,9 +21,7 @@
 #include <gz/msgs.hh>
 #include <gz/transport.hh>
 
-
 #include <protobuf_msgs/physics_update.pb.h>
-#include <protobuf_msgs/channel_data.pb.h>
 
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -33,9 +31,6 @@
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
-
-#include <ros_net_sim_interfaces/msg/pathloss_pair.hpp>
-#include <ros_net_sim_interfaces/msg/pathloss_pair_array.hpp>
 
 #include <yaml-cpp/yaml.h>
 

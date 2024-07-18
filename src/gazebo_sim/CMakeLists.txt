@@ -12,11 +12,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS OFF)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(ros_net_sim_interfaces REQUIRED)
 find_package(Boost REQUIRED system iostreams program_options filesystem)
 find_package(protobuf_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     find_package(gz-sim7 REQUIRED)
@@ -40,18 +40,18 @@ endif()
 
 ament_target_dependencies(gazebo_sim
   rclcpp
-  ros_net_sim_interfaces
   Boost
   protobuf_msgs
   geometry_msgs
+  nav_msgs
 )
 
 ament_target_dependencies(gazebo_only
   rclcpp
-  ros_net_sim_interfaces
   Boost
   protobuf_msgs
   geometry_msgs
+  nav_msgs
 )
 
 include_directories(include/${PROJECT_NAME})

@@ -180,7 +180,7 @@ ament_target_dependencies(ns-3_only_ap
   protobuf_msgs
   rclcpp)
 
-  include_directories(include/${PROJECT_NAME})
+include_directories(include/${PROJECT_NAME})
 
 INSTALL(
   TARGETS 
