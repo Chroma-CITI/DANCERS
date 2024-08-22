@@ -163,6 +163,8 @@ public:
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
         param_desc.description = "Path to the YAML configuration file.";
         this->declare_parameter("config_file", "", param_desc);
+        param_desc.description = "Path to the folder containing Viragh's simulator.";
+        this->declare_parameter("viragh_path", "~", param_desc);
         this->declare_parameter("verbose", false);
 
         // Fetch the parameter path to the config file using ros2 parameter
@@ -190,12 +192,12 @@ public:
 
         /* Temporary solution so that the obstacles are similar in viragh and ns-3. launch viragh simulator with "-obst obstacles/cosim_obstacles.default"*/
         std::ofstream f;
-        f.open("/home/theotime/gits/flocking-simulator/obstacles/cosim_obstacles.default", std::ios::out);
+        f.open(this->get_parameter("viragh_path").get_parameter_value().get<std::string>()+"/obstacles/cosim_obstacles.default", std::ios::out);
         f << "[init]\n\nangle=0\n\n[obstacles]\n\n";
         for (auto building : config["buildings"])
         {
             std::string name = building["name"].as<std::string>();
-            double x = building["x"].as<double>() * 100; // Multiply everything by 100 because lengths are in cm in Viragh's simulator
+            double x = building["x"].as<double>() * 100; // Multiply everything by 100 because lengths are in cm in Viragh's simulator (wtf)
             double y = building["y"].as<double>() * 100;
             double z = (building["height"].as<double>() / 2) * 100;
             double size_x = building["size_x"].as<double>() * 100;

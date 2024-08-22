@@ -180,6 +180,26 @@ ament_target_dependencies(ns-3_only_ap
   protobuf_msgs
   rclcpp)
 
+add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp)
+target_link_libraries(ns-3_sim_wifi_adhoc
+  yaml-cpp
+  ns3::libcore
+  ns3::libwifi
+  ns3::libmobility
+  ns3::libolsr
+  ns3::libinternet
+  ns3::libbuildings
+  ns3::libpropagation
+  ns3::libspectrum
+  ns3::libnetwork
+  ns3::libapplications
+  ns3::libcsma
+  ns3::libtap-bridge)
+ament_target_dependencies(ns-3_sim_wifi_adhoc
+  Boost 
+  protobuf_msgs
+  rclcpp)
+
 include_directories(include/${PROJECT_NAME})
 
 INSTALL(
@@ -192,6 +212,7 @@ INSTALL(
   ns-3_only_adhoc_no_tap
   ns-3_only_ap
   ns-3_only_csma
+  ns-3_sim_wifi_adhoc
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
