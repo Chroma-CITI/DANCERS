@@ -3,12 +3,11 @@
 session="sim"
 path_to_viragh='~/flocking-simulator'
 [ -n "$1" ] && path_to_viragh="$1"
-path_to_viragh="${path_to_viragh/#\~/$HOME}"
+path_to_viragh="${path_to_viragh/#\~/$HOME}" # (this is for tilde expansion)
 
 path_to_ros2_ws='~/sim_ws'
 [ -n "$2" ] && path_to_ros2_ws="$2"
 path_to_ros2_ws="${path_to_ros2_ws/#\~/$HOME}"
-
 
 tmux new-session -d -s $session "cd $path_to_viragh && ./robotflocksim_main -obst obstacles/cosim_obstacles.default"
 tmux set remain-on-exit on
