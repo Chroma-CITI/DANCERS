@@ -250,12 +250,12 @@ public:
         std::vector<Ptr<Building>> buildings;
         for (auto building : config["buildings"])
         {
-            double x_min = building["x"].as<int>() - (building["size_x"].as<int>() / 2);
-            double x_max = building["x"].as<int>() + (building["size_x"].as<int>() / 2);
-            double y_min = building["y"].as<int>() - (building["size_y"].as<int>() / 2);
-            double y_max = building["y"].as<int>() + (building["size_y"].as<int>() / 2);
+            double x_min = building["x"].as<float>() - (building["size_x"].as<float>() / 2);
+            double x_max = building["x"].as<float>() + (building["size_x"].as<float>() / 2);
+            double y_min = building["y"].as<float>() - (building["size_y"].as<float>() / 2);
+            double y_max = building["y"].as<float>() + (building["size_y"].as<float>() / 2);
             double z_min = 0.0;
-            double z_max = building["height"].as<int>();
+            double z_max = building["height"].as<float>();
             Ptr<Building> build = CreateObject<Building>();
             build->SetBoundaries(Box(x_min, x_max, y_min, y_max, z_min, z_max));
             build->SetBuildingType(Building::Office);
@@ -286,7 +286,20 @@ public:
         SpectrumWifiPhyHelper spectrumPhy;
         YansWifiPhyHelper wifiPhy;
 
-        if (wifiType == "spectrum_3GPP_V2V_urban_channel")
+        if (wifiType == "yans_default")
+        {
+            YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default();
+            wifiPhy.SetChannel(wifiChannel.Create());
+
+            for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+            {
+                for (uint32_t j = 0; j < this->nodes.GetN(); j++)
+                {
+                    this->neigh_pathloss[i][j] = -69.0;
+                }
+            }
+        }
+        else if (wifiType == "spectrum_3GPP_V2V_urban_channel")
         {
             Ptr<MultiModelSpectrumChannel> spectrumChannel = CreateObject<MultiModelSpectrumChannel>();
 
@@ -331,7 +344,12 @@ public:
 
         mac.SetType("ns3::AdhocWifiMac");
         
-        if (wifiType == "spectrum_3GPP_V2V_urban_channel")
+        if (wifiType == "yans_default" || wifiType == "yans_log_distance" || wifiType == "yans_hybrid_buildings")
+        {
+            devices = wifi.Install(wifiPhy, mac, this->nodes);
+        }
+
+        else if (wifiType == "spectrum_3GPP_V2V_urban_channel")
         {
             devices = wifi.Install(spectrumPhy, mac, this->nodes);
         }

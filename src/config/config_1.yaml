@@ -1,0 +1,77 @@
+VAT_flocking_parameters:
+  C_frict: 0.8
+  a_frict: 4.16
+  a_shill: 53
+  auto_propulsion_flag: false
+  p_att: 0.08
+  p_frict: 3.2
+  p_rep: 0.13
+  p_shill: 3.55
+  r_0_att: 15
+  r_0_frict: 85.3
+  r_0_rep: 15
+  r_0_shill: 0.3
+  secondary_objective_flag: true
+  secondary_objectives:
+    1:
+    - 0
+    - 40
+    - 10
+    2:
+    - 40
+    - 0
+    - 10
+  v_flock: 1.5
+  v_frict: 0.63
+  v_max: 1
+  v_shill: 13.622
+arena_center_x: 0
+arena_center_y: 0
+arena_radius: 300
+auto_buildings: true
+bridge_ip: 11.0.0.100
+buildings: ./auto_buildings/obstacles_uniform_10_08_22_20_55.yaml
+cmd_loop_period: 100000
+distribution: uniform
+error_model_type: ns3::NistErrorRateModel
+experience_name: flocking_with_congestion_1
+frequency: 10000
+height_obst: 10
+ip_mask: 255.255.255.0
+ip_network: 192.168.0.0
+net_driver_uds_server_address: /tmp/net_driver_socket
+net_ip_ranging_port: 10005
+net_ip_server_address: 127.0.0.1
+net_ip_server_port: 10000
+net_step_size: 2000
+net_uds_server_address: /tmp/net_server_socket
+net_use_uds: true
+ns3_seed: 15
+numb_obst: 10
+phy_driver_uds_server_address: /tmp/phy_driver_socket
+phy_ip_server_address: 127.0.0.1
+phy_ip_server_port: 10001
+phy_mode: ErpOfdmRate54Mbps
+phy_step_size: 100000
+phy_uds_server_address: /tmp/phy_server_socket
+phy_use_uds: true
+port: 7777
+pose_broadcast_period: 100000
+print_debug: true
+radius_obst: 5
+radius_stdev_obst: 2
+robots_model: px4vision_lidar
+robots_number: 8
+rviz_enabled: false
+save_compute_time: false
+sink_robot_id: 4
+source_robot_id: 1
+start_traffic_time: 10.0
+stop_traffic_time: 80.0
+sync_window: 200000
+target_altitude: 10.0
+timeout_value: 3000000
+update_rate: 20000
+viragh_uds_server_address: /tmp/viragh_server_socket
+wifi_type: spectrum_3GPP_V2V_urban_channel
+world_sdf_path: /home/theotime/simulation_ws/src/worlds/default.sdf

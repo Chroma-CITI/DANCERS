@@ -177,6 +177,7 @@ public:
             RCLCPP_ERROR(this->get_logger(), "The config file was not found at : %s\nA config file must be given in the launch file.", config_file_path.c_str());
             exit(EXIT_FAILURE);
         }
+
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
@@ -210,6 +211,62 @@ public:
             f << "\n";
         }
         f.close();
+        
+        // Copy the number of agents of the global configuration file to the one of viragh's simulator
+        std::string initfile = this->get_parameter("viragh_path").get_parameter_value().get<std::string>()+"/parameters/initparams.dat";
+        std::ifstream file_in(initfile);
+        std::ofstream file_out("temp.txt");
+        
+        if (!file_in.is_open() || !file_out.is_open()) {
+            std::cerr << "Error opening file!" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+
+        std::string line;
+        while (std::getline(file_in, line)) {
+            if (line.rfind("NumberOfAgents", 0) == 0) { // Line starts with "NumberOfAgents"
+                line = "NumberOfAgents="+std::to_string(this->robots_number); // Modify the line
+            }
+            file_out << line << std::endl;
+        }
+        file_in.close();
+        file_out.close();
+
+        // Replace original file with modified file
+        std::remove(initfile.c_str());
+        std::rename("temp.txt", initfile.c_str());
+
+        // Copy the Arena size and location to viragh's simulator config files
+        std::string flockingfile = this->get_parameter("viragh_path").get_parameter_value().get<std::string>()+"/parameters/flockingparams.dat";
+        file_in = std::ifstream(flockingfile);
+        file_out = std::ofstream("temp.txt");
+        
+        if (!file_in.is_open() || !file_out.is_open()) {
+            std::cerr << "Error opening file!" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+
+        while (std::getline(file_in, line)) {
+            if (line.rfind("ArenaRadius", 0) == 0) { // Line starts with "ArenaRadius"
+                line = "NumberOfAgents="+std::to_string(config["arena_radius"].as<int>()*100); // Modify the line
+            }
+            file_out << line << std::endl;
+            if (line.rfind("ArenaCenterX", 0) == 0) { // Line starts with "ArenaCenterX"
+                line = "ArenaCenterX="+std::to_string(config["arena_center_x"].as<int>()*100); // length are in cm in viragh's simulator
+            }
+            file_out << line << std::endl;
+            if (line.rfind("ArenaCenterY", 0) == 0) { // Line starts with "ArenaCenterY"
+                line = "ArenaCenterY="+std::to_string(config["arena_center_y"].as<int>()*100); // length are in cm in viragh's simulator
+            }
+            file_out << line << std::endl;
+        }
+        file_in.close();
+        file_out.close();
+
+        // Replace original file with modified file
+        std::remove(flockingfile.c_str());
+        std::rename("temp.txt", flockingfile.c_str());
+
 
         /* ---- Create socket (server) with Coordinator ---- */
         Socket *socket_coord;
