@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+
+# ROS2 files
+log/
+build/
+install/
+
+# Auto-generated DANCERS configurations
+src/config/auto_obstacles/
