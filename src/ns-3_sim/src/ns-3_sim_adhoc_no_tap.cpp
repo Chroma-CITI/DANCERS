@@ -735,7 +735,7 @@ public:
 
         // **************** UDS SOCKET FOR NETWORK COORDINATOR ****************
         // Create and connect UDS Socket
-        ::Socket *socket;
+        CustomSocket *socket;
         boost::asio::io_context io_context;
         if (config["net_use_uds"].as<bool>())
         {

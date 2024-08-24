@@ -10,7 +10,7 @@ path_to_ros2_ws='~/sim_ws'
 path_to_ros2_ws="${path_to_ros2_ws/#\~/$HOME}"
 
 config_name='config_2.yaml'
-[ -n "$2" ] && config_name="$2"
+[ -n "$3" ] && config_name="$3"
 config_name="${config_name/#\~/$HOME}"
 
 config_name=$(python3 $path_to_ros2_ws/src/config/generate_obstacles.py $config_name)

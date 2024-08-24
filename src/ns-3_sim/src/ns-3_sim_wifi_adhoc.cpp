@@ -19,6 +19,7 @@
 #include "ns3/olsr-helper.h"
 #include "ns3/aodv-helper.h"
 #include "ns3/internet-stack-helper.h"
+#include "ns3/internet-module.h"
 #include "ns3/ipv4-address-helper.h"
 #include "ns3/ipv4-list-routing-helper.h"
 #include "ns3/ipv4-static-routing-helper.h"
@@ -36,12 +37,15 @@
 #include "ns3/yans-wifi-helper.h"
 #include "ns3/multi-model-spectrum-channel.h"
 #include "ns3/spectrum-wifi-helper.h"
+#include "ns3/wifi-module.h"
 
 #include "ns3/udp-client-server-helper.h"
 #include "ns3/on-off-helper.h"
 #include "ns3/packet-sink-helper.h"
 #include "ns3/packet-sink.h"
 #include "ns3/flow-monitor-helper.h"
+
+#include "ns3/stats-module.h"
 
 #include "protobuf_msgs/network_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
@@ -50,10 +54,6 @@
 #include "udp_tcp_socket.hpp"
 
 #include <yaml-cpp/yaml.h>
-
-
-// Define a port on which the nodes listen and talk
-#define PORT 80
 
 using namespace ns3;
 NS_LOG_COMPONENT_DEFINE("UAV_fleet_adhoc_network");
@@ -210,10 +210,14 @@ public:
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
         param_desc.description = "Path to the YAML configuration file.";
         this->declare_parameter("config_file", "", param_desc);
+        param_desc.description = "Executes in co-simulation or ns-3 only.";
+        this->declare_parameter("cosim_mode", true, param_desc);
         this->declare_parameter("verbose", false);
 
         // Fetch the parameter path to the config file using a ros2 parameter
         std::string config_file_path = this->get_parameter("config_file").get_parameter_value().get<std::string>();
+        bool cosim_mode = this->get_parameter("cosim_mode").get_parameter_value().get<bool>();
+        bool verbose = this->get_parameter("verbose").get_parameter_value().get<bool>();
 
         // Verify existence of the config file, abort if not found
         if (access(config_file_path.c_str(), F_OK) != 0)
@@ -232,7 +236,7 @@ public:
 
         Time step_size = MicroSeconds(config["net_step_size"].as<uint32_t>()); // in microseconds
         Time currTime = MicroSeconds(0);                                       // us
-        Time simEndTime = Seconds(0.0);                                        // simulation time (s)
+        Time simEndTime = Seconds(20.0);                                        // simulation time (s)
 
         uint32_t numNodes = config["robots_number"].as<int>();
 
@@ -386,6 +390,28 @@ public:
 
         /* **************** APPLICATION MODULE **************** */
 
+        // "Mission" flow : unicast, unidirectional
+        uint32_t source_node_id = config["mission_flow"]["source_robot_id"].as<uint32_t>();
+        uint32_t sink_node_id = config["mission_flow"]["sink_robot_id"].as<uint32_t>();
+        double start_traffic_time = config["mission_flow"]["start_traffic_time"].as<double>();  // s
+        double stop_traffic_time = config["mission_flow"]["stop_traffic_time"].as<double>();    // s
+        uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
+        uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
+        uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();
+        
+        UdpClientHelper mission_flow_sender(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal(), mission_flow_port);
+        mission_flow_sender.SetAttribute("MaxPackets", UintegerValue(4294967295));
+        mission_flow_sender.SetAttribute("Interval", TimeValue(MicroSeconds(interval)));
+        mission_flow_sender.SetAttribute("PacketSize", UintegerValue(packet_size));
+        ApplicationContainer mission_flow_sender_app = mission_flow_sender.Install(this->nodes.Get(source_node_id));
+        mission_flow_sender_app.Start(Seconds(start_traffic_time));
+        mission_flow_sender_app.Stop(Seconds(stop_traffic_time));
+
+        UdpServerHelper mission_flow_receiver(mission_flow_port);
+        ApplicationContainer mission_flow_receiver_app = mission_flow_receiver.Install(this->nodes.Get(sink_node_id));
+        mission_flow_receiver_app.Start(Seconds(1.0));
+        mission_flow_receiver_app.Stop(simEndTime);
+
         // UDP server on all nodes to receive the UDP pose broadcast traffic
         uint16_t port = 4000;
         UdpServerHelper server(port);
@@ -397,24 +423,26 @@ public:
             app.Stop(simEndTime);
             if (app.Get(0)->TraceConnect("RxWithAddresses", std::to_string(i), MakeCallback(&Ns3Simulation::server_receive_clbk, this)))
             {
-                std::cout << "Connected trace Rx" << std::endl;
+                RCLCPP_DEBUG(this->get_logger(), "Connected trace Rx");
             }
             else
             {
-                std::cout << "Could not connect trace Rx" << std::endl;
+                RCLCPP_DEBUG(this->get_logger(), "Could not connect trace Rx for node %d.", i);
                 exit(EXIT_FAILURE);
             }
             servers.Add(app);
         }
 
         // UDP client on all nodes that regularly sends a small UDP broadcast packet, simulating pose sharing between agents
-        uint32_t MaxPacketSize = 1024;
-        Time interPacketInterval = Seconds(0.05);
+        uint32_t MaxPacketSize = 200;
+        Time interPacketInterval = Seconds(0.1);
         uint32_t maxPacketCount = 4294967295;
         UdpClientHelper client(broadcastAddress, port);
         client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
         client.SetAttribute("Interval", TimeValue(interPacketInterval));
         client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
+        
+        // Random start, otherwise they never access the medium (I think)
         double min = 0.0;
         double max = 1.0;
         Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable>();
@@ -430,82 +458,113 @@ public:
         }
         std::cout << "Number of client applications: " << clients.GetN() << std::endl;
 
-        // **************** UDS SOCKET FOR NETWORK COORDINATOR ****************
-        // Create and connect UDS Socket
-        ::Socket *socket;
-        boost::asio::io_context io_context;
-        if (config["net_use_uds"].as<bool>())
+        if(cosim_mode)
         {
-            socket = new UDSSocket(io_context);
-            socket->accept(config["net_uds_server_address"].as<std::string>(), 0);
+
+        
+            // **************** UDS SOCKET FOR NETWORK COORDINATOR ****************
+            // Create and connect UDS Socket
+            CustomSocket *socket;
+            boost::asio::io_context io_context;
+            if (config["net_use_uds"].as<bool>())
+            {
+                socket = new UDSSocket(io_context);
+                socket->accept(config["net_uds_server_address"].as<std::string>(), 0);
+            }
+            else
+            {
+                socket = new TCPSocket(io_context);
+                socket->accept(config["net_ip_server_address"].as<std::string>(), config["net_ip_server_port"].as<unsigned short>());
+            }
+            RCLCPP_INFO(this->get_logger(), "finished setting up UDS socket");
+
+            // **************** MAIN SIMULATION LOOP ****************
+            while (currTime < simEndTime || simEndTime == Seconds(0.0))
+            {
+
+                // Wait until reception of a message on the UDS socket
+                std::string received_data = gzip_decompress(socket->receive_one_message());
+
+                // Initialize empty protobuf message type [NetworkUpdate]
+                network_update_proto::NetworkUpdate NetworkUpdate_msg;
+                // Transform the message received from the UDS socket [string] -> [protobuf]
+                NetworkUpdate_msg.ParseFromString(received_data);
+
+                // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
+                // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
+                rclcpp::Clock clock;
+                robots_positions_proto::RobotsPositions robots_positions_msg;
+                if(!NetworkUpdate_msg.robots_positions().empty()){
+                    RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
+                    robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
+
+                    // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
+                    // Then, update the node's positions (orientation is ignored for now)
+                    if(this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size()){
+                        if(verbose){
+                            RCLCPP_WARN_THROTTLE(this->get_logger(),
+                                    clock,
+                                    1000, // ms
+                                    "Network simulator received position information of %i robots but NS-3 has %u nodes.",
+                                    robots_positions_msg.robot_pose_size(),
+                                    this->nodes.GetN());
+                        }
+                    } else {
+                        for(uint32_t i=0 ; i < this->nodes.GetN() ; i++){
+                                Vector pos;
+                                pos.x = robots_positions_msg.robot_pose(i).x();
+                                pos.y = robots_positions_msg.robot_pose(i).y();
+                                pos.z = robots_positions_msg.robot_pose(i).z();
+                                SetNodePosition(this->nodes.Get(i), pos);
+                            }
+                    }
+                } else {
+                    RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
+                }
+
+                // Once all the events are scheduled, advance W time in the simulation and stop
+                Simulator::Stop(step_size);
+
+                Simulator::Run();
+
+                // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
+                std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(1.0);
+
+                std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors));
+
+                // Send the response to the network coordinator
+                socket->send_one_message(response);
+
+                currTime += step_size;
+
+            }
         }
         else
         {
-            socket = new TCPSocket(io_context);
-            socket->accept(config["net_ip_server_address"].as<std::string>(), config["net_ip_server_port"].as<unsigned short>());
-        }
-        RCLCPP_INFO(this->get_logger(), "finished setting up UDS socket");
-
-        // **************** MAIN SIMULATION LOOP ****************
-        while (currTime < simEndTime || simEndTime == Seconds(0.0))
-        {
-
-            // Wait until reception of a message on the UDS socket
-            std::string received_data = gzip_decompress(socket->receive_one_message());
-
-            // Initialize empty protobuf message type [NetworkUpdate]
-            network_update_proto::NetworkUpdate NetworkUpdate_msg;
-            // Transform the message received from the UDS socket [string] -> [protobuf]
-            NetworkUpdate_msg.ParseFromString(received_data);
-
-            // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
-            // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
-            rclcpp::Clock clock;
-            robots_positions_proto::RobotsPositions robots_positions_msg;
-            if(!NetworkUpdate_msg.robots_positions().empty()){
-                RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
-
-                // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
-                // Then, update the node's positions (orientation is ignored for now)
-                if(this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size()){
-                    if(this->get_parameter("verbose").as_bool()){
-                        RCLCPP_WARN_THROTTLE(this->get_logger(),
-                                clock,
-                                1000, // ms
-                                "Network simulator received position information of %i robots but NS-3 has %zu nodes.",
-                                robots_positions_msg.robot_pose_size(),
-                                this->nodes.GetN());
-                    }
-                } else {
-                    for(uint32_t i=0 ; i < this->nodes.GetN() ; i++){
-                            Vector pos;
-                            pos.x = robots_positions_msg.robot_pose(i).x();
-                            pos.y = robots_positions_msg.robot_pose(i).y();
-                            pos.z = robots_positions_msg.robot_pose(i).z();
-                            SetNodePosition(this->nodes.Get(i), pos);
-                        }
-                }
-            } else {
-                RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
-            }
-
-            // Once all the events are scheduled, advance W time in the simulation and stop
-            Simulator::Stop(step_size);
-
+            Simulator::Stop(simEndTime);
+            std::cout << "Starting simulation." << std::endl;
+            
             Simulator::Run();
-
-            // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
-            std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(1.0);
-
-            std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors));
-
-            // Send the response to the network coordinator
-            socket->send_one_message(response);
-
-            currTime += step_size;
-
         }
+
+        std::cout << "Simulation finished." << std::endl;
+
+        Ptr<UdpServer> mission_server = DynamicCast<UdpServer>(mission_flow_receiver_app.Get(0));
+        Ptr<UdpClient> mission_client = DynamicCast<UdpClient>(mission_flow_sender_app.Get(0));
+
+        int k = 0;
+        for (auto s = servers.Begin(); s != servers.End(); ++s)
+        {
+            Ptr<UdpServer> server = (*s)->GetObject<UdpServer>();
+            std::cout << "Position server " << k << " received " << server->GetReceived()*MaxPacketSize << " bytes." << std::endl;
+            k++;
+        }
+        std::cout << std::endl;
+
+        std::cout << "Mission source sent " << mission_client->GetTotalTx() << " bytes" << std::endl;
+        std::cout << "Mission sink received " << mission_server->GetReceived()*1024 << " bytes" << std::endl;
+
+        Simulator::Destroy();
 
         exit(EXIT_SUCCESS);
     }
@@ -536,16 +595,16 @@ void Ns3Simulation::server_receive_clbk(std::string context, const Ptr<const Pac
     uint32_t nodeId = std::stoi(context);
     uint32_t txId = InetSocketAddress::ConvertFrom(srcAddress).GetIpv4().CombineMask("0.0.0.255").Get() - 1;
     Time now = Simulator::Now();
-    std::cout << "UDP Server " << nodeId << " received a packet from " << txId << " at " << now << std::endl;
+    RCLCPP_DEBUG(this->get_logger(), "UDP Server %d received a packet from %d at time %f", nodeId, txId, now.ToDouble(Time::Unit::S));
     this->neigh_last_received[nodeId][txId] = now;
-    for(auto x : this->neigh_last_received)
-    {
-        for(auto y : x.second)
-        {
-            RCLCPP_INFO(this->get_logger(), "Node %d -> %d : %f", x.first, y.first, y.second.ToDouble(Time::Unit::US));
-        }
-    }
-    std::cout << std::endl;
+    // for(auto x : this->neigh_last_received)
+    // {
+    //     for(auto y : x.second)
+    //     {
+    //         RCLCPP_INFO(this->get_logger(), "Node %d -> %d : %f", x.first, y.first, y.second.ToDouble(Time::Unit::US));
+    //     }
+    // }
+    // std::cout << std::endl;
 }
 
 std::map<uint32_t, std::map<uint32_t, double>>

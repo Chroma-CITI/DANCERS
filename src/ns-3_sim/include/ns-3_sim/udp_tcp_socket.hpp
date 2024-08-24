@@ -2,7 +2,7 @@
 #include <iostream>
 #include <thread>
 
-class Socket
+class CustomSocket
 {
 public:
     virtual void accept(const std::string &host, unsigned short port) = 0;
@@ -16,7 +16,7 @@ public:
     virtual void close() = 0;
 };
 
-class UDSSocket : public Socket
+class UDSSocket : public CustomSocket
 {
 public:
     UDSSocket(boost::asio::io_context &io_context) : socket_(io_context) {}
@@ -107,7 +107,7 @@ private:
     boost::asio::local::stream_protocol::socket socket_;
 };
 
-class TCPSocket : public Socket
+class TCPSocket : public CustomSocket
 {
 public:
     TCPSocket(boost::asio::io_context &io_context) : socket_(io_context) {}

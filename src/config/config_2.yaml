@@ -16,12 +16,14 @@ ip_network: 192.168.0.0
 ip_mask: 255.255.255.0
 
 # ******* MISSION FLOW *******
-source_robot_id: 1
-sink_robot_id: 4
-port: 7777
-frequency: 10000 # Hz (number of packets per second)
-start_traffic_time: 10.0 # s
-stop_traffic_time: 80.0 # s
+mission_flow:
+  source_robot_id: 1
+  sink_robot_id: 4
+  port: 7777
+  packet_size: 1024 # bytes (!)
+  interval: 10 # us
+  start_traffic_time: 10.0 # s
+  stop_traffic_time: 80.0 # s
 
 # ******* FLOCKING *******
 VAT_flocking_parameters:
