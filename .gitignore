@@ -38,3 +38,22 @@ install/
 
 # Auto-generated DANCERS configurations
 src/config/auto_obstacles/
+
+# data path
+data/
+
+# python cache
+*.pyc
+
+# images
+*.png
+
+# trace files
+*.pcapng
+
+# videos
+*.mp4
+
+# IDEs
+.vscode
+.idea

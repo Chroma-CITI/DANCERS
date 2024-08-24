@@ -211,6 +211,7 @@ public:
             f << "\n";
         }
         f.close();
+
         
         // Copy the number of agents of the global configuration file to the one of viragh's simulator
         std::string initfile = this->get_parameter("viragh_path").get_parameter_value().get<std::string>()+"/parameters/initparams.dat";
@@ -218,7 +219,7 @@ public:
         std::ofstream file_out("temp.txt");
         
         if (!file_in.is_open() || !file_out.is_open()) {
-            std::cerr << "Error opening file!" << std::endl;
+            std::cout << "Error opening file!" << std::endl;
             exit(EXIT_FAILURE);
         }
 
@@ -242,24 +243,23 @@ public:
         file_out = std::ofstream("temp.txt");
         
         if (!file_in.is_open() || !file_out.is_open()) {
-            std::cerr << "Error opening file!" << std::endl;
+            std::cout << "Error opening file!" << std::endl;
             exit(EXIT_FAILURE);
         }
 
         while (std::getline(file_in, line)) {
             if (line.rfind("ArenaRadius", 0) == 0) { // Line starts with "ArenaRadius"
-                line = "NumberOfAgents="+std::to_string(config["arena_radius"].as<int>()*100); // Modify the line
+                line = "ArenaRadius="+std::to_string(config["arena_radius"].as<int>()*100); // Modify the line
             }
-            file_out << line << std::endl;
             if (line.rfind("ArenaCenterX", 0) == 0) { // Line starts with "ArenaCenterX"
                 line = "ArenaCenterX="+std::to_string(config["arena_center_x"].as<int>()*100); // length are in cm in viragh's simulator
             }
-            file_out << line << std::endl;
             if (line.rfind("ArenaCenterY", 0) == 0) { // Line starts with "ArenaCenterY"
                 line = "ArenaCenterY="+std::to_string(config["arena_center_y"].as<int>()*100); // length are in cm in viragh's simulator
             }
             file_out << line << std::endl;
         }
+
         file_in.close();
         file_out.close();
 

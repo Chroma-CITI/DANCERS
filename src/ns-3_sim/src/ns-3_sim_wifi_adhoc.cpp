@@ -236,7 +236,7 @@ public:
 
         Time step_size = MicroSeconds(config["net_step_size"].as<uint32_t>()); // in microseconds
         Time currTime = MicroSeconds(0);                                       // us
-        Time simEndTime = Seconds(20.0);                                        // simulation time (s)
+        Time simEndTime = Seconds(config["simulation_length"].as<uint32_t>()); // simulation time (s)
 
         uint32_t numNodes = config["robots_number"].as<int>();
 
@@ -398,7 +398,7 @@ public:
         uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
         uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
         uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();
-        
+
         UdpClientHelper mission_flow_sender(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal(), mission_flow_port);
         mission_flow_sender.SetAttribute("MaxPackets", UintegerValue(4294967295));
         mission_flow_sender.SetAttribute("Interval", TimeValue(MicroSeconds(interval)));
