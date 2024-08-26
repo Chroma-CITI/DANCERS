@@ -237,7 +237,7 @@ public:
         Time step_size = MicroSeconds(config["net_step_size"].as<uint32_t>()); // in microseconds
         Time currTime = MicroSeconds(0);                                       // us
         Time simEndTime = Seconds(config["simulation_length"].as<uint32_t>()); // simulation time (s)
-
+        Time neighbor_timeout_value = MicroSeconds(config["neighbor_timeout_value"].as<uint32_t>());
         uint32_t numNodes = config["robots_number"].as<int>();
 
         std::string wifiType = config["wifi_type"].as<std::string>();
@@ -528,7 +528,7 @@ public:
                 Simulator::Run();
 
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
-                std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(1.0);
+                std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
                 std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors));
 
@@ -577,7 +577,7 @@ private:
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_list_msg;
 
     void SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb);
-    std::map<uint32_t, std::map<uint32_t, double>> create_neighbors(double timeout);
+    std::map<uint32_t, std::map<uint32_t, double>> create_neighbors(Time timeout);
     void server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress);
 };
 
@@ -608,7 +608,7 @@ void Ns3Simulation::server_receive_clbk(std::string context, const Ptr<const Pac
 }
 
 std::map<uint32_t, std::map<uint32_t, double>>
-Ns3Simulation::create_neighbors(double timeout)
+Ns3Simulation::create_neighbors(Time timeout)
 {
     std::map<uint32_t, std::map<uint32_t, double>> neighbors;
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
@@ -622,7 +622,7 @@ Ns3Simulation::create_neighbors(double timeout)
                     Time now = Simulator::Now();
                     Time last_received = this->neigh_last_received[i][j];
                     double pathloss = this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
-                    if (now - last_received < Seconds(timeout))
+                    if (now - last_received < timeout)
                     {
                         neighbors[i][j] = pathloss;
                     }

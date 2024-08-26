@@ -225,8 +225,11 @@ public:
 
         std::string line;
         while (std::getline(file_in, line)) {
-            if (line.rfind("NumberOfAgents", 0) == 0) { // Line starts with "NumberOfAgents"
+            if (line.rfind("NumberOfAgents=", 0) == 0) { // Line starts with "NumberOfAgents"
                 line = "NumberOfAgents="+std::to_string(this->robots_number); // Modify the line
+            }
+            if (line.rfind("Length=", 0) == 0) { // Line starts with "NumberOfAgents"
+                line = "Length="+std::to_string(config["simulation_length"].as<double>()); // Modify the line
             }
             file_out << line << std::endl;
         }
@@ -248,13 +251,13 @@ public:
         }
 
         while (std::getline(file_in, line)) {
-            if (line.rfind("ArenaRadius", 0) == 0) { // Line starts with "ArenaRadius"
+            if (line.rfind("ArenaRadius=", 0) == 0) { // Line starts with "ArenaRadius"
                 line = "ArenaRadius="+std::to_string(config["arena_radius"].as<int>()*100); // Modify the line
             }
-            if (line.rfind("ArenaCenterX", 0) == 0) { // Line starts with "ArenaCenterX"
+            if (line.rfind("ArenaCenterX=", 0) == 0) { // Line starts with "ArenaCenterX"
                 line = "ArenaCenterX="+std::to_string(config["arena_center_x"].as<int>()*100); // length are in cm in viragh's simulator
             }
-            if (line.rfind("ArenaCenterY", 0) == 0) { // Line starts with "ArenaCenterY"
+            if (line.rfind("ArenaCenterY=", 0) == 0) { // Line starts with "ArenaCenterY"
                 line = "ArenaCenterY="+std::to_string(config["arena_center_y"].as<int>()*100); // length are in cm in viragh's simulator
             }
             file_out << line << std::endl;

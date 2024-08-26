@@ -253,7 +253,7 @@ void Coordinator::run_phy_protobuf_client_()
                 robots_positions_proto::RobotsPositions robots_positions_msg;
                 robots_positions_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.robots_positions()));
                 
-                RCLCPP_INFO(this->get_logger(), "Received robots positions from viragh simulator: %s", robots_positions_msg.DebugString().c_str());
+                RCLCPP_INFO(this->get_logger(), "Received robots positions from physics simulator: %s", robots_positions_msg.DebugString().c_str());
 
 
                 if (PhysicsUpdate_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)

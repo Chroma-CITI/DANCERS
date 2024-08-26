@@ -31,8 +31,12 @@ def gen_obstacles(distrib = "uniform", num_obst = 30, radius_obst = 500, std = 1
         
     coords = np.vstack((coordX, coordY)).T
     size_obst = np.random.normal(radius_obst, std, num_obst)
-    if check_intersection(coords, size_obst) == True:
-        coords, size_obst = gen_obstacles(distrib, num_obst, radius_obst, std)
+    try:
+        if check_intersection(coords, size_obst) == True:
+            coords, size_obst = gen_obstacles(distrib, num_obst, radius_obst, std)
+    except RecursionError as e:
+        print("RecursionError")
+        sys.exit()
         
     return coords, size_obst
     
@@ -87,7 +91,6 @@ if __name__ == '__main__':
         sys.exit()
     
     radius = config['arena_radius']
-    radius -= 10 #avoid obstacles on the edges of the arena
     ArenaCenterX = config['arena_center_x']
     ArenaCenterY = config['arena_center_y']
     distrib = config['distribution']
@@ -95,6 +98,7 @@ if __name__ == '__main__':
     radius_of_obst = config['radius_obst']
     std = config['radius_stdev_obst']
     height = config['height_obst']
+    radius -= radius_of_obst + 30 #avoid obstacles on the edges of the arena
     filename = path.splitext(config_file)[0]+"_auto_obst_" + distrib + "_" + str(numb_obst) + "_" + t[0] + "_" + t[1] + "_"\
                                 + t[2] + "_" + t[3] + ".yaml"    
     
