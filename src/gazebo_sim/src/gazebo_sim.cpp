@@ -316,6 +316,7 @@ public:
         int sync_window = config["sync_window"].as<int>();
         int step_length = config["phy_step_size"].as<int>(); // us
         int update_rate = config["update_rate"].as<int>();
+        std::string ros_ws_path = getenv("ROS_WS");
 
         if (sync_window % step_length != 0)
         {
@@ -334,7 +335,7 @@ public:
 
         // Populate with some configuration, for example, the SDF file to load
         // modify_sdf_world(config["world_sdf_path"].as<std::string>(), step_length, update_rate);
-        serverConfig.SetSdfFile(config["world_sdf_path"].as<std::string>());
+        serverConfig.SetSdfFile(ros_ws_path+"/"+config["world_sdf_path"].as<std::string>());
         serverConfig.SetUpdateRate(update_rate); // in Hz
 
         // Instantiate server
