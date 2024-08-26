@@ -64,7 +64,7 @@ pose_broadcast_period: 100000 # us
 rviz_enabled: false
 
 # ******* WORLD *******
-world_sdf_path: /home/theotime/simulation_ws/src/worlds/default.sdf
+world_sdf_path: /src/worlds/default.sdf
 
 # ******* NS-3 *******
 ns3_seed: 15
