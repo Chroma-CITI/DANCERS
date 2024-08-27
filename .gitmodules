@@ -4,3 +4,4 @@
 [submodule "src/obstacle_detector_2"]
 	path = src/obstacle_detector_2
 	url = https://github.com/giuschio/obstacle_detector_2.git
+	branch = humble-devel
