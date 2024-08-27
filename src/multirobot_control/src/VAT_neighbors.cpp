@@ -130,6 +130,8 @@ public:
         YAML::Node config = YAML::LoadFile(config_file_path);
 
         this->num_robots = config["robots_number"].as<uint16_t>();
+        this->offboard_setpoint_counter_ = 0;
+        this->timer_period = std::chrono::microseconds(config["cmd_loop_period"].as<uint64_t>());                // 100 ms
 
         YAML::Node flocking_param = config["VAT_flocking_parameters"];
         this->v_flock = flocking_param["v_flock"].as<double>();
@@ -165,7 +167,7 @@ public:
             data.name = robot_name;
             data.id = i;
             data.neighbor = false;
-            this->robots_data.push_back(data);
+            this->robots_data[i] = data;
             RCLCPP_DEBUG(this->get_logger(), "Tracked robot: %s", robot_name.c_str());
         }
 
@@ -184,8 +186,9 @@ public:
         if(this->use_gz_positions)
         {
             // Subscribe to all of the .../odometry
-            for (UAV_data agent : this->robots_data)
+            for (auto a : this->robots_data)
             {
+                UAV_data agent = a.second;
                 this->neighbors_odom_subs.push_back(this->create_subscription<nav_msgs::msg::Odometry>(
                     agent.name + "/odometry",
                     qos_sub,
@@ -197,10 +200,11 @@ public:
         else 
         {
             // Subscribe to all of the .../vehicle_local_position
-            for (UAV_data agent : this->robots_data)
+            for (auto a : this->robots_data)
             {
+                UAV_data agent = a.second;
                 this->neighbors_vehicle_local_pos_subs.push_back(this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-                    agent.name + "/fmu/out/vehicle_local_position",
+                    "/px4_" + std::to_string(robot_id) + "/fmu/out/vehicle_local_position",
                     qos_sub,
                     [this, agent](const px4_msgs::msg::VehicleLocalPosition &local_pos)
                     { VATPilot::agent_vehicle_local_position_clbk(local_pos, agent.id); }));
@@ -241,7 +245,7 @@ private:
     uint8_t arming_state;
     uint32_t robot_id; //!< convenience local variable
     uint16_t num_robots;
-    std::vector<UAV_data> robots_data;
+    std::map<uint32_t, UAV_data> robots_data;
     obstacle_detector::msg::Obstacles known_raw_obstacles;
     Eigen::Vector3d manual_propulsion;
 
@@ -310,7 +314,7 @@ void VATPilot::my_vehicle_status_clbk(const px4_msgs::msg::VehicleStatus &msg)
 {
     this->arming_state = msg.arming_state;
     this->nav_state = msg.nav_state;
-    RCLCPP_DEBUG(this->get_logger(), "Saved vehicle status data");
+    RCLCPP_INFO(this->get_logger(), "Saved vehicle status data, nav state=%d", msg.nav_state);
 }
 
 void VATPilot::my_raw_obstacle_clbk(const obstacle_detector::msg::Obstacles &_msg)
@@ -323,16 +327,20 @@ void VATPilot::my_raw_obstacle_clbk(const obstacle_detector::msg::Obstacles &_ms
 // Saves the position and velocity information in the UAV_data structure, the position is in the current UAV frame
 void VATPilot::agent_odom_clbk(const nav_msgs::msg::Odometry &odom, int peer_id)
 {
-    int peer_index = peer_id - 1;
 
     Eigen::Vector3d peer_position_global = {odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z};
     Eigen::Quaterniond peer_orientation_global = {odom.pose.pose.orientation.w, odom.pose.pose.orientation.x, odom.pose.pose.orientation.y, odom.pose.pose.orientation.z};
     peer_orientation_global.normalize();
     Eigen::Vector3d peer_velocity_in_peer_frame = {odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z};
 
-    this->robots_data[peer_index].position = peer_position_global - this->robots_data[this->robot_id - 1].position; // this is peer position relative to our current position
-    this->robots_data[peer_index].velocity = peer_orientation_global * peer_velocity_in_peer_frame;                 // this is the peer velocity in the global frame
-    this->robots_data[peer_index].distance = this->robots_data[peer_index].position.norm();                         // this is the distance to the peer (look two lines up)
+    this->robots_data[peer_id].velocity = peer_orientation_global * peer_velocity_in_peer_frame;                 // this is the peer velocity in the global frame
+    if(peer_id != this->robot_id)
+    {
+        this->robots_data[peer_id].position = peer_position_global - this->robots_data[this->robot_id].position; // this is peer position relative to our current position
+        this->robots_data[peer_id].distance = this->robots_data[peer_id].position.norm();                         // this is the distance to the peer (look two lines up)
+    } else {
+        this->robots_data[peer_id].position = peer_position_global;
+    }
 
     // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i position: %f, %f, %f", peer_index, this->robots_data[peer_index].position[0], this->robots_data[peer_index].position[1], this->robots_data[peer_index].position[2]);
     // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i velocity: %f, %f, %f", peer_index, this->robots_data[peer_index].velocity[0], this->robots_data[peer_index].velocity[1], this->robots_data[peer_index].velocity[2]);
@@ -341,16 +349,14 @@ void VATPilot::agent_odom_clbk(const nav_msgs::msg::Odometry &odom, int peer_id)
 
 void VATPilot::agent_vehicle_local_position_clbk(const px4_msgs::msg::VehicleLocalPosition &local_pos, int peer_id)
 {
-    int peer_index = peer_id - 1;
-
     Eigen::Vector3d peer_position_global = {local_pos.x, local_pos.y, local_pos.z};
     // Eigen::Quaterniond peer_orientation_global = {local_pos., local_pos.q[1], local_pos.q[2], local_pos.q[3]};
     // peer_orientation_global.normalize();
     Eigen::Vector3d peer_velocity_in_peer_frame = {local_pos.vx, local_pos.vy, local_pos.vz};
 
-    this->robots_data[peer_index].position = peer_position_global - this->robots_data[this->robot_id - 1].position; // this is peer position relative to our current position
+    this->robots_data[peer_id].position = peer_position_global - this->robots_data[this->robot_id].position; // this is peer position relative to our current position
     // this->robots_data[peer_index].velocity = peer_orientation_global * peer_velocity_in_peer_frame;                 // this is the peer velocity in the global frame
-    this->robots_data[peer_index].distance = this->robots_data[peer_index].position.norm();                         // this is the distance to the peer (look two lines up)
+    this->robots_data[peer_id].distance = this->robots_data[peer_id].position.norm();                         // this is the distance to the peer (look two lines up)
 
     // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i position: %f, %f, %f", peer_index, this->robots_data[peer_index].position[0], this->robots_data[peer_index].position[1], this->robots_data[peer_index].position[2]);
     // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i velocity: %f, %f, %f", peer_index, this->robots_data[peer_index].velocity[0], this->robots_data[peer_index].velocity[1], this->robots_data[peer_index].velocity[2]);
@@ -382,7 +388,7 @@ void VATPilot::cmd_loop_clbk()
 
     // CMD must be expressed in the body frame with the FRD convention.
     Eigen::Vector3d cmd = {0.0, 0.0, 0.0};
-    if (this->robots_data[this->robot_id].position.z() < this->target_altitude_ && this->offboard_setpoint_counter_ < 100)
+    if (this->robots_data[this->robot_id-1].position.z() < this->target_altitude_ && this->offboard_setpoint_counter_ < 100)
     {
         cmd = {0.0, 0.0, 4.0};
     }
@@ -401,6 +407,8 @@ void VATPilot::cmd_loop_clbk()
     {
         RCLCPP_WARN(this->get_logger(), "Offboard mode not active");
     }
+
+    std::cout << "\t\t\t" << this->robots_data[this->robot_id].position.z() << std::endl;
 
     this->offboard_setpoint_counter_++;
 }
@@ -486,7 +494,7 @@ void VATPilot::publish_trajectory_setpoint(Eigen::Vector3d vel_target, double ya
 
     msg.yaw = yaw;
 
-    RCLCPP_DEBUG(this->get_logger(), "My position: %f, %f, %f", this->robots_data[this->robot_id - 1].position[0], this->robots_data[this->robot_id - 1].position[1], this->robots_data[this->robot_id - 1].position[2]);
+    RCLCPP_DEBUG(this->get_logger(), "My position: %f, %f, %f", this->robots_data[this->robot_id].position[0], this->robots_data[this->robot_id].position[1], this->robots_data[this->robot_id].position[2]);
 
     // RCLCPP_INFO(this->get_logger(), "Sending trajectory setpoint to UAV %i: at position %f, %f, %f", this->robot_id, msg.position[0], msg.position[1], msg.position[2]);
     // RCLCPP_INFO(this->get_logger(), "Sending trajectory setpoint to UAV %i: at velocity %f, %f, %f", this->robot_id, msg.velocity[0], msg.velocity[1], msg.velocity[2]);
@@ -551,7 +559,7 @@ Eigen::Vector3d VATPilot::get_shill_agent_position(Eigen::Vector3d segment_start
  */
 Eigen::Vector3d VATPilot::compute_flocking_command()
 {
-    RCLCPP_DEBUG(this->get_logger(), "velocity: %f, %f, %f", this->robots_data[this->robot_id - 1].velocity[0], this->robots_data[this->robot_id - 1].velocity[1], this->robots_data[this->robot_id - 1].velocity[2]);
+    RCLCPP_DEBUG(this->get_logger(), "velocity: %f, %f, %f", this->robots_data[this->robot_id].velocity[0], this->robots_data[this->robot_id].velocity[1], this->robots_data[this->robot_id].velocity[2]);
     Eigen::Vector3d autopropulsion = this->robots_data[this->robot_id].velocity.normalized() * this->v_flock;
     Eigen::Vector3d repulsion = this->repulsion_term();
     Eigen::Vector3d alignment = this->alignment_term();
@@ -596,8 +604,9 @@ Eigen::Vector3d VATPilot::compute_flocking_command()
 Eigen::Vector3d VATPilot::alignment_term()
 {
     Eigen::Vector3d result = {0.0, 0.0, 0.0};
-    for (UAV_data robot : this->robots_data)
+    for (auto r : this->robots_data)
     {
+        UAV_data robot = r.second;
         if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.neighbor)
         {
             double velDiffNorm = (robot.velocity - this->robots_data[this->robot_id].velocity).norm();
@@ -617,8 +626,9 @@ Eigen::Vector3d VATPilot::alignment_term()
 Eigen::Vector3d VATPilot::attraction_term()
 {
     Eigen::Vector3d result = {0.0, 0.0, 0.0};
-    for (UAV_data robot : this->robots_data)
+    for (auto r : this->robots_data)
     {
+        UAV_data robot = r.second;
         if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.neighbor)
         {
             if (robot.distance > this->r_0_att)
@@ -636,8 +646,9 @@ Eigen::Vector3d VATPilot::attraction_term()
 Eigen::Vector3d VATPilot::repulsion_term()
 {
     Eigen::Vector3d result = {0.0, 0.0, 0.0};
-    for (UAV_data robot : this->robots_data)
+    for (auto r : this->robots_data)
     {
+        UAV_data robot = r.second;
         if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.neighbor)
         {
             if (robot.distance < this->r_0_rep && robot.distance > 0.0)
