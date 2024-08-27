@@ -316,7 +316,15 @@ public:
         int sync_window = config["sync_window"].as<int>();
         int step_length = config["phy_step_size"].as<int>(); // us
         int update_rate = config["update_rate"].as<int>();
-        std::string ros_ws_path = getenv("ROS_WS");
+        if (getenv("ROS_WS") == NULL)
+        {
+            RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            std::string ros_ws_path = getenv("ROS_WS");
+        }
 
         if (sync_window % step_length != 0)
         {
@@ -335,7 +343,7 @@ public:
 
         // Populate with some configuration, for example, the SDF file to load
         // modify_sdf_world(config["world_sdf_path"].as<std::string>(), step_length, update_rate);
-        serverConfig.SetSdfFile(ros_ws_path+"/"+config["world_sdf_path"].as<std::string>());
+        serverConfig.SetSdfFile(ros_ws_path + "/" + config["world_sdf_path"].as<std::string>());
         serverConfig.SetUpdateRate(update_rate); // in Hz
 
         // Instantiate server
@@ -441,11 +449,11 @@ public:
                         <?xml version="1.0" ?>
                         <sdf version='1.7'>
                             <model name=')" +
-                                          name + R"('>
+                                           name + R"('>
                                 <static>true</static>
                                 <link name='link'>
                                     <pose>)" +
-                                          std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z) + R"( 0 0 0</pose>
+                                           std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z) + R"( 0 0 0</pose>
                                     <visual name='visual'>
                                         <geometry>
                                             <sphere>

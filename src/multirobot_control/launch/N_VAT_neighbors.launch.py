@@ -29,7 +29,7 @@ def generate_launch_description():
 
 
     gz_odom_publisher = Node(
-        package='offboard_flocking',
+        package='multirobot_control',
         executable='gz_odom_publisher',
         name='gz_odom_publisher',
         output={'both': 'log'},
@@ -41,7 +41,7 @@ def generate_launch_description():
 
     def VAT_neighbor(i):
         return Node(
-        package='offboard_flocking',
+        package='multirobot_control',
         executable='VAT_neighbors',
         name='VAT_neighbors_'+str(i),
         output={'both': 'log'},

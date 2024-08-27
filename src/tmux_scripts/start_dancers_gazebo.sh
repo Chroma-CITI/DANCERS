@@ -29,6 +29,10 @@ tmux split-window -t $session:$window -h -d "gz sim -g"
 
 window=1
 tmux set remain-on-exit on
+tmux new-window -t $session:$window "PX4_SIM_MODEL=x500 PX4_SYS_AUTOSTART=4001 $HOME/PX4-Autopilot/build/px4_sitl_default/bin/px4 -i 1"
+tmux split-window -t $session:$window -v "PX4_SIM_MODEL=x500 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,2" $HOME/PX4-Autopilot/build/px4_sitl_default/bin/px4 -i 2"
+
+window=3
 tmux new-window -t $session:$window
 
 tmux attach-session -t $session:1 -d
