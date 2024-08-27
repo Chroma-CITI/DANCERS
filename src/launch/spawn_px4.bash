@@ -19,7 +19,7 @@ airframe=4001
 [ -n "$3" ] && airframe="$3"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-src_path=${HOME}/PX4-Autopilot
+src_path=${HOME}/PX4-Autopilot-1.14
 
 build_path=${src_path}/build/px4_sitl_default
 
@@ -30,7 +30,7 @@ pkill -x MicroXRCEAgent || true
 sleep 4
 
 echo "starting model $model with airframe $airframe"
-export PX4_SIM_MODEL=$model
+export PX4_GZ_MODEL=$model
 export PX4_SYS_AUTOSTART=$airframe
 
 num_columns=2

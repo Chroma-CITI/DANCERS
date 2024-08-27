@@ -19,11 +19,11 @@ find_package(visualization_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
-find_package(gz-sim7 REQUIRED)
+find_package(gz-sim8 REQUIRED)
 find_package(gz-common5 REQUIRED)
 
 
-set(GZ_SIM_VER ${gz-sim7_VERSION_MAJOR})
+set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
 
 add_executable(com_test_pub src/com_test_dds_publisher.cpp)

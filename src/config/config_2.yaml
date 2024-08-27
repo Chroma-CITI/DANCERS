@@ -119,7 +119,7 @@ broadcast_address: '4294967295'  # 255.255.255.255 stored as string since yaml d
 # Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
 auto_buildings: true # if false, "buildings" is used
 distribution: uniform # [uniform, normal]
-numb_obst: 5
+numb_obst: 0
 radius_obst: 60
 radius_stdev_obst: 10
 height_obst: 10

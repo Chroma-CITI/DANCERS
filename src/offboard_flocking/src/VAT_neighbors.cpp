@@ -180,15 +180,32 @@ public:
             this->robots_data[this->robot_id].name + "/raw_obstacles",
             qos_sub,
             std::bind(&VATPilot::my_raw_obstacle_clbk, this, _1));
-        // Subscribe to all of the .../odometry
-        for (UAV_data agent : this->robots_data)
+
+        if(this->use_gz_positions)
         {
-            this->neighbors_odom_subs.push_back(this->create_subscription<nav_msgs::msg::Odometry>(
-                agent.name + "/odometry",
-                qos_sub,
-                [this, agent](const nav_msgs::msg::Odometry &odom)
-                { VATPilot::agent_odom_clbk(odom, agent.id); }));
-            RCLCPP_DEBUG(this->get_logger(), "Subscribed to robot %d /odometry topic.", agent.id);
+            // Subscribe to all of the .../odometry
+            for (UAV_data agent : this->robots_data)
+            {
+                this->neighbors_odom_subs.push_back(this->create_subscription<nav_msgs::msg::Odometry>(
+                    agent.name + "/odometry",
+                    qos_sub,
+                    [this, agent](const nav_msgs::msg::Odometry &odom)
+                    { VATPilot::agent_odom_clbk(odom, agent.id); }));
+                RCLCPP_DEBUG(this->get_logger(), "Subscribed to robot %d /odometry topic.", agent.id);
+            }
+        }
+        else 
+        {
+            // Subscribe to all of the .../vehicle_local_position
+            for (UAV_data agent : this->robots_data)
+            {
+                this->neighbors_vehicle_local_pos_subs.push_back(this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
+                    agent.name + "/fmu/out/vehicle_local_position",
+                    qos_sub,
+                    [this, agent](const px4_msgs::msg::VehicleLocalPosition &local_pos)
+                    { VATPilot::agent_vehicle_local_position_clbk(local_pos, agent.id); }));
+                RCLCPP_DEBUG(this->get_logger(), "Subscribed to robot %d /vehicle_local_position topic.", agent.id);
+            }
         }
 
         // Subscribe to the global /cmd_vel (global command)
@@ -254,6 +271,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr my_vehicle_status_sub_;
     rclcpp::Subscription<obstacle_detector::msg::Obstacles>::SharedPtr my_raw_obstacle_sub_;
     std::vector<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> neighbors_odom_subs;
+    std::vector<rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr> neighbors_vehicle_local_pos_subs;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub;
 
     // publishers
@@ -266,6 +284,7 @@ private:
     void my_raw_obstacle_clbk(const obstacle_detector::msg::Obstacles &msg);
     void gz_positions_clbk(const geometry_msgs::msg::PoseArray &msg);
     void agent_odom_clbk(const nav_msgs::msg::Odometry &odom, int peer_id);
+    void agent_vehicle_local_position_clbk(const px4_msgs::msg::VehicleLocalPosition &local_pos, int peer_id);
     void cmd_vel_clbk(const geometry_msgs::msg::Twist &msg);
 
     void cmd_loop_clbk();
@@ -313,6 +332,24 @@ void VATPilot::agent_odom_clbk(const nav_msgs::msg::Odometry &odom, int peer_id)
 
     this->robots_data[peer_index].position = peer_position_global - this->robots_data[this->robot_id - 1].position; // this is peer position relative to our current position
     this->robots_data[peer_index].velocity = peer_orientation_global * peer_velocity_in_peer_frame;                 // this is the peer velocity in the global frame
+    this->robots_data[peer_index].distance = this->robots_data[peer_index].position.norm();                         // this is the distance to the peer (look two lines up)
+
+    // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i position: %f, %f, %f", peer_index, this->robots_data[peer_index].position[0], this->robots_data[peer_index].position[1], this->robots_data[peer_index].position[2]);
+    // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i velocity: %f, %f, %f", peer_index, this->robots_data[peer_index].velocity[0], this->robots_data[peer_index].velocity[1], this->robots_data[peer_index].velocity[2]);
+    // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i distance: %f", peer_index, this->robots_data[peer_index].distance);
+}
+
+void VATPilot::agent_vehicle_local_position_clbk(const px4_msgs::msg::VehicleLocalPosition &local_pos, int peer_id)
+{
+    int peer_index = peer_id - 1;
+
+    Eigen::Vector3d peer_position_global = {local_pos.x, local_pos.y, local_pos.z};
+    // Eigen::Quaterniond peer_orientation_global = {local_pos., local_pos.q[1], local_pos.q[2], local_pos.q[3]};
+    // peer_orientation_global.normalize();
+    Eigen::Vector3d peer_velocity_in_peer_frame = {local_pos.vx, local_pos.vy, local_pos.vz};
+
+    this->robots_data[peer_index].position = peer_position_global - this->robots_data[this->robot_id - 1].position; // this is peer position relative to our current position
+    // this->robots_data[peer_index].velocity = peer_orientation_global * peer_velocity_in_peer_frame;                 // this is the peer velocity in the global frame
     this->robots_data[peer_index].distance = this->robots_data[peer_index].position.norm();                         // this is the distance to the peer (look two lines up)
 
     // RCLCPP_DEBUG(this->get_logger(), "Saved UAV %i position: %f, %f, %f", peer_index, this->robots_data[peer_index].position[0], this->robots_data[peer_index].position[1], this->robots_data[peer_index].position[2]);
