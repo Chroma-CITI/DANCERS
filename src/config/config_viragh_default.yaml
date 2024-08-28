@@ -23,10 +23,10 @@ mission_flow:
   source_robot_id: 0
   sink_robot_id: 1
   port: 7777
-  packet_size: 1024 # bytes (!)
+  packet_size: 1024 # bytes
   interval: 1800 # us
-  start_traffic_time: 0.0 # s
-  stop_traffic_time: 0.0 # s
+  start_traffic_time: 1.0 # s
+  stop_traffic_time: 300.0 # s
 
 # ******* FLOCKING *******
 VAT_flocking_parameters:
@@ -119,8 +119,8 @@ broadcast_address: '4294967295'  # 255.255.255.255 stored as string since yaml d
 # Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
 auto_buildings: true # if false, "buildings" is used
 distribution: uniform # [uniform, normal]
-numb_obst: 5
-radius_obst: 60
+numb_obst: 7
+radius_obst: 30
 radius_stdev_obst: 10
 height_obst: 10
 arena_radius: 300

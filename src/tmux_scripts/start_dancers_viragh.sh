@@ -9,7 +9,7 @@ path_to_ros2_ws='~/sim_ws'
 [ -n "$2" ] && path_to_ros2_ws="$2"
 path_to_ros2_ws="${path_to_ros2_ws/#\~/$HOME}"
 
-config_name='config_2.yaml'
+config_name='config_viragh_default.yaml'
 [ -n "$3" ] && config_name="$3"
 config_name="${config_name/#\~/$HOME}"
 

@@ -296,14 +296,27 @@ SetupPacketReceive(Ptr<Node> node)
 std::string
 generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors){
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
-    for (auto const& x : neighbors)
+    for (auto const& agent : neighbors)
     {
-        ordered_neighbors_proto::OrderedNeighbors* neighbor = ordered_neighbors_msg.add_ordered_neighbors();
-        neighbor->set_agentid(x.first);
-        for (auto const& y : x.second)
+        std::vector<double> ordered_pathlosses;
+        ordered_neighbors_proto::OrderedNeighbors* neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        neighbor_msg->set_agentid(agent.first);
+        // Sort the pathlosses to add them in the protobuf message in the right order.
+        for (auto const& neigh : agent.second)
         {
-            neighbor->add_neighborid(y.first);
-            neighbor->add_linkquality(y.second);
+            ordered_pathlosses.push_back(neigh.second);
+        }
+        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
+        for (auto const& pathloss : ordered_pathlosses)
+        {
+            for (auto const& neigh : agent.second)
+            {
+                if (neigh.second == pathloss && pathloss != 0) // search on the values of the pathloss map, generates a bug if two agent pairs have exactly the same pathloss
+                {
+                    neighbor_msg->add_neighborid(neigh.first);
+                    neighbor_msg->add_linkquality(neigh.second);
+                }
+            }
         }
     }
     std::string str_response;

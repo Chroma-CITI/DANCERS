@@ -156,14 +156,27 @@ void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::st
 std::string
 generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors){
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
-    for (auto const& x : neighbors)
+    for (auto const& agent : neighbors)
     {
-        ordered_neighbors_proto::OrderedNeighbors* neighbor = ordered_neighbors_msg.add_ordered_neighbors();
-        neighbor->set_agentid(x.first);
-        for (auto const& y : x.second)
+        std::vector<double> ordered_pathlosses;
+        ordered_neighbors_proto::OrderedNeighbors* neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        neighbor_msg->set_agentid(agent.first);
+        // Sort the pathlosses to add them in the protobuf message in the right order.
+        for (auto const& neigh : agent.second)
         {
-            neighbor->add_neighborid(y.first);
-            neighbor->add_linkquality(y.second);
+            ordered_pathlosses.push_back(neigh.second);
+        }
+        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
+        for (auto const& pathloss : ordered_pathlosses)
+        {
+            for (auto const& neigh : agent.second)
+            {
+                if (neigh.second == pathloss && pathloss != 0) // search on the values of the pathloss map, generates a bug if two agent pairs have exactly the same pathloss
+                {
+                    neighbor_msg->add_neighborid(neigh.first);
+                    neighbor_msg->add_linkquality(neigh.second);
+                }
+            }
         }
     }
     std::string str_response;
@@ -370,12 +383,12 @@ public:
         BuildingsHelper::Install(this->nodes);
 
         /* **************** IP / ROUTING MODULE **************** */
-        // Ipv4ListRoutingHelper ipv4List;
-        // AodvHelper aodv;
+        Ipv4ListRoutingHelper ipv4List;
+        AodvHelper aodv;
         InternetStackHelper internet;
-        // ipv4List.Add(aodv, 100);
+        ipv4List.Add(aodv, 100);
 
-        // internet.SetRoutingHelper(ipv4List);
+        internet.SetRoutingHelper(ipv4List);
         internet.Install(this->nodes);
 
         Ipv4AddressHelper addressAdhoc;
@@ -624,7 +637,7 @@ Ns3Simulation::create_neighbors(Time timeout)
                     double pathloss = this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
                     if (now - last_received < timeout)
                     {
-                        neighbors[i][j] = pathloss;
+                        neighbors[i][j] = -pathloss;
                     }
                 }
             }

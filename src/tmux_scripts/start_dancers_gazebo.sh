@@ -29,10 +29,10 @@ tmux split-window -t $session:$window -h -d "gz sim -g"
 
 window=1
 tmux set remain-on-exit on
-tmux new-window -t $session:$window "PX4_SIM_MODEL=x500 PX4_SYS_AUTOSTART=4001 $HOME/PX4-Autopilot/build/px4_sitl_default/bin/px4 -i 1"
-tmux split-window -t $session:$window -v "PX4_SIM_MODEL=x500 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,2" $HOME/PX4-Autopilot/build/px4_sitl_default/bin/px4 -i 2"
+tmux new-window -t $session:$window "PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=x500 $HOME/PX4-Autopilot-1.14/build/px4_sitl_default/bin/px4 -i 1"
+tmux split-window -t $session:$window -v "PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,2" PX4_GZ_MODEL=x500 $HOME/PX4-Autopilot-1.14/build/px4_sitl_default/bin/px4 -i 2"
 
-window=3
-tmux new-window -t $session:$window
+window=2
+tmux new-window -t $session:$window "cd $path_to_ros2_ws && ros2 launch multirobot_control N_VAT_neighbors.launch.py config_path:=$config_name" 
 
 tmux attach-session -t $session:1 -d
