@@ -258,6 +258,8 @@ public:
         std::string phyMode(config["phy_mode"].as<std::string>()); // Define a "Phy mode" that will be given to the WifiRemoteStationManager
         double frequency = 5.2e9;         // operating frequency in Hz
 
+        uint64_t mission_bytes_received_last_second = 0;
+
         // Create the nodes
         this->nodes.Create(numNodes);
 
@@ -471,6 +473,9 @@ public:
         }
         std::cout << "Number of client applications: " << clients.GetN() << std::endl;
 
+        Ptr<UdpServer> mission_server = DynamicCast<UdpServer>(mission_flow_receiver_app.Get(0));
+        Ptr<UdpClient> mission_client = DynamicCast<UdpClient>(mission_flow_sender_app.Get(0));
+
         if(cosim_mode)
         {
 
@@ -491,6 +496,8 @@ public:
             }
             RCLCPP_INFO(this->get_logger(), "finished setting up UDS socket");
 
+            uint64_t bytes_received = 0;
+
             // **************** MAIN SIMULATION LOOP ****************
             while (currTime < simEndTime || simEndTime == Seconds(0.0))
             {
@@ -503,10 +510,18 @@ public:
                 // Transform the message received from the UDS socket [string] -> [protobuf]
                 NetworkUpdate_msg.ParseFromString(received_data);
 
+
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
                 rclcpp::Clock clock;
                 robots_positions_proto::RobotsPositions robots_positions_msg;
+
+                if (currTime % Seconds(0.1) == Time(0)){
+                    uint64_t bytes_received_this_iteration = mission_server->GetReceived()*packet_size - bytes_received;
+                    bytes_received = mission_server->GetReceived()*packet_size;
+                    RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
+                }
+
                 if(!NetworkUpdate_msg.robots_positions().empty()){
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
                     robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
@@ -562,9 +577,6 @@ public:
 
         std::cout << "Simulation finished." << std::endl;
 
-        Ptr<UdpServer> mission_server = DynamicCast<UdpServer>(mission_flow_receiver_app.Get(0));
-        Ptr<UdpClient> mission_client = DynamicCast<UdpClient>(mission_flow_sender_app.Get(0));
-
         int k = 0;
         for (auto s = servers.Begin(); s != servers.End(); ++s)
         {
@@ -575,7 +587,7 @@ public:
         std::cout << std::endl;
 
         std::cout << "Mission source sent " << mission_client->GetTotalTx() << " bytes" << std::endl;
-        std::cout << "Mission sink received " << mission_server->GetReceived()*1024 << " bytes" << std::endl;
+        std::cout << "Mission sink received " << mission_server->GetReceived()*packet_size << " bytes ( " << (float)(100 * mission_server->GetReceived()*packet_size / (float)mission_client->GetTotalTx()) << "% )" << std::endl;
 
         Simulator::Destroy();
 
@@ -645,8 +657,6 @@ Ns3Simulation::create_neighbors(Time timeout)
     }
     return neighbors;
 }
-
-
 
 /**
  * \brief The main function, spins the ROS2 Node

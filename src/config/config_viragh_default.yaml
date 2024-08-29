@@ -4,7 +4,7 @@ experience_name: flocking_with_congestion_1
 
 # ******* ROBOTS *******
 # The number of robots in the fleet
-robots_number: 2
+robots_number: 6
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
