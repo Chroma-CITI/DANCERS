@@ -27,6 +27,8 @@ target_link_libraries(coordinator
 
 include_directories(include/${PROJECT_NAME})
 
+include_directories(../_include_all)
+
 INSTALL(
   TARGETS
   coordinator

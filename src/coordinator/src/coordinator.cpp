@@ -20,7 +20,7 @@
 #include <protobuf_msgs/network_update.pb.h>
 #include <protobuf_msgs/robots_positions.pb.h>
 
-static std::string m_computation_time_file;
+#include <time_probe.hpp>
 
 /**
  * \brief Compresses a string with the zip protocol.
@@ -60,13 +60,13 @@ static std::string gzip_decompress(const std::string &data)
     return decompressed.str();
 }
 
-
 class Coordinator : public rclcpp::Node
 {
 public:
     Coordinator() : Node("coordinator")
     {
-        this->previous_end_time = std::chrono::system_clock::now();
+
+        // ========================= PARAMETER READING AND LOG FILE INITIALIZATION =========================
 
         // Declare two parameters for this ros2 node
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
@@ -84,17 +84,29 @@ public:
             exit(EXIT_FAILURE);
         }
 
+        // Get the path to the ROS_WS, it is mandatory to run
+        if (getenv("ROS_WS") == NULL)
+        {
+            RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            this->ros_ws_path = getenv("ROS_WS");
+        }
+
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
+        // ========================= COMPUTATION TIME SAVING =========================
         this->save_compute_time = config["save_compute_time"].as<bool>();
 
-        // vvvvvvvv DATA SAVING vvvvvvvv
         if (this->save_compute_time)
         {
+
             // Create a folder based on the experience name, if not existant already
             std::string experience_name = config["experience_name"].as<std::string>();
-            if (boost::filesystem::create_directories("./data/" + experience_name))
+            if (boost::filesystem::create_directories(this->ros_ws_path + "/data/" + experience_name))
             {
                 RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
             }
@@ -106,30 +118,30 @@ public:
             // Define the output file name, based on the existing files in the experience folder (incremental)
             std::string temp_path;
             int i = 1;
-            while (m_computation_time_file.empty())
+            while (this->m_computation_time_file.empty())
             {
-                temp_path = "./data/" + experience_name + "/coordinator" + std::to_string(i) + ".csv";
+                temp_path = this->ros_ws_path + "/data/" + experience_name + "/coordinator" + std::to_string(i) + ".csv";
                 if (boost::filesystem::exists(temp_path))
                 {
                     i++;
                 }
                 else
                 {
-                    m_computation_time_file = temp_path;
+                    this->m_computation_time_file = temp_path;
                 }
             }
 
-            // initialize the output file with headers
-            this->f.open(m_computation_time_file.c_str(), std::ios::out);
-            this->f << "Time[us]"
-                    << std::endl;
-            this->f.close();
+            this->probe = WallTimeProbe(this->m_computation_time_file);
+            this->probe.start();
         }
-        // ^^^^^^^^ DATA SAVING ^^^^^^^^
+
+        // ========================= PARAMETERS FROM CONFIG FILE =========================
 
         this->current_sim_time = rclcpp::Time(0);
         auto clock_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
         this->clock_publisher_ = this->create_publisher<rosgraph_msgs::msg::Clock>("/clock", clock_qos);
+
+        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9); // conversion from s ton ns
 
         this->phy_use_uds_socket = config["phy_use_uds"].as<bool>();
         this->net_use_uds_socket = config["net_use_uds"].as<bool>();
@@ -147,10 +159,10 @@ public:
             RCLCPP_FATAL(this->get_logger(), "The synchronization window size (sync_window) must be divisible by both the physics and network step sizes (phy_step_size ; net_step_size). Aborting.");
             exit(EXIT_FAILURE);
         }
+        this->targets_reached = false;
 
         this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_, this);
         this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_, this);
-
 
         phy_protobuf_thread.join();
         net_protobuf_thread.join();
@@ -160,9 +172,8 @@ public:
 
 private:
     rclcpp::Time current_sim_time; // us
-    bool should_run = true;
+    rclcpp::Time simulation_length;
 
-    bool save_compute_time;
     boost::fibers::barrier rendezvous_threads{2};
     uint32_t phy_step_size; // us
     uint32_t net_step_size; // us
@@ -171,6 +182,7 @@ private:
     std::string compressed_ordered_neighbors;
     std::mutex robots_positions_mutex;
     std::mutex ordered_neighbors_mutex;
+    bool targets_reached;
 
     bool phy_use_uds_socket;
     bool net_use_uds_socket;
@@ -181,9 +193,6 @@ private:
     uint32_t phy_ip_server_port;
     uint32_t net_ip_server_port;
 
-    std::ofstream f;
-    std::chrono::system_clock::time_point previous_end_time;
-
     rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_publisher_;
 
     void run_phy_protobuf_client_();
@@ -191,8 +200,14 @@ private:
 
     std::thread phy_protobuf_thread;
     std::thread net_protobuf_thread;
-};
 
+    // saving of computation time
+    WallTimeProbe probe;
+    std::string m_computation_time_file;
+    bool save_compute_time;
+
+    std::string ros_ws_path;
+};
 
 void Coordinator::run_phy_protobuf_client_()
 {
@@ -208,14 +223,14 @@ void Coordinator::run_phy_protobuf_client_()
             socket = new UDSSocket(io_context);
             socket->connect(this->phy_uds_server_address);
         }
-        else 
+        else
         {
             socket = new TCPSocket(io_context);
             socket->connect(this->phy_ip_server_address);
         }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected PHY socket !\x1b[0m");
 
-        while (this->should_run)
+        while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0))
         {
             this->rendezvous_threads.wait();
 
@@ -252,9 +267,8 @@ void Coordinator::run_phy_protobuf_client_()
 
                 robots_positions_proto::RobotsPositions robots_positions_msg;
                 robots_positions_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.robots_positions()));
-                
-                RCLCPP_INFO(this->get_logger(), "Received robots positions from physics simulator: %s", robots_positions_msg.DebugString().c_str());
 
+                // RCLCPP_INFO(this->get_logger(), "Received robots positions from physics simulator: %s", robots_positions_msg.DebugString().c_str());
 
                 if (PhysicsUpdate_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
                 {
@@ -262,13 +276,32 @@ void Coordinator::run_phy_protobuf_client_()
                 }
                 else
                 {
-                    RCLCPP_DEBUG(this->get_logger(), "Finished 1 iteration of PHY simulator.");
+                    RCLCPP_DEBUG(this->get_logger(), "Finished 1 step of PHY simulator.");
 
+                    // Publish current time of simulation to /clock for ROS Nodes
+                    if (this->phy_step_size < this->net_step_size)
+                    {
+                        this->current_sim_time += std::chrono::microseconds(this->phy_step_size);
+                        rosgraph_msgs::msg::Clock clock_msg;
+                        clock_msg.set__clock(this->current_sim_time);
+                        this->clock_publisher_->publish(clock_msg);
+                    }
+
+                    this->targets_reached = PhysicsUpdate_msg.targets_reached();
                     std::lock_guard<std::mutex> lock(this->robots_positions_mutex);
                     this->compressed_robots_positions = PhysicsUpdate_msg.robots_positions();
                 }
             }
+
+            if (this->save_compute_time)
+            {
+                this->probe.stop();
+                this->probe.start();
+            }
+
         }
+        RCLCPP_INFO(this->get_logger(), "Simulation finished (PHY thread).");
+        exit(EXIT_SUCCESS);
 
     } // end try
     catch (std::exception &e)
@@ -297,26 +330,16 @@ void Coordinator::run_net_protobuf_client_()
             socket = new UDSSocket(io_context);
             socket->connect(this->net_uds_server_address);
         }
-        else 
+        else
         {
             socket = new TCPSocket(io_context);
             socket->connect(this->net_ip_server_address);
         }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected NET socket !\x1b[0m");
 
-        while (this->should_run)
+        while ((this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0)) && rclcpp::ok())
         {
             this->rendezvous_threads.wait();
-
-            if (this->save_compute_time)
-            {
-                std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-                int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(now - this->previous_end_time).count();
-                this->f.open(m_computation_time_file.c_str(), std::fstream::app);
-                this->f << wait << "\n";
-                this->f.close();
-                this->previous_end_time = now;
-            }
 
             for (uint32_t i = 0; i < this->sync_window / this->net_step_size; i++)
             {
@@ -334,6 +357,7 @@ void Coordinator::run_net_protobuf_client_()
                     this->compressed_robots_positions.clear();
                 }
                 this->robots_positions_mutex.unlock();
+                NetworkUpdate_msg.set_targets_reached(this->targets_reached);
 
                 std::string request = gzip_compress(NetworkUpdate_msg.SerializeAsString());
 
@@ -352,19 +376,24 @@ void Coordinator::run_net_protobuf_client_()
                 }
                 else
                 {
-                    RCLCPP_DEBUG(this->get_logger(), "Finished 1 iteration of NET simulator.");
+                    RCLCPP_DEBUG(this->get_logger(), "Finished 1 step of NET simulator.");
 
                     // Publish current time of simulation to /clock for ROS Nodes
-                    this->current_sim_time += std::chrono::microseconds(this->net_step_size);
-                    rosgraph_msgs::msg::Clock clock_msg;
-                    clock_msg.set__clock(this->current_sim_time);
-                    this->clock_publisher_->publish(clock_msg);
+                    if (this->net_step_size <= this->phy_step_size)
+                    {
+                        this->current_sim_time += std::chrono::microseconds(this->net_step_size);
+                        rosgraph_msgs::msg::Clock clock_msg;
+                        clock_msg.set__clock(this->current_sim_time);
+                        this->clock_publisher_->publish(clock_msg);
+                    }
 
                     std::lock_guard<std::mutex> lock(this->ordered_neighbors_mutex);
                     this->compressed_ordered_neighbors = NetworkUpdate_msg.ordered_neighbors();
                 }
             }
         }
+        RCLCPP_INFO(this->get_logger(), "Simulation finished (NET thread).");
+        exit(EXIT_SUCCESS);
 
     } // end try
     catch (std::exception &e)
