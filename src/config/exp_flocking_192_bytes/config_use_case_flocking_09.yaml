@@ -1,0 +1,157 @@
+# Configuration file format 3
+
+experience_name: use_case_MAC_192_bytes
+run_id: 9
+
+# ******* ROBOTS *******
+# The number of robots in the fleet
+robots_number: 15
+
+# The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
+# Example : x500_0, x500_1, x500_2, etc.
+robots_model: x500
+
+# The IP address of the network, i.e. for 192.168.0.0, the addresses allocated to the robots will be 192.168.0.1, 192.168.0.2, etc.
+# We only support mask of 255.255.255.0 (for now :) )
+ip_network: 192.168.0.0
+ip_mask: 255.255.255.0
+
+# Length of the simulation in seconds
+simulation_length: 100 # s
+
+# Seed for the randomness of the experiment
+seed: 15
+
+# ******* MISSION FLOW *******
+mission_flow:
+  enable: false
+  source_robot_id: 0
+  sink_robot_id: 1
+  port: 7777
+  packet_size: 1024 # bytes (not bits !)
+  interval: 180000 # us
+  start_traffic_time: 1.0 # s
+  stop_traffic_time: 600 # s
+
+# ******* FLOCKING *******
+VAT_flocking_parameters:
+  v_flock: 1.5
+  v_max: 1
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08
+  r_0_att: 15
+  p_rep: 0.13
+  r_0_rep: 15
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  # secondary objectives of the drones, with the form robot_ID: [x, y, z]
+  secondary_objectives: 
+    1: [0, 40, 10]
+    2: [40, 0, 10]
+
+
+target_altitude: 10.0 # Flocking is done at fixed altitude for now.
+
+neighbor_timeout_value: 2000000 # Value after which the robot will be considered as lost (microseconds)
+
+max_neighbors: 3
+
+cmd_loop_period: 100000 # us
+
+pose_broadcast_period: 5000 # us
+pose_broadcast_packet_size: 192 # bytes
+
+rviz_enabled: false
+
+# ******* WORLD *******
+world_sdf_path: /src/worlds/default.sdf
+
+# ******* NS-3 *******
+# wifi_type: 'spectrum_3GPP_V2V_urban_channel'
+wifi_type: 'SpectrumWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
+propagation_loss_model: 'HybridBuildingsPropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel] 
+error_model_type: 'ns3::NistErrorRateModel'
+phy_mode: 'ErpOfdmRate54Mbps'
+
+# ******* SYSTEM *******
+
+update_rate: 20000 # in Hz | The objective rate at which Gazebo tries to run simulation loops. 
+
+# Simulation timings. BE CAREFUL : sync_window must be divisible by phy_step_size, phy_step_size must be divisible by net_step_size 
+# and phy_step_size must a multiple of step_length
+sync_window: 100000 # in us | the duration between two position exchange and clock synchronization between physics and network simulators
+phy_step_size: 100000 # in us | the duration of 1 physics simulator simulation loop
+net_step_size: 5000 # in us
+
+bridge_ip: '11.0.0.100'
+
+print_debug: true
+
+save_compute_time: false
+
+net_use_uds: true
+phy_use_uds: true
+
+do_driver_transfer: false
+
+net_uds_server_address: /tmp/net_server_socket
+
+net_ip_server_address: '127.0.0.1'
+net_ip_server_port: 10000
+net_ip_ranging_port: 10005
+
+phy_uds_server_address: /tmp/phy_server_socket
+
+phy_ip_server_address: '127.0.0.1'
+phy_ip_server_port: 10001
+
+viragh_uds_server_address: /tmp/viragh_server_socket
+
+phy_driver_uds_server_address: '/tmp/phy_driver_socket'
+net_driver_uds_server_address: '/tmp/net_driver_socket'
+
+responsiveness_timeout: 2
+
+packet_holding_duration: 50
+driver_sync_time: 0.01
+
+broadcast_address: '4294967295'  # 255.255.255.255 stored as string since yaml doesn't support long ints
+  
+# Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
+auto_buildings: true # if false, "buildings" is used
+distribution: uniform # [uniform, normal]
+numb_obst: 20
+radius_obst: 10
+radius_stdev_obst: 2
+height_obst: 10
+arena_radius: 200
+arena_center_x: 0
+arena_center_y: 0
+
+buildings:
+  - name: high_building_1
+    x: -50
+    y: 0
+    height: 20
+    size_x: 50
+    size_y: 200
+  - name: high_building_2
+    x: 50
+    y: -25
+    height: 20
+    size_x: 50
+    size_y: 150
+  - name: high_building_3
+    x: 0
+    y: 125
+    height: 20
+    size_x: 150
+    size_y: 50
