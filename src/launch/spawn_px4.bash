@@ -33,7 +33,7 @@ echo "starting model $model with airframe $airframe"
 export PX4_GZ_MODEL=$model
 export PX4_SYS_AUTOSTART=$airframe
 
-num_columns=2
+num_columns=$(echo "scale=0; sqrt($sitl_num)" | bc)
 distance=2 # meters
 x_init=0
 y_init=$(echo "-(($num_columns-1) * $distance)/2" | bc -l ) # use bc to handle float-point arithmetics in bash

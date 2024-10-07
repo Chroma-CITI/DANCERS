@@ -57,7 +57,7 @@ VAT_flocking_parameters:
   auto_propulsion_flag: false
   secondary_objective_flag: true
 
-# secondary objectives of the drones, with the form robot_ID: [x, y, z, target (true)|sink (false)]
+# secondary objectives of the drones, with the form robot_ID: [x, y, z, target(true)|sink(false)]
 secondary_objectives: 
   0: [0, -80, 10, false]
   5: [40, 80, 10, true]

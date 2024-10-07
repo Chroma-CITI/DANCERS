@@ -449,7 +449,7 @@ public:
         // ========================= NS3 CONFIGURATION =========================
 
         // Set the seed for the random number generator
-        SeedManager::SetRun(config["ns3_seed"].as<int>());
+        SeedManager::SetRun(config["seed"].as<int>());
 
         double frequency = 5.2e9;         // operating frequency in Hz
         Time timeRes = MilliSeconds(100); // time resolution

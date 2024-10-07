@@ -373,7 +373,7 @@ class Ns3Simulation : public rclcpp::Node
 // ========================= NS3 CONFIGURATION =========================
 
             // Set the seed for the random number generator
-            SeedManager::SetRun(config["ns3_seed"].as<int>());
+            SeedManager::SetRun(config["seed"].as<int>());
 
             // we interact with the "real world" through tap bridges, so we need to use the real-time implementation of the simulator
             GlobalValue::Bind("SimulatorImplementationType", StringValue("ns3::RealtimeSimulatorImpl"));
