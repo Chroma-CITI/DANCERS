@@ -158,31 +158,26 @@ void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::st
 }
 
 std::string
-generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors){
+generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors)
+{
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
-    for (auto const& agent : neighbors)
+    for (auto const &agent : neighbors)
     {
-        // Allow nodes 0 and 1 not only have 1 neighbor
-        int max_neigh_copy = max_neighbors;
-        // if (agent.first == 0 || agent.first == 1)
-        // {
-        //     max_neigh_copy = 1;
-        // } 
         std::vector<double> ordered_pathlosses;
-        ordered_neighbors_proto::OrderedNeighbors* neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         neighbor_msg->set_agentid(agent.first);
         int num_neighbors = 0;
         // Sort the pathlosses to add them in the protobuf message in the right order.
-        for (auto const& neigh : agent.second)
+        for (auto const &neigh : agent.second)
         {
             ordered_pathlosses.push_back(neigh.second);
         }
         std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
-        for (auto const& pathloss : ordered_pathlosses)
+        for (auto const &pathloss : ordered_pathlosses)
         {
-            for (auto const& neigh : agent.second)
+            for (auto const &neigh : agent.second)
             {
-                if (neigh.second == pathloss && pathloss != 0 && num_neighbors < max_neigh_copy) // search on the values of the pathloss map, generates a bug if two agent pairs have exactly the same pathloss
+                if (neigh.second == pathloss && pathloss != 0 && num_neighbors < max_neighbors) // search on the values of the pathloss map, generates a bug if two agent pairs have exactly the same pathloss
                 {
                     neighbor_msg->add_neighborid(neigh.first);
                     neighbor_msg->add_linkquality(neigh.second);
@@ -192,7 +187,6 @@ generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors,
         }
         // std::cout << neighbor_msg->DebugString() << std::endl;
     }
-    
 
     std::string str_response;
     ordered_neighbors_msg.SerializeToString(&str_response);
@@ -220,7 +214,6 @@ generate_response(network_update_proto::NetworkUpdate NetworkUpdate_msg, std::ma
 
     return str_response;
 }
-
 
 /**
  * We declare a ROS2 Node here. It takes the form of a class which constructor will be called by rclcpp::spin().
@@ -269,7 +262,6 @@ public:
         {
             this->ros_ws_path = getenv("ROS_WS");
         }
-
 
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
@@ -326,7 +318,7 @@ public:
         std::string errorModelType = config["error_model_type"].as<std::string>();
         std::string propagation_loss_model = config["propagation_loss_model"].as<std::string>();
         std::string phyMode(config["phy_mode"].as<std::string>()); // Define a "Phy mode" that will be given to the WifiRemoteStationManager
-        double frequency = 5.2e9;         // operating frequency in Hz
+        double frequency = 5.2e9;                                  // operating frequency in Hz
 
         uint64_t mission_bytes_received_last_second = 0;
 
@@ -372,7 +364,6 @@ public:
         this->targets_reached = false;
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of MOBILITY module");
 
-
         // **************** PROPAGATION MODULE ****************
 
         SpectrumWifiPhyHelper spectrumPhy;
@@ -389,27 +380,25 @@ public:
             else if (propagation_loss_model == "HybridBuildingsPropagationLossModel")
             {
                 this->m_propagationLossModel = CreateObject<HybridBuildingsPropagationLossModel>();
-                this->m_propagationLossModel->SetAttribute("Frequency", DoubleValue(frequency));        // Default 2.4e9
-                this->m_propagationLossModel->SetAttribute("ShadowSigmaExtWalls", DoubleValue(5.0));    // Standard deviation of the normal distribution used to calculate the shadowing due to ext walls
-                this->m_propagationLossModel->SetAttribute("ShadowSigmaIndoor", DoubleValue(8.0));      // Standard deviation of the normal distribution used to calculate the shadowing for indoor nodes
-                this->m_propagationLossModel->SetAttribute("ShadowSigmaOutdoor", DoubleValue(7.0));     // Standard deviation of the normal distribution used to calculate the shadowing for outdoor nodes
+                this->m_propagationLossModel->SetAttribute("Frequency", DoubleValue(frequency));     // Default 2.4e9
+                this->m_propagationLossModel->SetAttribute("ShadowSigmaExtWalls", DoubleValue(5.0)); // Standard deviation of the normal distribution used to calculate the shadowing due to ext walls
+                this->m_propagationLossModel->SetAttribute("ShadowSigmaIndoor", DoubleValue(8.0));   // Standard deviation of the normal distribution used to calculate the shadowing for indoor nodes
+                this->m_propagationLossModel->SetAttribute("ShadowSigmaOutdoor", DoubleValue(7.0));  // Standard deviation of the normal distribution used to calculate the shadowing for outdoor nodes
                 channel.AddPropagationLoss("ns3::HybridBuildingsPropagationLossModel",
-                                        "Frequency",            // Additional loss for each internal wall [dB]
-                                        DoubleValue(frequency), // Default 2.4e9
-                                        "ShadowSigmaExtWalls",  // Standard deviation of the normal distribution used to calculate the shadowing due to ext walls
-                                        DoubleValue(5.0),       // Default 5
-                                        "ShadowSigmaIndoor",    // Standard deviation of the normal distribution used to calculate the shadowing for indoor nodes
-                                        DoubleValue(8.0),       // Default 8
-                                        "ShadowSigmaOutdoor",   // Standard deviation of the normal distribution used to calculate the shadowing for outdoor nodes
-                                        DoubleValue(7.0));
+                                           "Frequency",            // Additional loss for each internal wall [dB]
+                                           DoubleValue(frequency), // Default 2.4e9
+                                           "ShadowSigmaExtWalls",  // Standard deviation of the normal distribution used to calculate the shadowing due to ext walls
+                                           DoubleValue(5.0),       // Default 5
+                                           "ShadowSigmaIndoor",    // Standard deviation of the normal distribution used to calculate the shadowing for indoor nodes
+                                           DoubleValue(8.0),       // Default 8
+                                           "ShadowSigmaOutdoor",   // Standard deviation of the normal distribution used to calculate the shadowing for outdoor nodes
+                                           DoubleValue(7.0));
                 channel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
             }
 
             wifiPhy.SetChannel(channel.Create());
             wifiPhy.Set("TxPowerStart", DoubleValue(18));
             wifiPhy.Set("TxPowerEnd", DoubleValue(18));
-
-
         }
         else if (wifiType == "SpectrumWifiPhy")
         {
@@ -443,7 +432,6 @@ public:
         }
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of PHY layer");
 
-
         // **************** WIFI MODULE ****************
 
         WifiHelper wifi;
@@ -455,7 +443,7 @@ public:
         NetDeviceContainer devices;
 
         mac.SetType("ns3::AdhocWifiMac");
-        
+
         if (wifiType == "YansWifiPhy")
         {
             devices = wifi.Install(wifiPhy, mac, this->nodes);
@@ -496,17 +484,16 @@ public:
         // Create the broadcast address
         Ipv4Address broadcastAddress = Ipv4Address::GetBroadcast();
 
-
         /* **************** APPLICATION MODULE **************** */
 
         // "Mission" flow : unicast, unidirectional
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
         uint32_t source_node_id = config["mission_flow"]["source_robot_id"].as<uint32_t>();
         uint32_t sink_node_id = config["mission_flow"]["sink_robot_id"].as<uint32_t>();
-        double start_traffic_time = config["mission_flow"]["start_traffic_time"].as<double>();  // s
-        double stop_traffic_time = config["mission_flow"]["stop_traffic_time"].as<double>();    // s
-        uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
-        uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
+        double start_traffic_time = config["mission_flow"]["start_traffic_time"].as<double>(); // s
+        double stop_traffic_time = config["mission_flow"]["stop_traffic_time"].as<double>();   // s
+        uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();           // bytes
+        uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                 // us
         uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();
 
         // UdpClientHelper mission_flow_sender(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal(), mission_flow_port);
@@ -530,12 +517,12 @@ public:
             source_node->AddApplication(sender);
             sender->SetStartTime(Seconds(start_traffic_time));
             sender->SetStopTime(Seconds(stop_traffic_time));
-            sender->SetAttribute("Destination", Ipv4AddressValue(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal()));
+            sender->SetAttribute("Destination", Ipv4AddressValue(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal()));
             sender->SetAttribute("Port", UintegerValue(mission_flow_port));
             sender->SetAttribute("PacketSize", UintegerValue(packet_size));
             sender->SetAttribute("NumPackets", UintegerValue(4294967295));
             Ptr<ConstantRandomVariable> rand = CreateObject<ConstantRandomVariable>();
-            rand->SetAttribute("Constant", DoubleValue(interval/1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
+            rand->SetAttribute("Constant", DoubleValue(interval / 1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
             sender->SetAttribute("Interval", PointerValue(rand));
 
             Ptr<ns3::Node> sink_node = this->nodes.Get(sink_node_id);
@@ -576,7 +563,7 @@ public:
         client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
         client.SetAttribute("Interval", TimeValue(interPacketInterval));
         client.SetAttribute("PacketSize", UintegerValue(nav_flow_packet_size));
-        
+
         // Random start, otherwise they never access the medium (I think)
         double min = 0.0;
         double max = 1.0;
@@ -603,14 +590,12 @@ public:
         RCLCPP_DEBUG(this->get_logger(), "Number of client applications: %d", clients.GetN());
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of APPLICATION module");
 
-
         /* **************** STATS MODULE **************** */
-        
+
         std::string experiment = config["experience_name"].as<std::string>();
         std::string strategy = "VAT flocking";
         std::string input = config_file_path;
         std::string runID = config["run_id"].as<std::string>();
-
 
         DataCollector data;
         data.DescribeRun(experiment, strategy, input, runID);
@@ -621,13 +606,13 @@ public:
         // Create a counter for the number of Packets sent WITHIN THE TARGETS
         this->missionTotalTx = CreateObject<PacketCounterCalculator>();
         this->missionTotalTx->SetKey("mission_sent_packets_within_target");
-        this->missionTotalTx->SetContext("mission flow node["+std::to_string(source_node_id)+"]");
+        this->missionTotalTx->SetContext("mission flow node[" + std::to_string(source_node_id) + "]");
         data.AddDataCalculator(this->missionTotalTx);
 
         // Create a counter for the number of Packets received WITHIN THE TARGETS
         this->missionTotalRx = CreateObject<PacketCounterCalculator>();
         this->missionTotalRx->SetKey("mission_received_packets_within_target");
-        this->missionTotalRx->SetContext("mission flow node["+std::to_string(sink_node_id)+"]");
+        this->missionTotalRx->SetContext("mission flow node[" + std::to_string(sink_node_id) + "]");
         data.AddDataCalculator(this->missionTotalRx);
 
         // Create a statitics object for the delay of the packets
@@ -647,7 +632,7 @@ public:
         {
             Ptr<PacketCounterCalculator> navTotalRx = CreateObject<PacketCounterCalculator>();
             navTotalRx->SetKey("nav_received_packets");
-            navTotalRx->SetContext("nav flow node["+std::to_string(i)+"]");
+            navTotalRx->SetContext("nav flow node[" + std::to_string(i) + "]");
             this->navTotalRxVector.push_back(navTotalRx);
             data.AddDataCalculator(this->navTotalRxVector[i]);
         }
@@ -664,16 +649,14 @@ public:
         {
             Ptr<PacketCounterCalculator> navTotalTx = CreateObject<PacketCounterCalculator>();
             navTotalTx->SetKey("nav_sent_packets");
-            navTotalTx->SetContext("nav flow node["+std::to_string(i)+"]");
+            navTotalTx->SetContext("nav flow node[" + std::to_string(i) + "]");
             this->navTotalTxVector.push_back(navTotalTx);
             data.AddDataCalculator(this->navTotalTxVector[i]);
         }
 
-
-        if(cosim_mode)
+        if (cosim_mode)
         {
 
-        
             // **************** UDS SOCKET FOR NETWORK COORDINATOR ****************
             // Create and connect UDS Socket
             CustomSocket *socket;
@@ -717,31 +700,39 @@ public:
                 //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
                 // }
 
-                if(!NetworkUpdate_msg.robots_positions().empty()){
+                if (!NetworkUpdate_msg.robots_positions().empty())
+                {
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
                     robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
-                    if(this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size()){
-                        if(verbose){
+                    if (this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size())
+                    {
+                        if (verbose)
+                        {
                             RCLCPP_WARN_THROTTLE(this->get_logger(),
-                                    clock,
-                                    1000, // ms
-                                    "Network simulator received position information of %i robots but NS-3 has %u nodes.",
-                                    robots_positions_msg.robot_pose_size(),
-                                    this->nodes.GetN());
+                                                 clock,
+                                                 1000, // ms
+                                                 "Network simulator received position information of %i robots but NS-3 has %u nodes.",
+                                                 robots_positions_msg.robot_pose_size(),
+                                                 this->nodes.GetN());
                         }
-                    } else {
-                        for(uint32_t i=0 ; i < this->nodes.GetN() ; i++){
-                                Vector pos;
-                                pos.x = robots_positions_msg.robot_pose(i).x();
-                                pos.y = robots_positions_msg.robot_pose(i).y();
-                                pos.z = 10.0;
-                                SetNodePosition(this->nodes.Get(i), pos);
-                            }
                     }
-                } else {
+                    else
+                    {
+                        for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+                        {
+                            Vector pos;
+                            pos.x = robots_positions_msg.robot_pose(i).x();
+                            pos.y = robots_positions_msg.robot_pose(i).y();
+                            pos.z = 10.0;
+                            SetNodePosition(this->nodes.Get(i), pos);
+                        }
+                    }
+                }
+                else
+                {
                     RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
                 }
 
@@ -749,7 +740,7 @@ public:
 
                 // Once all the events are scheduled, advance W time in the simulation and stop
                 Simulator::Stop(step_size);
-                
+
                 if (this->save_compute_time)
                 {
                     this->probe.start();
@@ -765,25 +756,24 @@ public:
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
-                std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors, this->max_neighbors));
+                std::string response = gzip_compress(generate_response(NetworkUpdate_msg, neighbors, this->max_neighbors));
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
 
                 currTime += step_size;
-
             }
         }
         else
         {
             Simulator::Stop(simEndTime);
             std::cout << "Starting simulation." << std::endl;
-            
+
             if (this->save_compute_time)
             {
                 this->probe.start();
             }
-            
+
             Simulator::Run();
 
             if (this->save_compute_time)
@@ -802,12 +792,11 @@ public:
             output->Output(data);
         }
 
-
         int k = 0;
         for (auto s = servers.Begin(); s != servers.End(); ++s)
         {
             Ptr<UdpServer> server = (*s)->GetObject<UdpServer>();
-            std::cout << "Position server " << k << " received " << server->GetReceived()*nav_flow_packet_size << " bytes." << std::endl;
+            std::cout << "Position server " << k << " received " << server->GetReceived() * nav_flow_packet_size << " bytes." << std::endl;
             k++;
         }
         std::cout << std::endl;
@@ -846,8 +835,8 @@ private:
     Ptr<PacketCounterCalculator> missionTotalRx;
     Ptr<PacketCounterCalculator> missionTotalTx;
     Ptr<TimeMinMaxAvgTotalCalculator> missionDelay;
-    std::vector< Ptr<PacketCounterCalculator> > navTotalRxVector;
-    std::vector< Ptr<PacketCounterCalculator> > navTotalTxVector;
+    std::vector<Ptr<PacketCounterCalculator>> navTotalRxVector;
+    std::vector<Ptr<PacketCounterCalculator>> navTotalTxVector;
     Ptr<PacketCounterCalculator> navEffectiveTx;
 
     // Propagation model
@@ -868,7 +857,6 @@ void Ns3Simulation::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<cons
     // std::cout << "Tx: " << txId << " Rx: " << rxId << " Loss: " << lossDb << std::endl;
     this->neigh_pathloss[txId][rxId] = lossDb;
 }
-
 
 void Ns3Simulation::server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress)
 {
@@ -893,7 +881,7 @@ void Ns3Simulation::client_send_clbk(std::string context, Ptr<const Packet> pack
 {
     uint32_t nodeId = std::stoi(context);
     this->navTotalTxVector[nodeId]->PacketUpdate("", packet);
-    // add a tag to the packet 
+    // add a tag to the packet
     FlowIdTag nav_flow(1);
     packet->AddPacketTag(nav_flow);
 }
@@ -904,14 +892,13 @@ void Ns3Simulation::wifi_phy_tx_clbk(Ptr<const Packet> packet)
     if (packet->PeekPacketTag(nav_flow))
     {
         this->navEffectiveTx->PacketUpdate("", packet);
-        RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet for nav flow !"); 
-    } 
-    else 
+        RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet for nav flow !");
+    }
+    else
     {
         RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet without the tag...");
     }
 }
-
 
 std::map<uint32_t, std::map<uint32_t, double>>
 Ns3Simulation::create_neighbors(Time timeout)
@@ -932,7 +919,7 @@ Ns3Simulation::create_neighbors(Time timeout)
                         // agent j is a potential neighbor of agent i
 
                         // restrict neighborhood to be "chain-like"
-                        if (j == i-1 || j == i+1)
+                        if (j == i - 1 || j == i + 1)
                         {
                             neighbors[i][j] = -this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
                         }
@@ -944,10 +931,10 @@ Ns3Simulation::create_neighbors(Time timeout)
     return neighbors;
 }
 
-void
-Ns3Simulation::mission_flow_receiver_clbk(Ptr<const Packet> packet)
+void Ns3Simulation::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
-    if (this->targets_reached){
+    if (this->targets_reached)
+    {
         this->missionTotalRx->PacketUpdate("", packet);
         RCLCPP_INFO(this->get_logger(), "Mission sink received a packet and both source and sink are in targets !");
 
@@ -964,20 +951,19 @@ Ns3Simulation::mission_flow_receiver_clbk(Ptr<const Packet> packet)
     }
 }
 
-void
-Ns3Simulation::mission_flow_sender_clbk(Ptr<const Packet> packet)
+void Ns3Simulation::mission_flow_sender_clbk(Ptr<const Packet> packet)
 {
     myTimestampTag timestamp;
     timestamp.SetTimestamp(Simulator::Now());
     packet->AddByteTag(timestamp);
 
-    if (this->targets_reached){
+    if (this->targets_reached)
+    {
         this->missionTotalTx->PacketUpdate("", packet);
     }
 }
 
-void
-Ns3Simulation::updateNeighborsPathloss()
+void Ns3Simulation::updateNeighborsPathloss()
 {
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
@@ -985,14 +971,11 @@ Ns3Simulation::updateNeighborsPathloss()
         {
             if (i != j)
             {
-                Ptr<MobilityModel> mobilityA = this->nodes.Get(i)->GetObject<MobilityModel> ();
-                Ptr<MobilityModel> mobilityB = this->nodes.Get(j)->GetObject<MobilityModel> ();
+                Ptr<MobilityModel> mobilityA = this->nodes.Get(i)->GetObject<MobilityModel>();
+                Ptr<MobilityModel> mobilityB = this->nodes.Get(j)->GetObject<MobilityModel>();
 
-                // Ptr<LogDistancePropagationLossModel> model = CreateObject<LogDistancePropagationLossModel>();
-
-                // Assuming we use the first propagation loss model
                 double rxPow = this->m_propagationLossModel->CalcRxPower(18.0, mobilityA, mobilityB);
-                this->neigh_pathloss[i][j] = -rxPow;    // it's not really a pathloss but it's the same with a constant difference
+                this->neigh_pathloss[i][j] = -rxPow; // it's not really a pathloss but it's the same with a constant difference
                 // std::cout << "Node " << i << " -> Node " << j << " : " << rxPow << std::endl;
             }
         }
