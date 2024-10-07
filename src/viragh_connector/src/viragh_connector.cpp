@@ -8,6 +8,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include "boost/filesystem.hpp"
 #include <boost/asio.hpp>
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include <boost/iostreams/copy.hpp>
@@ -114,6 +115,8 @@ std::string generate_robots_positions(RobotPose *robots, int nb_robots)
         RobotPose_msg->set_z(robots[i].z / 100.0);
     }
 
+    // std::cout << RobotsPositions_msg.DebugString() << std::endl;
+
     std::string RobotsPositions_string;
     RobotsPositions_msg.SerializeToString(&RobotsPositions_string);
 
@@ -131,12 +134,15 @@ std::string generate_robots_positions(RobotPose *robots, int nb_robots)
  * \param robots_positions A std::string which is a string-serialized ChannelData protobuf message.
  * \param PhysicsUpdate_msg A protobuf message of type PhysicsUpdate. Usually it is an empty message with type BEGIN, this function will fill the message and
  */
-std::string generate_response(std::string robots_positions, physics_update_proto::PhysicsUpdate PhysicsUpdate_msg)
+std::string generate_response(std::string robots_positions, physics_update_proto::PhysicsUpdate PhysicsUpdate_msg, bool targets_reached)
 {
     // Change message's type to END
     PhysicsUpdate_msg.set_msg_type(physics_update_proto::PhysicsUpdate::END);
     // Fill the channel_data field with the compressed data from the physics simulation
     PhysicsUpdate_msg.set_robots_positions(gzip_compress(robots_positions));
+
+    PhysicsUpdate_msg.set_targets_reached(targets_reached);
+
     // Transform the response [protobuf] --> [string]
     std::string str_response;
     PhysicsUpdate_msg.SerializeToString(&str_response);
@@ -178,12 +184,71 @@ public:
             exit(EXIT_FAILURE);
         }
 
+        // Get the path to the ROS_WS, it is mandatory to run
+        if (getenv("ROS_WS") == NULL)
+        {
+            RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            this->ros_ws_path = getenv("ROS_WS");
+        }
+
+
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
+
+        // ========================= COMPUTATION TIME SAVING =========================
+        this->save_compute_time = config["save_compute_time"].as<bool>();
+
+        if (this->save_compute_time)
+        {
+
+            this->previous_end_time = std::chrono::system_clock::now();
+
+            // Create a folder based on the experience name, if not existant already
+            std::string experience_name = config["experience_name"].as<std::string>();
+            if (boost::filesystem::create_directories(this->ros_ws_path + "/data/" + experience_name))
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Using existing data folder for this experiment");
+            }
+
+            // Define the output file name, based on the existing files in the experience folder (incremental)
+            std::string temp_path;
+            int i = 1;
+            while (this->m_computation_time_file.empty())
+            {
+                temp_path = ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
+                if (boost::filesystem::exists(temp_path))
+                {
+                    i++;
+                }
+                else
+                {
+                    this->m_computation_time_file = temp_path;
+                }
+            }
+
+            // initialize the output file with headers
+            this->compute_time_output.open(this->m_computation_time_file.c_str(), std::ios::out);
+            this->compute_time_output << "Time[us]"
+                    << std::endl;
+            this->compute_time_output.close();
+        }
+
 
         this->robots_number = config["robots_number"].as<int>();
         this->sync_window = config["sync_window"].as<int>();        // us
         this->step_length = config["phy_step_size"].as<int>();      // us
+        this->max_neighbors = config["max_neighbors"].as<int>();
+
+        this->current_sim_time = rclcpp::Time(0);
+        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9);    // from s to ns
 
         if (sync_window % step_length != 0)
         {
@@ -191,7 +256,7 @@ public:
             exit(EXIT_FAILURE);
         }
 
-        /* Temporary solution so that the obstacles are similar in viragh and ns-3. launch viragh simulator with "-obst obstacles/cosim_obstacles.default"*/
+        /* Temporary solution so that the obstacles are similar in viragh and ns-3. Must launch viragh simulator with "-obst obstacles/cosim_obstacles.default"*/
         std::ofstream f;
         f.open(this->get_parameter("viragh_path").get_parameter_value().get<std::string>()+"/obstacles/cosim_obstacles.default", std::ios::out);
         f << "[init]\n\nangle=0\n\n[obstacles]\n\n";
@@ -277,6 +342,7 @@ public:
         socket_coord = new UDSSocket(io_context);
         socket_coord->accept(config["phy_uds_server_address"].as<std::string>(), 0);
 
+
         /* ---- Create socket (client) with Viragh's simulator ---- */
         Socket *socket_viragh;
         boost::asio::io_context io_context2;
@@ -290,12 +356,12 @@ public:
         for (int i = 0; i < this->robots_number; i++)
         {
             for (int j = 0; j < this->robots_number; j++){
-                array_to_transmit[1+ i * 2 * this->robots_number + 2*j] = -1.0;
-                array_to_transmit[1+ i * 2 * this->robots_number + 2*j+1] = -1.0;
+                array_to_transmit[1+ i * 2 * this->robots_number + 2*j] = -1.0;         // neighbor ID
+                array_to_transmit[1+ i * 2 * this->robots_number + 2*j+1] = -1.0;       // neighbor Received
             }
         }
 
-        while (true)
+        while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0))
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
@@ -304,7 +370,7 @@ public:
             // Transform the message received from the UDS socket (string -> protobuf)
             PhysicsUpdate_msg.ParseFromString(received_data);
 
-            std::cout << "Received message from Coordinator" << std::endl;
+            // std::cout << "Received message from Coordinator" << std::endl;
 
             array_to_transmit[0] = (double)this->step_length;
 
@@ -324,52 +390,84 @@ public:
 
                 for (int i = 0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
                 {
+                    int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
                     for (int j = 0; j < neighbors_list_msg.ordered_neighbors(i).neighborid_size(); j++)
                     {
-                        array_to_transmit[1+ 2 * this->robots_number * i + 2*j] = neighbors_list_msg.ordered_neighbors(i).neighborid(j);
-                        array_to_transmit[1+ 2 * this->robots_number * i + 2*j + 1] = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
+                        array_to_transmit[1+ 2 * this->robots_number * agent_id + 2*j] = neighbors_list_msg.ordered_neighbors(i).neighborid(j);
+                        array_to_transmit[1+ 2 * this->robots_number * agent_id + 2*j + 1] = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
                     }
                 }
             }
             else
             {
-                RCLCPP_INFO(this->get_logger(), "Received a BEGIN message but empty neighbor information from the coordinator.");
+                RCLCPP_INFO(this->get_logger(), "Received a BEGIN message but empty neighbor information from the network simulator.");
             }
 
-            //print array_to_transmit
-            std::cout << "array_to_transmit: " << std::endl;
-            for (int i = 0; i < 1 + 2 * this->robots_number*this->robots_number; i++)
-            {
-                std::cout << array_to_transmit[i] << " ";
-            }
-            std::cout << std::endl;
+            // print array_to_transmit
+            // std::cout << "array_to_transmit: " << std::endl;
+            // for (int i = 0; i < 1 + 2 * this->robots_number*this->robots_number; i++)
+            // {
+            //     std::cout << array_to_transmit[i] << " ";
+            // }
+            // std::cout << std::endl;
 
-            std::cout << "array_length " << array_length << std::endl;
+
             socket_viragh->send_double_array(array_to_transmit, array_length); // phy_step_size in us
-            // socket_viragh->send_one_message("wesh");
-            std::cout << "Sent BEGIN message to Viragh" << std::endl;
+            std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
 
+            // We receive an array from viragh-s simulator in the form :
+            // [targets_reached (int), coords[0][0] (double), coords[0][1], coords[0][2], coords[1][0], ... , coords[N][2] (double)]
             data = socket_viragh->receive_one_message();
-            std::cout << "Received VIRAGH message:" << std::endl;
 
-            print_robot_pose((RobotPose*)&data[0]);
+            if (this->save_compute_time)
+                {
+                    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+                    int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+                    this->compute_time_output.open(m_computation_time_file.c_str(), std::fstream::app);
+                    this->compute_time_output << wait << "\n";
+                    this->compute_time_output.close();
+                }
 
-            std::string robots_positions = generate_robots_positions((RobotPose*)&data[0], this->robots_number);
+            // print_robot_pose((RobotPose*)&data[0]);
+
+            // We create a pointer of RobotPose pointing to the first byte after the "target_reached" byte
+            std::string robots_positions = generate_robots_positions((RobotPose*)&data[1], this->robots_number);
+
+            bool targets_reached = false;
+            if((int)data.c_str()[0] == 1)
+            {
+                targets_reached = true;
+                std::cout << "Targets reached" << std::endl;
+            }        
 
             // Generate the response message
-            std::string response = gzip_compress(generate_response(robots_positions, PhysicsUpdate_msg));
+            std::string response = gzip_compress(generate_response(robots_positions, PhysicsUpdate_msg, targets_reached));
 
             // Send the response in the UDS socket
             socket_coord->send_one_message(response);
-            std::cout << "Sent message to Coordinator\n" << std::endl;
+            // std::cout << "Sent message to Coordinator\n" << std::endl;
 
+            this->current_sim_time += std::chrono::microseconds(this->step_length);
         }
-
+        RCLCPP_INFO(this->get_logger(), "Simulation finished.");
+        exit(EXIT_SUCCESS);
     }
 private:
     int robots_number;
     int sync_window;
     int step_length;
+    int max_neighbors;
+
+    rclcpp::Time current_sim_time;
+    rclcpp::Time simulation_length;
+
+    // saving of computation time
+    bool save_compute_time;
+    std::chrono::system_clock::time_point previous_end_time;
+    std::string m_computation_time_file;
+    std::ofstream compute_time_output;
+
+    std::string ros_ws_path;
 };
 
 int main(int argc, char **argv)
