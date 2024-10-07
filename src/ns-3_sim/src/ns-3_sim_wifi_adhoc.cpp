@@ -486,28 +486,54 @@ public:
 
         /* **************** APPLICATION MODULE **************** */
 
+
+        // "Flocking" flow : broadcast position and velocity to neighbors 
+        uint32_t nav_flow_broadcast_period = config["pose_broadcast_period"].as<uint32_t>();        // us
+        uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();        // bytes
+        uint32_t nav_flow_num_relays = config["max_neighbors"].as<uint32_t>();                   // units
+
+        // Random start, otherwise they never access the medium (I think)
+        double min = 0.0;
+        double max = 1.0;
+        Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable>();
+        x->SetAttribute("Min", DoubleValue(min));
+        x->SetAttribute("Max", DoubleValue(max));
+        for (int i = 0; i < numNodes; i++)
+        {
+            Ptr<ChainFlocking> flocking_application = CreateObject<ChainFlocking>();
+            Ptr<ConstantRandomVariable> random_var = CreateObject<ConstantRandomVariable>();
+            random_var->SetAttribute("Constant", DoubleValue(nav_flow_broadcast_period/1000000.0f)); // from us to s (because custom class Sender uses Interval as Seconds)
+            flocking_application->SetAttribute("Interval", PointerValue(random_var));
+            flocking_application->SetAttribute("PacketSize", UintegerValue(nav_flow_packet_size));
+            flocking_application->SetAttribute("Port", UintegerValue(8080));
+            flocking_application->SetStartTime(Seconds(0.0 + x->GetValue()));
+            flocking_application->SetAttribute("NumRelays", UintegerValue(nav_flow_num_relays));
+            flocking_application->SetAttribute("Timeout", TimeValue(Seconds(1.0)));
+            if (YAML::Node nav_flow_target = config["secondary_objectives"][i])
+            {
+                if(nav_flow_target[3].as<bool>())
+                {
+                    flocking_application->SetLeaderRank(0);
+                }
+                else
+                {
+                    flocking_application->SetLeaderRank(UINT32_MAX-1);
+                }
+            }
+
+            this->nodes.Get(i)->AddApplication(flocking_application);
+        }
+
+
         // "Mission" flow : unicast, unidirectional
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
         uint32_t source_node_id = config["mission_flow"]["source_robot_id"].as<uint32_t>();
         uint32_t sink_node_id = config["mission_flow"]["sink_robot_id"].as<uint32_t>();
-        double start_traffic_time = config["mission_flow"]["start_traffic_time"].as<double>(); // s
-        double stop_traffic_time = config["mission_flow"]["stop_traffic_time"].as<double>();   // s
-        uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();           // bytes
-        uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                 // us
+        double start_traffic_time = config["mission_flow"]["start_traffic_time"].as<double>();  // s
+        double stop_traffic_time = config["mission_flow"]["stop_traffic_time"].as<double>();    // s
+        uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
+        uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
         uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();
-
-        // UdpClientHelper mission_flow_sender(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal(), mission_flow_port);
-        // mission_flow_sender.SetAttribute("MaxPackets", UintegerValue(4294967295));
-        // mission_flow_sender.SetAttribute("Interval", TimeValue(MicroSeconds(interval)));
-        // mission_flow_sender.SetAttribute("PacketSize", UintegerValue(packet_size));
-        // ApplicationContainer mission_flow_sender_app = mission_flow_sender.Install(this->nodes.Get(source_node_id));
-        // mission_flow_sender_app.Start(Seconds(start_traffic_time));
-        // mission_flow_sender_app.Stop(Seconds(stop_traffic_time));
-
-        // UdpServerHelper mission_flow_receiver(mission_flow_port);
-        // ApplicationContainer mission_flow_receiver_app = mission_flow_receiver.Install(this->nodes.Get(sink_node_id));
-        // mission_flow_receiver_app.Start(Seconds(1.0));
-        // mission_flow_receiver_app.Stop(simEndTime);
 
         Ptr<Sender> sender = CreateObject<Sender>();
         Ptr<Receiver> receiver = CreateObject<Receiver>();
@@ -517,12 +543,12 @@ public:
             source_node->AddApplication(sender);
             sender->SetStartTime(Seconds(start_traffic_time));
             sender->SetStopTime(Seconds(stop_traffic_time));
-            sender->SetAttribute("Destination", Ipv4AddressValue(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal()));
+            sender->SetAttribute("Destination", Ipv4AddressValue(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal()));
             sender->SetAttribute("Port", UintegerValue(mission_flow_port));
             sender->SetAttribute("PacketSize", UintegerValue(packet_size));
             sender->SetAttribute("NumPackets", UintegerValue(4294967295));
             Ptr<ConstantRandomVariable> rand = CreateObject<ConstantRandomVariable>();
-            rand->SetAttribute("Constant", DoubleValue(interval / 1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
+            rand->SetAttribute("Constant", DoubleValue(interval/1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
             sender->SetAttribute("Interval", PointerValue(rand));
 
             Ptr<ns3::Node> sink_node = this->nodes.Get(sink_node_id);
@@ -531,63 +557,6 @@ public:
             receiver->SetAttribute("Port", UintegerValue(mission_flow_port));
         }
 
-        // "Navigation" flow : broadcast position and velocity to neighbors
-        // UDP server on all nodes to receive the UDP pose broadcast traffic
-        uint16_t port = 4000;
-        UdpServerHelper server(port);
-        ApplicationContainer servers;
-        for (int i = 0; i < numNodes; i++)
-        {
-            ApplicationContainer app = server.Install(nodes.Get(i));
-            app.Start(Seconds(1.0));
-            app.Stop(simEndTime);
-            if (app.Get(0)->TraceConnect("RxWithAddresses", std::to_string(i), MakeCallback(&Ns3Simulation::server_receive_clbk, this)))
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Connected trace Rx for node %d.", i);
-            }
-            else
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Could not connect trace Rx for node %d.", i);
-                exit(EXIT_FAILURE);
-            }
-            servers.Add(app);
-        }
-
-        // UDP client on all nodes that regularly sends a small UDP broadcast packet, simulating pose sharing between agents
-        double nav_flow_broadcast_period = config["pose_broadcast_period"].as<double>();
-        uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();
-
-        Time interPacketInterval = MicroSeconds(nav_flow_broadcast_period);
-        uint32_t maxPacketCount = 4294967295;
-        UdpClientHelper client(broadcastAddress, port);
-        client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
-        client.SetAttribute("Interval", TimeValue(interPacketInterval));
-        client.SetAttribute("PacketSize", UintegerValue(nav_flow_packet_size));
-
-        // Random start, otherwise they never access the medium (I think)
-        double min = 0.0;
-        double max = 1.0;
-        Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable>();
-        x->SetAttribute("Min", DoubleValue(min));
-        x->SetAttribute("Max", DoubleValue(max));
-        ApplicationContainer clients;
-        for (int i = 0; i < numNodes; i++)
-        {
-            ApplicationContainer app = client.Install(nodes.Get(i));
-            app.Start(Seconds(1.0 + x->GetValue()));
-            app.Stop(simEndTime);
-            if (app.Get(0)->TraceConnect("Tx", std::to_string(i), MakeCallback(&Ns3Simulation::client_send_clbk, this)))
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Connected trace Tx for node %d.", i);
-            }
-            else
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Could not connect trace Tx for node %d.", i);
-                exit(EXIT_FAILURE);
-            }
-            clients.Add(app);
-        }
-        RCLCPP_DEBUG(this->get_logger(), "Number of client applications: %d", clients.GetN());
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of APPLICATION module");
 
         /* **************** STATS MODULE **************** */
