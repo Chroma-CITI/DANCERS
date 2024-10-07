@@ -207,28 +207,6 @@ ament_target_dependencies(ns-3_sim_wifi_adhoc
   protobuf_msgs
   rclcpp)
 
-add_executable(test_aodv_ns3 src/test_aodv_ns3.cpp
-  include/${PROJECT_NAME}/wifi-application.cpp 
-  include/${PROJECT_NAME}/wifi-application.h
-  include/${PROJECT_NAME}/chain-flocking-application.cpp
-  include/${PROJECT_NAME}/chain-flocking-application.h
-  include/${PROJECT_NAME}/pick-neighbors-header.cpp
-  include/${PROJECT_NAME}/pick-neighbors-header.h)
-target_link_libraries(test_aodv_ns3
-  ns3::libcore
-  ns3::libwifi
-  ns3::libmobility
-  ns3::libaodv
-  ns3::libinternet
-  ns3::libbuildings
-  ns3::libpropagation
-  ns3::libnetwork
-  ns3::libapplications)
-ament_target_dependencies(test_aodv_ns3
-  Boost 
-  rclcpp)
-
-
 include_directories(include/${PROJECT_NAME})
 include_directories(../_include_all)
 
@@ -243,7 +221,6 @@ INSTALL(
   # ns-3_only_ap
   # ns-3_only_csma
   ns-3_sim_wifi_adhoc
-  test_aodv_ns3
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
