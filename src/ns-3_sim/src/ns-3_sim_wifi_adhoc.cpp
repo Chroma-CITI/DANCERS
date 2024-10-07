@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <memory>
 
 #include "boost/filesystem.hpp"
 
@@ -48,6 +49,7 @@
 #include "ns3/stats-module.h"
 
 #include "wifi-application.h"
+#include "chain-flocking-application.h"
 
 #include "protobuf_msgs/network_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
@@ -158,41 +160,19 @@ void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::st
 }
 
 std::string
-generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors){
+generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors){
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
     for (auto const& agent : neighbors)
     {
-        // Allow nodes 0 and 1 not only have 1 neighbor
-        int max_neigh_copy = max_neighbors;
-        // if (agent.first == 0 || agent.first == 1)
-        // {
-        //     max_neigh_copy = 1;
-        // } 
-        std::vector<double> ordered_pathlosses;
         ordered_neighbors_proto::OrderedNeighbors* neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         neighbor_msg->set_agentid(agent.first);
-        int num_neighbors = 0;
-        // Sort the pathlosses to add them in the protobuf message in the right order.
         for (auto const& neigh : agent.second)
         {
-            ordered_pathlosses.push_back(neigh.second);
-        }
-        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
-        for (auto const& pathloss : ordered_pathlosses)
-        {
-            for (auto const& neigh : agent.second)
-            {
-                if (neigh.second == pathloss && pathloss != 0 && num_neighbors < max_neigh_copy) // search on the values of the pathloss map, generates a bug if two agent pairs have exactly the same pathloss
-                {
-                    neighbor_msg->add_neighborid(neigh.first);
-                    neighbor_msg->add_linkquality(neigh.second);
-                    num_neighbors++;
-                }
-            }
+            neighbor_msg->add_neighborid(neigh.first);
+            neighbor_msg->add_linkquality(neigh.second);
         }
         // std::cout << neighbor_msg->DebugString() << std::endl;
     }
-    
 
     std::string str_response;
     ordered_neighbors_msg.SerializeToString(&str_response);
@@ -210,11 +190,11 @@ generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors,
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-generate_response(network_update_proto::NetworkUpdate NetworkUpdate_msg, std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors)
+generate_response(network_update_proto::NetworkUpdate NetworkUpdate_msg, std::map<uint32_t, std::map<uint32_t, double>> neighbors)
 {
     // Change message type to "END"
     NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    NetworkUpdate_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg(neighbors, max_neighbors)));
+    NetworkUpdate_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg(neighbors)));
     std::string str_response;
     NetworkUpdate_msg.SerializeToString(&str_response);
 
@@ -483,8 +463,8 @@ public:
         InternetStackHelper internet;
         ipv4List.Add(aodv, 100);
 
-        Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
-        aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+        // Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+        // aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
 
         internet.SetRoutingHelper(ipv4List);
         internet.Install(this->nodes);
@@ -499,6 +479,44 @@ public:
 
         /* **************** APPLICATION MODULE **************** */
 
+        // "Flocking" flow : broadcast position and velocity to neighbors 
+        uint32_t nav_flow_broadcast_period = config["pose_broadcast_period"].as<uint32_t>();        // us
+        uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();        // bytes
+        uint32_t nav_flow_num_relays = config["max_neighbors"].as<uint32_t>();                   // units
+
+        // Random start, otherwise they never access the medium (I think)
+        double min = 0.0;
+        double max = 1.0;
+        Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable>();
+        x->SetAttribute("Min", DoubleValue(min));
+        x->SetAttribute("Max", DoubleValue(max));
+        for (int i = 0; i < numNodes; i++)
+        {
+            Ptr<ChainFlocking> flocking_application = CreateObject<ChainFlocking>();
+            Ptr<ConstantRandomVariable> random_var = CreateObject<ConstantRandomVariable>();
+            random_var->SetAttribute("Constant", DoubleValue(nav_flow_broadcast_period/1000000.0f)); // from us to s (because custom class Sender uses Interval as Seconds)
+            flocking_application->SetAttribute("Interval", PointerValue(random_var));
+            flocking_application->SetAttribute("PacketSize", UintegerValue(nav_flow_packet_size));
+            flocking_application->SetAttribute("Port", UintegerValue(8080));
+            flocking_application->SetStartTime(Seconds(0.0 + x->GetValue()));
+            flocking_application->SetAttribute("NumRelays", UintegerValue(nav_flow_num_relays));
+            flocking_application->SetAttribute("Timeout", TimeValue(Seconds(1.0)));
+            if (YAML::Node nav_flow_target = config["secondary_objectives"][i])
+            {
+                if(nav_flow_target[3].as<bool>())
+                {
+                    flocking_application->SetLeaderRank(0);
+                }
+                else
+                {
+                    flocking_application->SetLeaderRank(UINT32_MAX-1);
+                }
+            }
+
+            this->nodes.Get(i)->AddApplication(flocking_application);
+        }
+
+
         // "Mission" flow : unicast, unidirectional
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
         uint32_t source_node_id = config["mission_flow"]["source_robot_id"].as<uint32_t>();
@@ -508,19 +526,6 @@ public:
         uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
         uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
         uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();
-
-        // UdpClientHelper mission_flow_sender(this->nodes.Get(sink_node_id)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal(), mission_flow_port);
-        // mission_flow_sender.SetAttribute("MaxPackets", UintegerValue(4294967295));
-        // mission_flow_sender.SetAttribute("Interval", TimeValue(MicroSeconds(interval)));
-        // mission_flow_sender.SetAttribute("PacketSize", UintegerValue(packet_size));
-        // ApplicationContainer mission_flow_sender_app = mission_flow_sender.Install(this->nodes.Get(source_node_id));
-        // mission_flow_sender_app.Start(Seconds(start_traffic_time));
-        // mission_flow_sender_app.Stop(Seconds(stop_traffic_time));
-
-        // UdpServerHelper mission_flow_receiver(mission_flow_port);
-        // ApplicationContainer mission_flow_receiver_app = mission_flow_receiver.Install(this->nodes.Get(sink_node_id));
-        // mission_flow_receiver_app.Start(Seconds(1.0));
-        // mission_flow_receiver_app.Stop(simEndTime);
 
         Ptr<Sender> sender = CreateObject<Sender>();
         Ptr<Receiver> receiver = CreateObject<Receiver>();
@@ -544,6 +549,7 @@ public:
             receiver->SetAttribute("Port", UintegerValue(mission_flow_port));
         }
 
+/*
         // "Navigation" flow : broadcast position and velocity to neighbors
         // UDP server on all nodes to receive the UDP pose broadcast traffic
         uint16_t port = 4000;
@@ -603,7 +609,7 @@ public:
         RCLCPP_DEBUG(this->get_logger(), "Number of client applications: %d", clients.GetN());
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of APPLICATION module");
 
-
+*/
         /* **************** STATS MODULE **************** */
         
         std::string experiment = config["experience_name"].as<std::string>();
@@ -701,14 +707,15 @@ public:
 
                 // Initialize empty protobuf message type [NetworkUpdate]
                 network_update_proto::NetworkUpdate NetworkUpdate_msg;
+
                 // Transform the message received from the UDS socket [string] -> [protobuf]
                 NetworkUpdate_msg.ParseFromString(received_data);
 
+                // Optional boolean field if the targets have been reached.
                 this->targets_reached = NetworkUpdate_msg.targets_reached();
 
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
-                rclcpp::Clock clock;
                 robots_positions_proto::RobotsPositions robots_positions_msg;
 
                 // if (currTime % Seconds(0.1) == Time(0)){
@@ -723,12 +730,13 @@ public:
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
+                    rclcpp::Clock clock;
                     if(this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size()){
                         if(verbose){
                             RCLCPP_WARN_THROTTLE(this->get_logger(),
                                     clock,
                                     1000, // ms
-                                    "Network simulator received position information of %i robots but NS-3 has %u nodes.",
+                                    "Network simulator received position information of %i robots but ns-3 has %u nodes.",
                                     robots_positions_msg.robot_pose_size(),
                                     this->nodes.GetN());
                         }
@@ -765,7 +773,7 @@ public:
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
-                std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors, this->max_neighbors));
+                std::string response=gzip_compress(generate_response(NetworkUpdate_msg, neighbors));
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
@@ -802,15 +810,6 @@ public:
             output->Output(data);
         }
 
-
-        int k = 0;
-        for (auto s = servers.Begin(); s != servers.End(); ++s)
-        {
-            Ptr<UdpServer> server = (*s)->GetObject<UdpServer>();
-            std::cout << "Position server " << k << " received " << server->GetReceived()*nav_flow_packet_size << " bytes." << std::endl;
-            k++;
-        }
-        std::cout << std::endl;
 
         if (mission_flow)
         {
@@ -919,26 +918,15 @@ Ns3Simulation::create_neighbors(Time timeout)
     std::map<uint32_t, std::map<uint32_t, double>> neighbors;
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        for (uint32_t j = 0; j < this->nodes.GetN(); j++)
+        if (this->nodes.Get(i)->GetApplication(0))
         {
-            if (i != j && this->neigh_last_received.find(i) != this->neigh_last_received.end())
-            {
-                if (this->neigh_last_received[i].find(j) != this->neigh_last_received[i].end())
-                {
-                    Time now = Simulator::Now();
-                    Time last_received = this->neigh_last_received[i][j];
-                    if (now - last_received < timeout)
-                    {
-                        // agent j is a potential neighbor of agent i
-
-                        // restrict neighborhood to be "chain-like"
-                        if (j == i-1 || j == i+1)
-                        {
-                            neighbors[i][j] = -this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
-                        }
-                    }
-                }
-            }
+            // Get neighbors
+            Ptr<ChainFlocking> app_flocking = DynamicCast<ChainFlocking, Application>(this->nodes.Get(i)->GetApplication(0));
+            neighbors[i] = app_flocking->GetCurrentNeighbors();
+        } 
+        else 
+        {
+            RCLCPP_FATAL(this->get_logger(), "Node %d does not have anything at application 1 !", i);
         }
     }
     return neighbors;
@@ -947,20 +935,18 @@ Ns3Simulation::create_neighbors(Time timeout)
 void
 Ns3Simulation::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
-    if (this->targets_reached){
-        this->missionTotalRx->PacketUpdate("", packet);
-        RCLCPP_INFO(this->get_logger(), "Mission sink received a packet and both source and sink are in targets !");
+    this->missionTotalRx->PacketUpdate("", packet);
+    RCLCPP_INFO(this->get_logger(), "Mission sink received a packet !");
 
-        myTimestampTag timestamp;
-        if (packet->FindFirstMatchingByteTag(timestamp))
-        {
-            Time tx = timestamp.GetTimestamp();
-            this->missionDelay->Update(Simulator::Now() - tx);
-        }
-        else
-        {
-            RCLCPP_WARN(this->get_logger(), "Packet received without timestamp");
-        }
+    myTimestampTag timestamp;
+    if (packet->FindFirstMatchingByteTag(timestamp))
+    {
+        Time tx = timestamp.GetTimestamp();
+        this->missionDelay->Update(Simulator::Now() - tx);
+    }
+    else
+    {
+        RCLCPP_WARN(this->get_logger(), "Packet received without timestamp");
     }
 }
 
@@ -996,6 +982,8 @@ Ns3Simulation::updateNeighborsPathloss()
                 // std::cout << "Node " << i << " -> Node " << j << " : " << rxPow << std::endl;
             }
         }
+        Ptr<ChainFlocking> app_flocking = DynamicCast<ChainFlocking, Application>(this->nodes.Get(i)->GetApplication(0));
+        app_flocking->SetLinkQualities(std::map<uint32_t, double>(this->neigh_pathloss[i]));
     }
 }
 

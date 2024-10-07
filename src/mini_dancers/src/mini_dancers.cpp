@@ -123,7 +123,7 @@ class MiniDancers : public rclcpp::Node
             this->radius = 10.0;
             this->omega = 0.005;
             this->target_altitude = config["target_altitude"].as<double>();
-            for (auto goal : config["VAT_flocking_parameters"]["secondary_objectives"])
+            for (auto goal : config["secondary_objectives"])
             {
                 this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
                 std::cout << "agent " << goal.first.as<int>() << " : " << this->secondary_objectives[goal.first.as<int>()].transpose() << std::endl;
