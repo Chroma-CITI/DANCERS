@@ -17,6 +17,7 @@ find_package(protobuf_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(dancers_msgs REQUIRED)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     find_package(gz-sim8 REQUIRED)
@@ -44,6 +45,7 @@ ament_target_dependencies(gazebo_sim
   protobuf_msgs
   geometry_msgs
   nav_msgs
+  dancers_msgs
 )
 
 ament_target_dependencies(gazebo_only

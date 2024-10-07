@@ -25,8 +25,11 @@
 
 #include "protobuf_msgs/physics_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
+#include "protobuf_msgs/ordered_neighbors.pb.h"
 
+// ROS2 messages
 #include <nav_msgs/msg/odometry.hpp>
+#include <dancers_msgs/msg/neighbor_id_quality_array.hpp>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
@@ -35,8 +38,6 @@
 #include <boost/iostreams/filter/gzip.hpp>
 
 #include <yaml-cpp/yaml.h>
-
-static std::string m_computation_time_file;
 
 /**
  * \brief Compresses a string with the zip protocol.
@@ -247,10 +248,14 @@ public:
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
         param_desc.description = "Path to the YAML configuration file.";
         this->declare_parameter("config_file", "", param_desc);
+        param_desc.description = "Executes in co-simulation or ns-3 only.";
+        this->declare_parameter("cosim_mode", true, param_desc);
         this->declare_parameter("verbose", false);
 
         // Fetch the parameter path to the config file using ros2 parameter
         std::string config_file_path = this->get_parameter("config_file").get_parameter_value().get<std::string>();
+        bool cosim_mode = this->get_parameter("cosim_mode").get_parameter_value().get<bool>();
+        bool verbose = this->get_parameter("verbose").get_parameter_value().get<bool>();
 
         // Verify existence of the config file, abort if not found
         if (access(config_file_path.c_str(), F_OK) != 0)
@@ -259,27 +264,29 @@ public:
             exit(EXIT_FAILURE);
         }
 
+        // Get the path to the ROS_WS, it is mandatory to run
+        if (getenv("ROS_WS") == NULL)
+        {
+            RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            this->ros_ws_path = getenv("ROS_WS");
+        }
+
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
+        // ========================= COMPUTATION TIME SAVING =========================
         this->save_compute_time = config["save_compute_time"].as<bool>();
 
-        // Store the names of the robots in gazebo in a vector
-        std::vector<std::string> gazebo_models;
-        for (int i = 1; i <= config["robots_number"].as<int>(); i++)
-        {
-            std::string robot_name = config["robots_model"].as<std::string>() + "_" + std::to_string(i); // e.g. x500_1, x500_2, etc.
-            gazebo_models.push_back(robot_name);
-            RCLCPP_INFO(this->get_logger(), "Tracked robot: %s", robot_name.c_str());
-        }
-
-        // vvvvvvvvvvvvvvvvvvvvvvvv DATA SAVING vvvvvvvvvvvvvvvvvvvvvvvv
         if (this->save_compute_time)
         {
 
             // Create a folder based on the experience name, if not existant already
             std::string experience_name = config["experience_name"].as<std::string>();
-            if (boost::filesystem::create_directories("./data/" + experience_name))
+            if (boost::filesystem::create_directories(this->ros_ws_path + "/data/" + experience_name))
             {
                 RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
             }
@@ -293,7 +300,7 @@ public:
             int i = 1;
             while (m_computation_time_file.empty())
             {
-                temp_path = "./data/" + experience_name + "/robot_sim_data" + std::to_string(i) + ".csv";
+                temp_path = this->ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
                 if (boost::filesystem::exists(temp_path))
                 {
                     i++;
@@ -305,26 +312,90 @@ public:
             }
 
             // initialize the output file with headers
-            this->f.open(m_computation_time_file.c_str(), std::ios::out);
-            this->f << "Time[us]"
+            this->compute_time_output.open(m_computation_time_file.c_str(), std::ios::out);
+            this->compute_time_output << "Time[us]"
                     << std::endl;
-            this->f.close();
+            this->compute_time_output.close();
         }
-        // ^^^^^^^^^^^^^^^^^^^^^^^^ DATA SAVING ^^^^^^^^^^^^^^^^^^^^^^^^
 
-        // Store the system values
-        int sync_window = config["sync_window"].as<int>();
-        int step_length = config["phy_step_size"].as<int>(); // us
-        int update_rate = config["update_rate"].as<int>();
-        if (getenv("ROS_WS") == NULL)
+        // Store the names of the robots in gazebo in a vector
+        std::vector<std::string> gazebo_models;
+        for (int i = 1; i <= config["robots_number"].as<int>(); i++)
         {
-            RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
+            std::string robot_name = config["robots_model"].as<std::string>() + "_" + std::to_string(i); // e.g. x500_1, x500_2, etc.
+            gazebo_models.push_back(robot_name);
+            RCLCPP_INFO(this->get_logger(), "Tracked robot: %s", robot_name.c_str());
+        }
+
+        // ========================= ROS2 PUBLISHERS =========================
+        // Prepare the QoS that we will assign to the publishers / subscribers
+        auto qos_sub = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
+        auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().transient_local();
+
+
+        for (std::string robot_name : gazebo_models)
+        {
+            this->neighbors_pub_vector_.push_back(this->create_publisher<dancers_msgs::msg::NeighborIdQualityArray>(robot_name + "/neighbors", qos_pub));
+        }
+
+        // ========================= GAZEBO SERVER CONFIGURATION =========================
+
+        // Set the PX4_GZ_MODEL environment variable, used by the PX4 SITL to know which model we use
+        // It is not a good practice to interact with the user's .bashrc, but well we do it anyway 
+        const char* home = std::getenv("HOME");
+        if (!home) {
+            std::cerr << "HOME environment variable not set." << std::endl;
             exit(EXIT_FAILURE);
         }
-        else
-        {
-            std::string ros_ws_path = getenv("ROS_WS");
+        // Construct the path to the .bashrc file
+        std::string bashrc_path = std::string(home) + "/.bashrc";
+
+        // Open the .bashrc file and a temporary file
+        std::ifstream file_in(bashrc_path);
+        std::ofstream file_out("temp.txt");
+        if (!file_in.is_open() || !file_out.is_open()) {
+            std::cerr << "Failed to open .bashrc file." << std::endl;
+            exit(EXIT_FAILURE);
         }
+        // Look for a line starting with export PX4_GZ_MODEL and replace it with the right model
+        std::string line;
+        bool found_PX4_GZ_MODEL = false;
+        bool found_DANCERS_NUM_ROBOTS = false;
+        while (std::getline(file_in, line)) {
+            if (line.rfind("export PX4_GZ_MODEL=", 0) == 0) { // Line starts with "export PX4_GZ_MODEL="
+                line = "export PX4_GZ_MODEL=" + config["robots_model"].as<std::string>(); // Modify the line
+                found_PX4_GZ_MODEL = true;
+            }
+            if (line.rfind("export DANCERS_NUM_ROBOTS=", 0) == 0) { // Line starts with "export PX4_GZ_MODEL="
+                line = "export DANCERS_NUM_ROBOTS=" + config["robots_number"].as<std::string>(); // Modify the line
+                found_DANCERS_NUM_ROBOTS = true;
+            }
+
+            file_out << line << std::endl;
+        }
+        if (found_PX4_GZ_MODEL == false)
+        {
+            file_out << "export PX4_GZ_MODEL=" + config["robots_model"].as<std::string>() << std::endl;
+        }
+        if (found_DANCERS_NUM_ROBOTS == false)
+        {
+            file_out << "export DANCERS_NUM_ROBOTS=" + config["robots_model"].as<std::string>() << std::endl;
+        }
+        // Close the files
+        file_in.close();
+        file_out.close();
+        // Replace original file with modified file (I hope deleting the .bashrc file have no side-effect, even for a very short time !)
+        std::remove(bashrc_path.c_str());
+        std::rename("temp.txt", bashrc_path.c_str());
+
+
+        // Store the system values
+        this->sync_window = config["sync_window"].as<int>();
+        this->step_length = config["phy_step_size"].as<int>(); // us
+        int update_rate = config["update_rate"].as<int>();
+
+        this->current_sim_time = rclcpp::Time(0);
+        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9);    // from s to ns
 
         if (sync_window % step_length != 0)
         {
@@ -343,7 +414,7 @@ public:
 
         // Populate with some configuration, for example, the SDF file to load
         // modify_sdf_world(config["world_sdf_path"].as<std::string>(), step_length, update_rate);
-        serverConfig.SetSdfFile(ros_ws_path + "/" + config["world_sdf_path"].as<std::string>());
+        serverConfig.SetSdfFile(this->ros_ws_path + "/" + config["world_sdf_path"].as<std::string>());
         serverConfig.SetUpdateRate(update_rate); // in Hz
 
         // Instantiate server
@@ -424,7 +495,7 @@ public:
 
             req.set_sdf(buildingSdf);
 
-            if (this->get_parameter("verbose").get_parameter_value().get<bool>())
+            if (verbose)
             {
                 RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
             }
@@ -473,7 +544,7 @@ public:
 
                 req.set_sdf(objectiveSdf);
 
-                if (this->get_parameter("verbose").get_parameter_value().get<bool>())
+                if (verbose)
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
                 }
@@ -493,7 +564,7 @@ public:
         service = "/world/" + world_name + "/set_physics";
         gz::msgs::Physics request;
         gz::msgs::Boolean res;
-        request.set_max_step_size((double)step_length * 0.000001); // step_length in us, converted to seconds
+        request.set_max_step_size((double)this->step_length * 0.000001); // step_length in us, converted to seconds
         executed = node.Request(service, request, timeout, res, result);
         check_service_results(service, executed, result);
 
@@ -527,84 +598,139 @@ public:
             RCLCPP_INFO(this->get_logger(), "Subscribed to /world/%s/pose/info", world_name.c_str());
         }
 
-        // Create and connect a UDS Socket on /tmp/phy_server_socket
-        // boost::asio::io_service io_service;
-        // ::unlink("/tmp/phy_server_socket");
-        // boost::asio::local::stream_protocol::endpoint ep("/tmp/phy_server_socket");
-        // boost::asio::local::stream_protocol::acceptor acceptor(io_service, ep);
-        // boost::asio::local::stream_protocol::socket socket(io_service);
-        // acceptor.accept(socket);
-        // RCLCPP_INFO(this->get_logger(), "Finished setting up UDS socket at /tmp/phy_server_socket");
-
-        Socket *socket;
-        boost::asio::io_context io_context;
-        if (config["phy_use_uds"].as<bool>())
+        if (cosim_mode)
         {
-            socket = new UDSSocket(io_context);
-            socket->accept(config["phy_uds_server_address"].as<std::string>(), 0);
+            // **************** UDS SOCKET FOR PHYSICS COORDINATOR ****************
+            // Create and connect UDS Socket
+            Socket *socket;
+            boost::asio::io_context io_context;
+            if (config["phy_use_uds"].as<bool>())
+            {
+                socket = new UDSSocket(io_context);
+                socket->accept(config["phy_uds_server_address"].as<std::string>(), 0);
+            }
+            else
+            {
+                socket = new TCPSocket(io_context);
+                socket->accept(config["phy_ip_server_address"].as<std::string>(), config["phy_ip_server_port"].as<unsigned short>());
+            }
+
+            /******** [Step 3] Main simulation loop ********/
+            double sim_time = 0.0;
+
+            while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0))
+            {
+                // std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+                // Wait until reception of a message on the UDS socket
+                std::string received_data = gzip_decompress(socket->receive_one_message());
+                // std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+                // int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
+                // if(wait != 0)
+                //     RCLCPP_WARN(this->get_logger(), "Received %li bytes in %li microseconds", received_data.size(), wait);
+
+                // Initialize empty protobuf message type [PhysicsUpdate]
+                physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
+
+                // Transform the message received from the UDS socket (string -> protobuf)
+                PhysicsUpdate_msg.ParseFromString(received_data);
+
+                if(!PhysicsUpdate_msg.ordered_neighbors().empty())
+                {
+
+                    ordered_neighbors_proto::OrderedNeighborsList neighbors_list_msg;
+                    neighbors_list_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.ordered_neighbors()));
+
+                    // std::cout << neighbors_list_msg.DebugString() << std::endl;
+
+                    // convert the received protobuf message to ROS2 messages and publish them on separate topics
+                    for (int i = 0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
+                    {
+                        dancers_msgs::msg::NeighborIdQualityArray msg{};
+                        int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
+                        for (int j = 0; j < neighbors_list_msg.ordered_neighbors(i).neighborid_size(); j++)
+                        {
+                            dancers_msgs::msg::NeighborIdQuality neighbor{};
+                            neighbor.id = neighbors_list_msg.ordered_neighbors(i).neighborid(j) + 1;                // ATTENTION: here we add 1 to the agent IDs because we want the IDs to start at 1 when using Gazebo, because the PX4 works with instance numbers starting at 1 !
+                            neighbor.link_quality = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
+                            msg.neighbors_id_quality_array.push_back(neighbor);
+                        }
+                        this->neighbors_pub_vector_[agent_id]->publish(msg);
+                    }
+                }
+                else
+                {
+                    RCLCPP_DEBUG(this->get_logger(), "Received a BEGIN message but empty neighbor information from the network simulator.");
+                }
+
+                std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+                // Advance the server in this thread (blocking) for W iterations, pause at the end
+                server.Run(true /*blocking*/, 1 /*iterations*/, false /*paused*/);
+                if (this->save_compute_time)
+                {
+                    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+                    int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(); // us
+                    this->compute_time_output.open(m_computation_time_file.c_str(), std::fstream::app);
+                    this->compute_time_output << wait << "\n";
+                    this->compute_time_output.close();
+                }
+
+                if (verbose)
+                {
+                    // 34 = Blue :)
+                    RCLCPP_INFO(this->get_logger(), "\x1b[34m[%f] Advanced %i milliseconds\x1b[0m", sim_time, this->sync_window / 1000);
+                }
+
+                // generate the channel_data message from the pose of the robots
+                rob_pos_mutex.lock();
+                std::string robots_positions = generate_robots_positions(robot_poses);
+                rob_pos_mutex.unlock();
+
+                // Generate the response message
+                std::string response = gzip_compress(generate_response(robots_positions, PhysicsUpdate_msg));
+
+                // Send the response in the UDS socket
+                socket->send_one_message(response);
+
+                this->current_sim_time += std::chrono::microseconds(this->step_length);
+
+            }
         }
-        else
+        else 
         {
-            socket = new TCPSocket(io_context);
-            socket->accept(config["phy_ip_server_address"].as<std::string>(), config["phy_ip_server_port"].as<unsigned short>());
-        }
-
-        /******** [Step 3] Main simulation loop ********/
-        double sim_time = 0.0;
-
-        while (true)
-        {
-
-            sim_time += sync_window * 0.000001; // step_length in us, sim_time in seconds
-
-            // std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-            // Wait until reception of a message on the UDS socket
-            std::string received_data = gzip_decompress(socket->receive_one_message());
-            // std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
-            // int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-            // if(wait != 0)
-            //     RCLCPP_WARN(this->get_logger(), "Received %li bytes in %li microseconds", received_data.size(), wait);
-
-            // Initialize empty protobuf message type [PhysicsUpdate]
-            physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
-
-            // Transform the message received from the UDS socket (string -> protobuf)
-            PhysicsUpdate_msg.ParseFromString(received_data);
-
             std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-            // Advance the server in this thread (blocking) for W iterations, pause at the end
-            server.Run(true /*blocking*/, steps_per_window /*iterations*/, false /*paused*/);
+
+            server.Run();
+
             if (this->save_compute_time)
             {
                 std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
                 int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(); // us
-                this->f.open(m_computation_time_file.c_str(), std::fstream::app);
-                this->f << wait << "\n";
-                this->f.close();
+                this->compute_time_output.open(m_computation_time_file.c_str(), std::fstream::app);
+                this->compute_time_output << wait << "\n";
+                this->compute_time_output.close();
             }
-
-            if (this->get_parameter("verbose").get_parameter_value().get<bool>())
-            {
-                // 34 = Blue :)
-                RCLCPP_INFO(this->get_logger(), "\x1b[34m[%f] Advanced %i milliseconds\x1b[0m", sim_time, sync_window / 1000);
-            }
-
-            // generate the channel_data message from the pose of the robots
-            rob_pos_mutex.lock();
-            std::string robots_positions = generate_robots_positions(robot_poses);
-            rob_pos_mutex.unlock();
-
-            // Generate the response message
-            std::string response = gzip_compress(generate_response(robots_positions, PhysicsUpdate_msg));
-
-            // Send the response in the UDS socket
-            socket->send_one_message(response);
         }
+        RCLCPP_INFO(this->get_logger(), "Simulation finished");
+        exit(EXIT_SUCCESS);
     }
 
 private:
+    // saving of computation time
     bool save_compute_time;
-    std::ofstream f;
+    std::chrono::system_clock::time_point previous_end_time;
+    std::string m_computation_time_file;
+    std::ofstream compute_time_output;
+
+    int step_length;
+    int sync_window;
+
+    rclcpp::Time current_sim_time;
+    rclcpp::Time simulation_length;
+
+    // ros2 publishers
+    std::vector< rclcpp::Publisher<dancers_msgs::msg::NeighborIdQualityArray>::SharedPtr > neighbors_pub_vector_;
+
+    std::string ros_ws_path;
 };
 
 int main(int argc, char **argv)

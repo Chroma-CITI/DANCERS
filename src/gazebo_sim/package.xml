@@ -13,6 +13,7 @@
   <depend>gazebo_ros_pkgs</depend>
   <depend>ros_net_sim_interfaces</depend>
   <depend>protobuf_msgs</depend>
+  <depend>dancers_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
