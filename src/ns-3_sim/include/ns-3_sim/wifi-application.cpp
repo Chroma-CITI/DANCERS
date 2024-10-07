@@ -266,6 +266,8 @@ Receiver::Receive(Ptr<Socket> socket)
         {
             NS_LOG_INFO("Received " << packet->GetSize() << " bytes from "
                                     << InetSocketAddress::ConvertFrom(from).GetIpv4());
+
+            std::cout << "yo" << std::endl;
             // Report the event to the trace.
             m_rxTrace(packet);
             m_received++;

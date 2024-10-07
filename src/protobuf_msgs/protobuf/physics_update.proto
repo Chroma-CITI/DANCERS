@@ -12,4 +12,5 @@ message PhysicsUpdate {
     uint32 time_val = 2;
     bytes robots_positions = 3;
     bytes ordered_neighbors = 4;
+    bool targets_reached = 5;
 }

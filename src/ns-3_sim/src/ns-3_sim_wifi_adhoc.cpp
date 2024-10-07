@@ -479,6 +479,7 @@ public:
 
         /* **************** APPLICATION MODULE **************** */
 
+/*
         // "Flocking" flow : broadcast position and velocity to neighbors 
         uint32_t nav_flow_broadcast_period = config["pose_broadcast_period"].as<uint32_t>();        // us
         uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();        // bytes
@@ -515,7 +516,7 @@ public:
 
             this->nodes.Get(i)->AddApplication(flocking_application);
         }
-
+*/
 
         // "Mission" flow : unicast, unidirectional
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
@@ -549,7 +550,7 @@ public:
             receiver->SetAttribute("Port", UintegerValue(mission_flow_port));
         }
 
-/*
+
         // "Navigation" flow : broadcast position and velocity to neighbors
         // UDP server on all nodes to receive the UDP pose broadcast traffic
         uint16_t port = 4000;
@@ -609,7 +610,7 @@ public:
         RCLCPP_DEBUG(this->get_logger(), "Number of client applications: %d", clients.GetN());
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of APPLICATION module");
 
-*/
+
         /* **************** STATS MODULE **************** */
         
         std::string experiment = config["experience_name"].as<std::string>();
@@ -675,6 +676,7 @@ public:
             data.AddDataCalculator(this->navTotalTxVector[i]);
         }
 
+        RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of STATS module");
 
         if(cosim_mode)
         {
@@ -753,7 +755,7 @@ public:
                     RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
                 }
 
-                this->updateNeighborsPathloss();
+                // this->updateNeighborsPathloss();
 
                 // Once all the events are scheduled, advance W time in the simulation and stop
                 Simulator::Stop(step_size);
@@ -918,15 +920,26 @@ Ns3Simulation::create_neighbors(Time timeout)
     std::map<uint32_t, std::map<uint32_t, double>> neighbors;
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        if (this->nodes.Get(i)->GetApplication(0))
+        for (uint32_t j = 0; j < this->nodes.GetN(); j++)
         {
-            // Get neighbors
-            Ptr<ChainFlocking> app_flocking = DynamicCast<ChainFlocking, Application>(this->nodes.Get(i)->GetApplication(0));
-            neighbors[i] = app_flocking->GetCurrentNeighbors();
-        } 
-        else 
-        {
-            RCLCPP_FATAL(this->get_logger(), "Node %d does not have anything at application 1 !", i);
+            if (i != j && this->neigh_last_received.find(i) != this->neigh_last_received.end())
+            {
+                if (this->neigh_last_received[i].find(j) != this->neigh_last_received[i].end())
+                {
+                    Time now = Simulator::Now();
+                    Time last_received = this->neigh_last_received[i][j];
+                    if (now - last_received < timeout)
+                    {
+                        // agent j is a potential neighbor of agent i
+
+                        // restrict neighborhood to be "chain-like"
+                        if (j == i-1 || j == i+1)
+                        {
+                            neighbors[i][j] = -this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
+                        }
+                    }
+                }
+            }
         }
     }
     return neighbors;

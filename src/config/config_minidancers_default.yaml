@@ -52,15 +52,15 @@ VAT_flocking_parameters:
   r_0_rep: 10
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3
+  r_0_shill: 10.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
 
 # secondary objectives of the drones, with the form robot_ID: [x, y, z, target (true)|sink (false)]
 secondary_objectives: 
-  0: [-80, 0, 10, false]
-  1: [80, 0, 10, true]
+  0: [0, -80, 10, false]
+  5: [40, 80, 10, true]
 
 target_altitude: 10.0 # Flocking is done at fixed altitude for now.
 
@@ -85,36 +85,36 @@ arena_center_x: 0
 arena_center_y: 0
 
 buildings:
-  # - id: 1
-  #   x: -50
-  #   y: 0
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 300
-  # - id: 2
-  #   x: 50
-  #   y: -45
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 210
-  # - id: 3
-  #   x: 5
-  #   y: 125
-  #   height: 20
-  #   size_x: 60
-  #   size_y: 50
-  # - id: 4
-  #   x: 10
-  #   y: 200
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 100
-  # - id: 5
-  #   x: 100
-  #   y: 150
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 200
+  - id: 1
+    x: -50
+    y: 0
+    height: 20
+    size_x: 50
+    size_y: 300
+  - id: 2
+    x: 50
+    y: -45
+    height: 20
+    size_x: 50
+    size_y: 210
+  - id: 3
+    x: 5
+    y: 125
+    height: 20
+    size_x: 60
+    size_y: 50
+  - id: 4
+    x: 10
+    y: 200
+    height: 20
+    size_x: 50
+    size_y: 100
+  - id: 5
+    x: 100
+    y: 150
+    height: 20
+    size_x: 50
+    size_y: 200
 
 # ******* GAZEBO *******
 
