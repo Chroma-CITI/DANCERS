@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-// PX4 messages
+// PX4 ROS messages
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
@@ -17,10 +17,13 @@
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 
-// ROS messages
+// Standard ROS messages
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+
+// DANCERS ROS messages
+#include <dancers_msgs/msg/neighbor_id_quality_array.hpp>
 
 // Obstacle detector messages
 #include "obstacle_detector/msg/obstacles.hpp"
@@ -76,17 +79,18 @@ static Eigen::Vector3d ENU_to_NED(Eigen::Vector3d cmd)
  */
 struct UAV_data
 {
-    uint64_t timestamp;
-    std::string name;
-    uint32_t id;
-    Eigen::Vector3d initial_position;
-    Eigen::Vector3d position;       // The position of a neighbor in the LOCAL frame, i.e. relative positions. OR in "my_data", position relative to launch position.
-    Eigen::Quaterniond orientation; // The quaternion of the orientation of the UAV's frame with respect to its launch orientation
-    Eigen::Vector3d velocity;       // The velocity of a robot in the GLOBAL frame. We don't need the origin of the velocity,
+    rclcpp::Time timestamp;                         // Timestamp of the last message received by this peer
+    std::string name;                           // Name of the peer in the form <robot_model>_<id>
+    uint32_t id;                                // ID of the peer
+    Eigen::Vector3d initial_position;           // Initial position of the peer in the GLOBAL frame
+    Eigen::Vector3d position;                   // The position of a neighbor in the LOCAL frame, i.e. relative positions. OR in "my_data", position relative to launch position.
+    Eigen::Quaterniond orientation;             // The quaternion of the orientation of the UAV's frame with respect to its launch orientation
+    Eigen::Vector3d velocity;                   // The velocity of a robot in the GLOBAL frame. We don't need the origin of the velocity,
     Eigen::Vector3d acceleration;
     double yaw;
     double distance;
-    bool neighbor;
+    bool is_neighbor;                              // True if the peer is a neighbor, false otherwise
+    double link_quality;                        // Link quality of the peer (of the last received message)
 };
 
 class VATPilot : public rclcpp::Node
@@ -152,6 +156,16 @@ public:
 
         this->target_altitude_ = config["target_altitude"].as<double>();
 
+        this->timeout_value = config["neighbor_timeout_value"].as<uint64_t>() * 1000; // convert from microseconds to nanoseconds 
+
+        this->secondary_objective_flag = flocking_param["secondary_objective_flag"].as<bool>();
+        for (auto sec_obj : flocking_param["secondary_objectives"])
+        {
+            Eigen::Vector3d pos(sec_obj.second[0].as<double>(), sec_obj.second[1].as<double>(), sec_obj.second[2].as<double>());
+            this->secondary_objectives.insert(std::pair<uint32_t, Eigen::Vector3d>(sec_obj.first.as<uint32_t>(), pos));
+        }
+
+
         // Initialize the manual propulsion vector to 0
         this->manual_propulsion = {0.0, 0.0, 0.0};
 
@@ -166,7 +180,7 @@ public:
             UAV_data data;
             data.name = robot_name;
             data.id = i;
-            data.neighbor = false;
+            data.is_neighbor = false;
             this->robots_data[i] = data;
             RCLCPP_DEBUG(this->get_logger(), "Tracked robot: %s", robot_name.c_str());
         }
@@ -182,6 +196,11 @@ public:
             this->robots_data[this->robot_id].name + "/raw_obstacles",
             qos_sub,
             std::bind(&VATPilot::my_raw_obstacle_clbk, this, _1));
+        // Subscribe to your own neighbors list .../neighbors
+        this->my_neighbors_sub_ = this->create_subscription<dancers_msgs::msg::NeighborIdQualityArray>(
+            this->robots_data[this->robot_id].name + "/neighbors",
+            qos_sub,
+            std::bind(&VATPilot::my_neighbors_clbk, this, _1));
 
         if(this->use_gz_positions)
         {
@@ -218,6 +237,7 @@ public:
             qos_sub,
             std::bind(&VATPilot::cmd_vel_clbk, this, _1));
 
+
         // PUBLISHERS
         // Always publish on your own .../offboard_control_mode to keep the offboard mode (minimum at 2Hz)
         this->offboard_control_mode_publisher_ =
@@ -248,7 +268,9 @@ private:
     std::map<uint32_t, UAV_data> robots_data;
     obstacle_detector::msg::Obstacles known_raw_obstacles;
     Eigen::Vector3d manual_propulsion;
+    uint64_t timeout_value;
 
+    bool secondary_objective_flag;
 
     // flocking parameters (set them in the configuration file)
     double v_flock;
@@ -271,9 +293,12 @@ private:
     double r_0_shill;
     double v_shill;
 
+    std::map<uint32_t, Eigen::Vector3d> secondary_objectives;
+
     // Subscribers
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr my_vehicle_status_sub_;
     rclcpp::Subscription<obstacle_detector::msg::Obstacles>::SharedPtr my_raw_obstacle_sub_;
+    rclcpp::Subscription<dancers_msgs::msg::NeighborIdQualityArray>::SharedPtr my_neighbors_sub_;
     std::vector<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> neighbors_odom_subs;
     std::vector<rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr> neighbors_vehicle_local_pos_subs;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub;
@@ -286,6 +311,7 @@ private:
     // callbacks
     void my_vehicle_status_clbk(const px4_msgs::msg::VehicleStatus &msg);
     void my_raw_obstacle_clbk(const obstacle_detector::msg::Obstacles &msg);
+    void my_neighbors_clbk(const dancers_msgs::msg::NeighborIdQualityArray &msg);
     void gz_positions_clbk(const geometry_msgs::msg::PoseArray &msg);
     void agent_odom_clbk(const nav_msgs::msg::Odometry &odom, int peer_id);
     void agent_vehicle_local_position_clbk(const px4_msgs::msg::VehicleLocalPosition &local_pos, int peer_id);
@@ -308,19 +334,40 @@ private:
     Eigen::Vector3d attraction_term();
     Eigen::Vector3d alignment_term();
     Eigen::Vector3d shill_term();
+    Eigen::Vector3d secondary_objective_term();
+
 };
 
 void VATPilot::my_vehicle_status_clbk(const px4_msgs::msg::VehicleStatus &msg)
 {
     this->arming_state = msg.arming_state;
     this->nav_state = msg.nav_state;
-    RCLCPP_INFO(this->get_logger(), "Saved vehicle status data, nav state=%d", msg.nav_state);
+    RCLCPP_DEBUG(this->get_logger(), "Saved vehicle status data, nav state=%d", msg.nav_state);
 }
 
 void VATPilot::my_raw_obstacle_clbk(const obstacle_detector::msg::Obstacles &_msg)
 {
     this->known_raw_obstacles = _msg;
     RCLCPP_DEBUG(this->get_logger(), "Saved obstacles data");
+}
+
+void VATPilot::my_neighbors_clbk(const dancers_msgs::msg::NeighborIdQualityArray &_msg)
+{
+    for (auto neighbor : _msg.neighbors_id_quality_array)
+    {
+        this->robots_data[neighbor.id].is_neighbor = true;
+        this->robots_data[neighbor.id].link_quality = neighbor.link_quality;
+        this->robots_data[neighbor.id].timestamp = this->get_clock()->now();
+    }
+    RCLCPP_INFO(this->get_logger(), "[%d] Saved neighbors data. Current neighbors:", this->robot_id);
+    for (auto a : this->robots_data)
+    {
+        UAV_data agent = a.second;
+        if (agent.is_neighbor)
+        {
+            RCLCPP_INFO(this->get_logger(), "[%d] Neighbor %d", this->robot_id, agent.id);
+        }
+    }
 }
 
 // Callback called at each Odometry message received from agents
@@ -388,7 +435,7 @@ void VATPilot::cmd_loop_clbk()
 
     // CMD must be expressed in the body frame with the FRD convention.
     Eigen::Vector3d cmd = {0.0, 0.0, 0.0};
-    if (this->robots_data[this->robot_id-1].position.z() < this->target_altitude_ && this->offboard_setpoint_counter_ < 100)
+    if (this->robots_data[this->robot_id].position.z() < this->target_altitude_ && this->offboard_setpoint_counter_ < 100)
     {
         cmd = {0.0, 0.0, 4.0};
     }
@@ -565,8 +612,22 @@ Eigen::Vector3d VATPilot::compute_flocking_command()
     Eigen::Vector3d alignment = this->alignment_term();
     Eigen::Vector3d attraction = this->attraction_term();
     Eigen::Vector3d shill = this->shill_term();
+    Eigen::Vector3d secondary_objective_vector = this->secondary_objective_term();
 
-    Eigen::Vector3d desired_velocity = alignment + attraction + repulsion + shill + autopropulsion;
+
+    Eigen::Vector3d desired_velocity = 
+                alignment + 
+                attraction + 
+                repulsion + 
+                shill + 
+                autopropulsion + 
+                this->manual_propulsion;
+
+    if (this->secondary_objective_flag)
+    {
+        desired_velocity += secondary_objective_vector;
+    }
+
 
     RCLCPP_DEBUG(this->get_logger(), "autopropulsion: %f, %f, %f", autopropulsion[0], autopropulsion[1], autopropulsion[2]);
     RCLCPP_DEBUG(this->get_logger(), "repulsion: %f, %f, %f", repulsion[0], repulsion[1], repulsion[2]);
@@ -607,7 +668,7 @@ Eigen::Vector3d VATPilot::alignment_term()
     for (auto r : this->robots_data)
     {
         UAV_data robot = r.second;
-        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.neighbor)
+        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.is_neighbor)
         {
             double velDiffNorm = (robot.velocity - this->robots_data[this->robot_id].velocity).norm();
             double v_frictmax = std::max(this->v_frict, SigmoidLin(robot.distance - this->r_0_frict, this->a_frict, this->p_frict));
@@ -629,7 +690,7 @@ Eigen::Vector3d VATPilot::attraction_term()
     for (auto r : this->robots_data)
     {
         UAV_data robot = r.second;
-        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.neighbor)
+        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.distance != NAN && robot.is_neighbor)
         {
             if (robot.distance > this->r_0_att)
             {
@@ -649,7 +710,7 @@ Eigen::Vector3d VATPilot::repulsion_term()
     for (auto r : this->robots_data)
     {
         UAV_data robot = r.second;
-        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.neighbor)
+        if (robot.id != this->robot_id && robot.position.hasNaN() == false && robot.is_neighbor)
         {
             if (robot.distance < this->r_0_rep && robot.distance > 0.0)
             {
@@ -687,6 +748,18 @@ Eigen::Vector3d VATPilot::shill_term()
     return result;
 }
 
+// Take a secondary objective location in the global frame, and compute the desired velocity toward it
+Eigen::Vector3d VATPilot::secondary_objective_term()
+{
+    Eigen::Vector3d result = {0.0, 0.0, 0.0};
+    if (this->secondary_objectives.find(this->robot_id) != this->secondary_objectives.end())
+    {
+        result = this->secondary_objectives[this->robot_id] - this->robots_data[this->robot_id].position;
+        result.normalize();
+        result *= this->v_flock;
+    }    
+    return result;
+}
 
 int main(int argc, char **argv)
 {

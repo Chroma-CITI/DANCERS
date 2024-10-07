@@ -12,6 +12,7 @@
   <depend>rclcpp</depend>
   <depend>px4_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>dancers_msgs</depend>
   <depend>obstacle_detector</depend>
 
   <test_depend>ament_lint_auto</test_depend>

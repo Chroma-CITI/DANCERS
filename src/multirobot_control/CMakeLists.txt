@@ -17,6 +17,7 @@ find_package(obstacle_detector REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(gz-sim8 REQUIRED)
 find_package(gz-common5 REQUIRED)
+find_package(dancers_msgs REQUIRED)
 
 set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
@@ -49,6 +50,7 @@ ament_target_dependencies(VAT_neighbors
   sensor_msgs
   obstacle_detector
   nav_msgs
+  dancers_msgs
 )
 
 
