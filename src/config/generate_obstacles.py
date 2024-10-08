@@ -78,17 +78,21 @@ if __name__ == '__main__':
     
     config_file = sys.argv[1]
     
+    
+    # Get the real path to this script file, regardless of where it was run from
     script_path = path.dirname(path.realpath(__file__))
     if not path.isdir(script_path + "/auto_obstacles"):
         mkdir(script_path + "/auto_obstacles")
     newpath = Path(script_path + "/auto_obstacles")
                            
-    with open(script_path +'/'+ config_file, 'r') as file:
+    with open(config_file, 'r') as file:
         config = yaml.safe_load(file)
         
     if config['auto_buildings'] == False:
-        print(script_path +'/'+ config_file)
+        print(config_file)
         sys.exit()
+        
+    np.random.seed(config['seed'])
     
     radius = config['arena_radius']
     ArenaCenterX = config['arena_center_x']
@@ -99,7 +103,7 @@ if __name__ == '__main__':
     std = config['radius_stdev_obst']
     height = config['height_obst']
     radius -= radius_of_obst + 30 #avoid obstacles on the edges of the arena
-    filename = path.splitext(config_file)[0]+"_auto_obst_" + distrib + "_" + str(numb_obst) + "_" + t[0] + "_" + t[1] + "_"\
+    filename = path.splitext(path.basename(config_file))[0]+"_auto_obst_" + distrib + "_" + str(numb_obst) + "_" + t[0] + "_" + t[1] + "_"\
                                 + t[2] + "_" + t[3] + ".yaml"    
     
     config['buildings'] = []
@@ -119,13 +123,3 @@ if __name__ == '__main__':
         
     print(newpath / filename)
     # plt.show()
-
-
-
-
-
-
-
-
-
-
