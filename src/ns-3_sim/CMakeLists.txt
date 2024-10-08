@@ -180,7 +180,13 @@ find_package(yaml-cpp REQUIRED)
 #   protobuf_msgs
 #   rclcpp)
 
-add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp include/${PROJECT_NAME}/wifi-application.cpp include/${PROJECT_NAME}/wifi-application.h)
+add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp 
+  include/${PROJECT_NAME}/wifi-application.cpp 
+  include/${PROJECT_NAME}/wifi-application.h
+  include/${PROJECT_NAME}/chain-flocking-application.cpp
+  include/${PROJECT_NAME}/chain-flocking-application.h
+  include/${PROJECT_NAME}/pick-neighbors-header.cpp
+  include/${PROJECT_NAME}/pick-neighbors-header.h)
 target_link_libraries(ns-3_sim_wifi_adhoc
   yaml-cpp
   ns3::libcore

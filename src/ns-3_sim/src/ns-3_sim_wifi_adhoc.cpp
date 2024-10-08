@@ -6,9 +6,9 @@
 
 #include <iostream>
 
-#include "boost/filesystem.hpp"
-
 #include "rclcpp/rclcpp.hpp"
+
+#include "boost/filesystem.hpp"
 #include "boost/asio.hpp"
 #include "boost/iostreams/filtering_streambuf.hpp"
 #include "boost/iostreams/copy.hpp"
@@ -48,6 +48,7 @@
 #include "ns3/stats-module.h"
 
 #include "wifi-application.h"
+#include "chain-flocking-application.h"
 
 #include "protobuf_msgs/network_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
@@ -486,7 +487,6 @@ public:
 
         /* **************** APPLICATION MODULE **************** */
 
-
         // "Flocking" flow : broadcast position and velocity to neighbors 
         uint32_t nav_flow_broadcast_period = config["pose_broadcast_period"].as<uint32_t>();        // us
         uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();        // bytes
@@ -761,14 +761,14 @@ public:
             output->Output(data);
         }
 
-        int k = 0;
-        for (auto s = servers.Begin(); s != servers.End(); ++s)
-        {
-            Ptr<UdpServer> server = (*s)->GetObject<UdpServer>();
-            std::cout << "Position server " << k << " received " << server->GetReceived() * nav_flow_packet_size << " bytes." << std::endl;
-            k++;
-        }
-        std::cout << std::endl;
+        // int k = 0;
+        // for (auto s = servers.Begin(); s != servers.End(); ++s)
+        // {
+        //     Ptr<UdpServer> server = (*s)->GetObject<UdpServer>();
+        //     std::cout << "Position server " << k << " received " << server->GetReceived() * nav_flow_packet_size << " bytes." << std::endl;
+        //     k++;
+        // }
+        // std::cout << std::endl;
 
         if (mission_flow)
         {
