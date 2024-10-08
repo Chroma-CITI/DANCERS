@@ -25,6 +25,8 @@ window=0
 tmux rename-window -t $session:$window 'dancers'
 tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim ns-3_sim_wifi_adhoc --ros-args -p config_file:=$config_path"
 tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path"
+tmux select-pane -t $session:$window.2
+tmux split-window -t $session:$window -h "ros2 run rviz2 rviz2 -d ~/.rviz2/visualizer_v0.0.rviz"
 
 
 tmux attach-session -t $session -d
