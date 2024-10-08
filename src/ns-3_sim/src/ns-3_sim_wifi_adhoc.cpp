@@ -705,7 +705,7 @@ public:
                     RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
                 }
 
-                this->updateNeighborsPathloss();
+                // this->updateNeighborsPathloss();
 
                 // Once all the events are scheduled, advance W time in the simulation and stop
                 Simulator::Stop(step_size);
