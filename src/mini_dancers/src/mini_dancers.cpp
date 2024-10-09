@@ -145,14 +145,17 @@ class MiniDancers : public rclcpp::Node
             this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
 
             this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
+            
+            rclcpp::QoS qos_persistent = rclcpp::QoS(rclcpp::KeepAll()).reliable().transient_local();
 
             /* ----------- Publishers ----------- */
-            this->obstacles_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("obstacles", 10);
+            this->obstacles_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("obstacles", qos_persistent);
             this->pose_array_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("agent_poses", 10);
             this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
             this->network_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
+
 
             this->InitObstacles();
             
