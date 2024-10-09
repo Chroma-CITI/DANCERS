@@ -139,6 +139,10 @@ Sender::SendPacket()
     timestamp.SetTimestamp(Simulator::Now());
     packet->AddByteTag(timestamp);
 
+    FlowIdTag flow_id;
+    flow_id.SetFlowId(8);
+    packet->AddPacketTag(flow_id);
+
     // Could connect the socket since the address never changes; using SendTo
     // here simply because all of the standard apps do not.
     m_socket->SendTo(packet, 0, InetSocketAddress(m_destAddr, m_destPort));

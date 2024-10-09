@@ -472,8 +472,8 @@ public:
         InternetStackHelper internet;
         ipv4List.Add(aodv, 100);
 
-        Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
-        aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+        // Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+        // aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
 
         internet.SetRoutingHelper(ipv4List);
         internet.Install(this->nodes);
@@ -485,8 +485,20 @@ public:
         // Create the broadcast address
         Ipv4Address broadcastAddress = Ipv4Address::GetBroadcast();
 
-        /* **************** APPLICATION MODULE **************** */
+        // Connect the callbacks for neighborhood handling to each node
+        for (uint32_t i = 0; i < numNodes; i++)
+        {
+            // Access the internal list of aggregated objects
+            Ptr<WifiMac> wifi_mac = devices.Get(i)->GetObject<WifiNetDevice>()->GetMac();
+            Ptr<WifiPhy> wifi_phy = devices.Get(i)->GetObject<WifiNetDevice>()->GetPhy();
 
+            this->mac_to_id[wifi_mac->GetAddress()] = i;
+            wifi_phy->TraceConnect("PhyTxBegin", std::to_string(i), MakeCallback(&Ns3Simulation::PhyTxBeginTrace, this));
+            wifi_phy->TraceConnect("PhyRxEnd", std::to_string(i), MakeCallback(&Ns3Simulation::PhyRxEndTrace, this));
+        }
+
+        /* **************** APPLICATION MODULE **************** */
+/*
         // "Flocking" flow : broadcast position and velocity to neighbors 
         uint32_t nav_flow_broadcast_period = config["pose_broadcast_period"].as<uint32_t>();        // us
         uint32_t nav_flow_packet_size = config["pose_broadcast_packet_size"].as<uint32_t>();        // bytes
@@ -523,7 +535,7 @@ public:
 
             this->nodes.Get(i)->AddApplication(flocking_application);
         }
-
+*/
 
         // "Mission" flow : unicast, unidirectional
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
@@ -550,11 +562,16 @@ public:
             Ptr<ConstantRandomVariable> rand = CreateObject<ConstantRandomVariable>();
             rand->SetAttribute("Constant", DoubleValue(interval/1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
             sender->SetAttribute("Interval", PointerValue(rand));
+            sender->TraceConnectWithoutContext("Tx", MakeCallback(&Ns3Simulation::mission_flow_sender_clbk, this));
+            
 
             Ptr<ns3::Node> sink_node = this->nodes.Get(sink_node_id);
             sink_node->AddApplication(receiver);
             receiver->SetStartTime(Seconds(0.0));
             receiver->SetAttribute("Port", UintegerValue(mission_flow_port));
+            receiver->TraceConnectWithoutContext("Rx", MakeCallback(&Ns3Simulation::mission_flow_receiver_clbk, this));
+            
+
         }
 
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of APPLICATION module");
@@ -584,17 +601,11 @@ public:
         this->missionTotalRx->SetContext("mission flow node[" + std::to_string(sink_node_id) + "]");
         data.AddDataCalculator(this->missionTotalRx);
 
-        // Create a statitics object for the delay of the packets
+        // Create a statistics object for the delay of the packets
         this->missionDelay = CreateObject<TimeMinMaxAvgTotalCalculator>();
         this->missionDelay->SetKey("mission_packet_delay");
         this->missionDelay->SetContext("mission flow");
         data.AddDataCalculator(this->missionDelay);
-
-        if (mission_flow)
-        {
-            sender->TraceConnectWithoutContext("Tx", MakeCallback(&Ns3Simulation::mission_flow_sender_clbk, this));
-            receiver->TraceConnectWithoutContext("Rx", MakeCallback(&Ns3Simulation::mission_flow_receiver_clbk, this));
-        }
 
         // Create a counter for the number of Packets received by each 'navigation flow' server
         for (int i = 0; i < numNodes; i++)
@@ -722,10 +733,12 @@ public:
                     this->probe.stop();
                 }
 
-                // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
-                std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
+                this->updateNeighbors(neighbor_timeout_value);
 
-                std::string response = gzip_compress(generate_response(NetworkUpdate_msg, neighbors, this->max_neighbors));
+                // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
+                // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
+
+                std::string response = gzip_compress(generate_response(NetworkUpdate_msg, this->neighbors, this->max_neighbors));
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
@@ -786,11 +799,18 @@ private:
     bool targets_reached;
     std::map<uint32_t, std::map<uint32_t, Time>> neigh_last_received;
     std::map<uint32_t, std::map<uint32_t, double>> neigh_pathloss;
+    std::map<uint32_t, std::map<uint32_t, double>> neighbors;
+    std::map<Mac48Address, uint32_t> mac_to_id;
     int max_neighbors;
 
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_list_msg;
 
     void SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb);
+    void MacRxTrace(Ptr<const Packet> packet);
+    void MacTxTrace(Ptr<const Packet> packet);
+    void PhyTxBeginTrace(std::string context, Ptr<const Packet> packet, double txPow);
+    void PhyRxEndTrace(std::string context, Ptr<const Packet> packet);
+
     std::map<uint32_t, std::map<uint32_t, double>> create_neighbors(Time timeout);
     void server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress);
     void client_send_clbk(std::string context, Ptr<const Packet> packet);
@@ -799,6 +819,8 @@ private:
     void wifi_phy_tx_clbk(Ptr<const Packet> packet);
 
     void updateNeighborsPathloss();
+    void updateNeighbors(Time timeout);
+
 
     // Stats objects
     Ptr<PacketCounterCalculator> missionTotalRx;
@@ -851,22 +873,21 @@ void Ns3Simulation::client_send_clbk(std::string context, Ptr<const Packet> pack
     uint32_t nodeId = std::stoi(context);
     this->navTotalTxVector[nodeId]->PacketUpdate("", packet);
     // add a tag to the packet
-    FlowIdTag nav_flow(1);
-    packet->AddPacketTag(nav_flow);
 }
 
 void Ns3Simulation::wifi_phy_tx_clbk(Ptr<const Packet> packet)
 {
-    FlowIdTag nav_flow(1);
+    FlowIdTag nav_flow;
     if (packet->PeekPacketTag(nav_flow))
     {
         this->navEffectiveTx->PacketUpdate("", packet);
-        RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet for nav flow !");
+        RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet with flow tag %d !", nav_flow.GetFlowId());
     }
     else
     {
         RCLCPP_DEBUG(this->get_logger(), "WifiPhy sending a packet without the tag...");
     }
+
 }
 
 std::map<uint32_t, std::map<uint32_t, double>>
@@ -875,48 +896,63 @@ Ns3Simulation::create_neighbors(Time timeout)
     std::map<uint32_t, std::map<uint32_t, double>> neighbors;
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        for (uint32_t j = 0; j < this->nodes.GetN(); j++)
+        if (Ptr<ChainFlocking> app = DynamicCast<ChainFlocking>(this->nodes.Get(i)->GetApplication(0)))
         {
-            if (i != j && this->neigh_last_received.find(i) != this->neigh_last_received.end())
-            {
-                if (this->neigh_last_received[i].find(j) != this->neigh_last_received[i].end())
-                {
-                    Time now = Simulator::Now();
-                    Time last_received = this->neigh_last_received[i][j];
-                    if (now - last_received < timeout)
-                    {
-                        // agent j is a potential neighbor of agent i
-
-                        // restrict neighborhood to be "chain-like"
-                        if (j == i - 1 || j == i + 1)
-                        {
-                            neighbors[i][j] = -this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
-                        }
-                    }
-                }
-            }
+            neighbors[i] = app->GetCurrentNeighbors();
         }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "Node %d does not have a ChainFlocking application in application slot 0", i);
+        }
+        // for (uint32_t j = 0; j < this->nodes.GetN(); j++)
+        // {
+
+        //     if (i != j && this->neigh_last_received.find(i) != this->neigh_last_received.end())
+        //     {
+        //         if (this->neigh_last_received[i].find(j) != this->neigh_last_received[i].end())
+        //         {
+        //             Time now = Simulator::Now();
+        //             Time last_received = this->neigh_last_received[i][j];
+        //             if (now - last_received < timeout)
+        //             {
+        //                 // agent j is a potential neighbor of agent i
+
+        //                 // restrict neighborhood to be "chain-like"
+        //                 if (j == i - 1 || j == i + 1)
+        //                 {
+        //                     neighbors[i][j] = -this->neigh_pathloss[i][j]; // Yes, we assume here that neigh_last_received and neigh_pathloss have same keys at all time
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
     return neighbors;
 }
 
 void Ns3Simulation::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
-    if (this->targets_reached)
-    {
-        this->missionTotalRx->PacketUpdate("", packet);
-        RCLCPP_INFO(this->get_logger(), "Mission sink received a packet and both source and sink are in targets !");
+    this->missionTotalRx->PacketUpdate("", packet);
+    // RCLCPP_INFO(this->get_logger(), "Mission flow received a packet !");
+    // std::cout << "Received a packet with tags:" << std::endl;
+    // packet->PrintPacketTags(std::cout);
+    // std::cout << std::endl;
 
-        myTimestampTag timestamp;
-        if (packet->FindFirstMatchingByteTag(timestamp))
-        {
-            Time tx = timestamp.GetTimestamp();
-            this->missionDelay->Update(Simulator::Now() - tx);
-        }
-        else
-        {
-            RCLCPP_WARN(this->get_logger(), "Packet received without timestamp");
-        }
+    FlowIdTag flow_id;
+    if (packet->PeekPacketTag(flow_id))
+    {
+        RCLCPP_INFO(this->get_logger(), "Mission application received a packet with flow tag %d !", flow_id.GetFlowId());
+    }
+
+    myTimestampTag timestamp;
+    if (packet->FindFirstMatchingByteTag(timestamp))
+    {
+        Time tx = timestamp.GetTimestamp();
+        this->missionDelay->Update(Simulator::Now() - tx);
+    }
+    else
+    {
+        RCLCPP_WARN(this->get_logger(), "Packet received without timestamp");
     }
 }
 
@@ -948,8 +984,135 @@ void Ns3Simulation::updateNeighborsPathloss()
                 // std::cout << "Node " << i << " -> Node " << j << " : " << rxPow << std::endl;
             }
         }
+        Ptr<ChainFlocking> app_flocking = DynamicCast<ChainFlocking, Application>(this->nodes.Get(i)->GetApplication(0));
+        app_flocking->SetLinkQualities(std::map<uint32_t, double>(this->neigh_pathloss[i]));
+    }
+
+}
+
+void Ns3Simulation::updateNeighbors(Time neighbor_timeout_value)
+{
+    for (auto neighbors : this->neigh_last_received)
+    {
+        uint32_t agentId = neighbors.first;
+        for (auto neighbor : neighbors.second)
+        {
+            Time now = Simulator::Now();
+            Time last_received = neighbor.second;
+            if (now - last_received > neighbor_timeout_value)
+            {
+                // This neighbor timed out from the POV of agentId
+                this->neighbors[agentId].erase(neighbor.first);
+            }
+        }
     }
 }
+
+void Ns3Simulation::MacTxTrace(Ptr<const Packet> packet)
+ {
+
+    FlowIdTag flow_id;
+    if (packet->PeekPacketTag(flow_id))
+    {
+        // Packet has a FlowId tag
+        if (flow_id.GetFlowId() == 8)
+        {
+            WifiMacHeader macHeader;
+            packet->PeekHeader(macHeader);
+            
+            uint32_t src_id = 255;
+            uint32_t dest_id = 255;
+            if (this->mac_to_id.find(macHeader.GetAddr1()) != this->mac_to_id.end() && this->mac_to_id.find(macHeader.GetAddr2()) != this->mac_to_id.end())
+            {
+                src_id = this->mac_to_id.find(macHeader.GetAddr1())->second;
+                dest_id = this->mac_to_id.find(macHeader.GetAddr2())->second;
+            }
+            else
+            {
+                std::cout << "Mac Tx: One of the MAC address is unknown !" << std::endl;
+            }
+
+            std::cout << "Mac Tx: from " << macHeader.GetAddr1() << " to " << macHeader.GetAddr2() << std::endl;
+            // this->neighbors[src_id][dest_id] = this->neigh_pathloss[src_id][dest_id];
+                
+        }
+    }
+ }
+
+void Ns3Simulation::MacRxTrace(Ptr<const Packet> packet)
+{
+
+    FlowIdTag flow_id;
+    if (packet->PeekPacketTag(flow_id))
+    {
+        // Packet has a FlowId tag
+        if (flow_id.GetFlowId() == 8)
+        {
+            WifiMacHeader macHeader;
+            packet->PeekHeader(macHeader);
+            
+            uint32_t src_id = 255;
+            uint32_t dest_id = 255;
+            if (this->mac_to_id.find(macHeader.GetAddr1()) != this->mac_to_id.end() && this->mac_to_id.find(macHeader.GetAddr2()) != this->mac_to_id.end())
+            {
+                src_id = this->mac_to_id.find(macHeader.GetAddr1())->second;
+                dest_id = this->mac_to_id.find(macHeader.GetAddr2())->second;
+            }
+            else
+            {
+                // std::cout << "Mac Rx: One of the MAC address is unknown !" << std::endl;
+            }
+
+            std::cout << "Mac Rx: addr1 " << macHeader.GetAddr1() << " addr2 " << macHeader.GetAddr2() << " addr3 " << macHeader.GetAddr2() << " addr4 " << std::endl;
+            // this->neighbors[src_id][dest_id] = this->neigh_pathloss[src_id][dest_id];
+        }
+    }
+
+
+}
+
+void Ns3Simulation::PhyTxBeginTrace(std::string context, Ptr<const Packet> packet, double txPow)
+{
+    FlowIdTag flow_id;
+    if (packet->PeekPacketTag(flow_id))
+    {
+        // Packet has a FlowId tag
+        if (flow_id.GetFlowId() == 8)
+        {
+            WifiMacHeader hdr;
+            packet->PeekHeader(hdr);
+            std::cout << "Node " << context << " is transmitting a packet with source " << hdr.GetAddr2() << " and destination " << hdr.GetAddr1() << std::endl;
+            std::cout << "adding link " << std::stoi(context) << " -> " << this->mac_to_id.find(hdr.GetAddr1())->second << " with link qual " << this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] << std::endl;
+            this->neigh_last_received[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] = Simulator::Now();
+            this->neighbors[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] = this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second];
+        }
+    }
+
+}
+
+void Ns3Simulation::PhyRxEndTrace(std::string context, Ptr<const Packet> packet)
+{
+    FlowIdTag flow_id;
+    if (packet->PeekPacketTag(flow_id))
+    {
+        // Packet has a FlowId tag
+        if (flow_id.GetFlowId() == 8)
+        {
+            WifiMacHeader hdr;
+            packet->PeekHeader(hdr);
+            std::cout << "Node " << context << " is receiving a packet with source " << hdr.GetAddr2() << " and destination " << hdr.GetAddr1() << std::endl;
+            if (this->mac_to_id.find(hdr.GetAddr1())->second == std::stoi(context))
+            {
+                std::cout << "adding link " << std::stoi(context) << " -> " << this->mac_to_id.find(hdr.GetAddr2())->second << " with link qual " << this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] << std::endl;
+                
+                this->neigh_last_received[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] = Simulator::Now();
+                this->neighbors[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] = this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second];
+            }
+        }
+    }
+}
+
+
 
 /**
  * \brief The main function, spins the ROS2 Node

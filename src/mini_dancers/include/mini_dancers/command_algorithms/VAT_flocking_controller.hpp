@@ -113,11 +113,6 @@ Eigen::Vector3d secondary_objective(std::vector<agent_t> uavs, int which_agent, 
 
     result += params.v_flock * -(relative_position);
 
-    if (relative_position.norm() > params.v_max)
-    {
-        result = params.v_max * -relative_position.normalized();
-    }
-
     return result;
 }
 
@@ -137,6 +132,12 @@ std::vector<reference::VelocityHdg> ComputeVATFlockingDesiredVelocities(const st
         {
             controller.velocity += secondary_objective(uavs, i, flocking_params, *uavs[i].secondary_objective);
         }
+
+        if (controller.velocity.norm() > flocking_params.v_max)
+        {
+            controller.velocity = flocking_params.v_max * controller.velocity.normalized();
+        }
+
         
         controller.heading = 0.0;
 

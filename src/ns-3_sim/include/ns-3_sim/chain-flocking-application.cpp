@@ -268,7 +268,7 @@ ChainFlocking::GetCurrentNeighbors()
 {
     if (m_linkQualities.empty())
     {
-        std::cout << "LinkQualities is empty! This application must receive link qualities from underlying layer !" << std::endl;
+        std::cout << this->GetNode()->GetId() << " LinkQualities is empty! This application must receive link qualities from underlying layer !" << std::endl;
         exit(EXIT_FAILURE);
     }
 
@@ -353,7 +353,7 @@ ChainFlocking::SelectBestRelays()
     for (auto &n : m_lastReceivedUpdate)
     {
         if (Simulator::Now() - n.second < m_timeout                                 // not timed out
-            && m_currentNeighborsUp.find(n.first) == m_currentNeighborsUp.end()        // not already a "up" neighbor
+            && m_currentNeighborsUp.find(n.first) == m_currentNeighborsUp.end()     // not already a "up" neighbor
             && m_linkQualities.find(n.first) != m_linkQualities.end())              // we have link quality info
         {
             sortedNeighbors.push_back(std::make_pair(n.first, m_linkQualities[n.first]));
@@ -365,7 +365,7 @@ ChainFlocking::SelectBestRelays()
     }
 
     std::sort(sortedNeighbors.begin(), sortedNeighbors.end(), [](const auto &a, const auto &b)
-              { return a.second > b.second; });
+              { return a.second < b.second; });
 
     for (size_t i = 0; i < std::min((size_t)m_numRelays, sortedNeighbors.size()); ++i)
     {
