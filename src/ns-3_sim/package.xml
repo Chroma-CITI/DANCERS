@@ -10,7 +10,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>ros_net_sim_interfaces</depend>
   <depend>protobuf_msgs</depend>
 
 

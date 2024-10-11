@@ -113,6 +113,12 @@ Eigen::Vector3d secondary_objective(std::vector<agent_t> uavs, int which_agent, 
 
     result += params.v_flock * -(relative_position);
 
+    if (result.norm() > params.v_max+6)
+    {
+        result = (params.v_max+6) * result.normalized();
+    }
+
+
     return result;
 }
 

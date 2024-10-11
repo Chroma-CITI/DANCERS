@@ -800,6 +800,7 @@ private:
     std::map<uint32_t, std::map<uint32_t, Time>> neigh_last_received;
     std::map<uint32_t, std::map<uint32_t, double>> neigh_pathloss;
     std::map<uint32_t, std::map<uint32_t, double>> neighbors;
+    std::map<uint32_t, std::map<uint32_t, double>> potential_neighbors;
     std::map<Mac48Address, uint32_t> mac_to_id;
     int max_neighbors;
 
@@ -812,8 +813,8 @@ private:
     void PhyRxEndTrace(std::string context, Ptr<const Packet> packet);
 
     std::map<uint32_t, std::map<uint32_t, double>> create_neighbors(Time timeout);
-    void server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress);
-    void client_send_clbk(std::string context, Ptr<const Packet> packet);
+    // void server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress);
+    // void client_send_clbk(std::string context, Ptr<const Packet> packet);
     void mission_flow_receiver_clbk(Ptr<const Packet> packet);
     void mission_flow_sender_clbk(Ptr<const Packet> packet);
     void wifi_phy_tx_clbk(Ptr<const Packet> packet);
@@ -849,6 +850,8 @@ void Ns3Simulation::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<cons
     this->neigh_pathloss[txId][rxId] = lossDb;
 }
 
+/* Old application Trace callbacks
+
 void Ns3Simulation::server_receive_clbk(std::string context, const Ptr<const Packet> packet, const Address &srcAddress, const Address &destAddress)
 {
     uint32_t nodeId = std::stoi(context);
@@ -874,6 +877,8 @@ void Ns3Simulation::client_send_clbk(std::string context, Ptr<const Packet> pack
     this->navTotalTxVector[nodeId]->PacketUpdate("", packet);
     // add a tag to the packet
 }
+
+*/
 
 void Ns3Simulation::wifi_phy_tx_clbk(Ptr<const Packet> packet)
 {
@@ -992,6 +997,7 @@ void Ns3Simulation::updateNeighborsPathloss()
 
 void Ns3Simulation::updateNeighbors(Time neighbor_timeout_value)
 {
+    // remove timed out neighbors
     for (auto neighbors : this->neigh_last_received)
     {
         uint32_t agentId = neighbors.first;
@@ -1004,6 +1010,21 @@ void Ns3Simulation::updateNeighbors(Time neighbor_timeout_value)
                 // This neighbor timed out from the POV of agentId
                 this->neighbors[agentId].erase(neighbor.first);
             }
+        }
+    }
+    // add all possible neighbors if we don't have any "mission" neighbors
+    for (size_t i=0; i < this->nodes.GetN(); i++)
+    {
+        if (this->neighbors[i].empty())
+        {
+            std::cout << "Agent " << i << " has no neighbors" << std::endl;
+            this->neighbors[i] = this->potential_neighbors[i];
+            std::cout << "Adding potential neighbors ";
+            for (auto neighbor : this->neighbors[i])
+            {
+                std::cout << neighbor.first << " ";
+            }
+            std::cout << std::endl;
         }
     }
 }
@@ -1081,10 +1102,15 @@ void Ns3Simulation::PhyTxBeginTrace(std::string context, Ptr<const Packet> packe
         {
             WifiMacHeader hdr;
             packet->PeekHeader(hdr);
+            uint32_t nodeId = std::stoi(context);
+            uint32_t sourceId = this->mac_to_id.find(hdr.GetAddr2())->second;
+            uint32_t destId = this->mac_to_id.find(hdr.GetAddr1())->second;
+            
             std::cout << "Node " << context << " is transmitting a packet with source " << hdr.GetAddr2() << " and destination " << hdr.GetAddr1() << std::endl;
-            std::cout << "adding link " << std::stoi(context) << " -> " << this->mac_to_id.find(hdr.GetAddr1())->second << " with link qual " << this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] << std::endl;
-            this->neigh_last_received[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] = Simulator::Now();
-            this->neighbors[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second] = this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr1())->second];
+            std::cout << "adding link " << nodeId << " -> " << destId << " with link qual " << this->neigh_pathloss[nodeId][destId] << std::endl;
+        
+            this->neigh_last_received[nodeId][destId] = Simulator::Now();
+            this->neighbors[nodeId][destId] = this->neigh_pathloss[nodeId][destId];
         }
     }
 
@@ -1092,21 +1118,26 @@ void Ns3Simulation::PhyTxBeginTrace(std::string context, Ptr<const Packet> packe
 
 void Ns3Simulation::PhyRxEndTrace(std::string context, Ptr<const Packet> packet)
 {
+    WifiMacHeader hdr;
+    packet->PeekHeader(hdr);
+    uint32_t nodeId = std::stoi(context);
+    uint32_t sourceId = this->mac_to_id.find(hdr.GetAddr2())->second;
+    uint32_t destId = this->mac_to_id.find(hdr.GetAddr1())->second;
+    this->potential_neighbors[nodeId][sourceId] = this->neigh_pathloss[nodeId][sourceId];
+
     FlowIdTag flow_id;
     if (packet->PeekPacketTag(flow_id))
     {
         // Packet has a FlowId tag
         if (flow_id.GetFlowId() == 8)
         {
-            WifiMacHeader hdr;
-            packet->PeekHeader(hdr);
             std::cout << "Node " << context << " is receiving a packet with source " << hdr.GetAddr2() << " and destination " << hdr.GetAddr1() << std::endl;
-            if (this->mac_to_id.find(hdr.GetAddr1())->second == std::stoi(context))
+            if (destId == nodeId)
             {
-                std::cout << "adding link " << std::stoi(context) << " -> " << this->mac_to_id.find(hdr.GetAddr2())->second << " with link qual " << this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] << std::endl;
+                std::cout << "adding link " << nodeId << " -> " << sourceId << " with link qual " << this->neigh_pathloss[std::stoi(context)][sourceId] << std::endl;
                 
-                this->neigh_last_received[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] = Simulator::Now();
-                this->neighbors[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second] = this->neigh_pathloss[std::stoi(context)][this->mac_to_id.find(hdr.GetAddr2())->second];
+                this->neigh_last_received[nodeId][sourceId] = Simulator::Now();
+                this->neighbors[nodeId][sourceId] = this->neigh_pathloss[std::stoi(context)][sourceId];
             }
         }
     }

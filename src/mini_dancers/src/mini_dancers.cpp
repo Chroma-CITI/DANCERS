@@ -123,7 +123,7 @@ class MiniDancers : public rclcpp::Node
             this->radius = 10.0;
             this->omega = 0.005;
             this->target_altitude = config["target_altitude"].as<double>();
-            for (auto goal : config["VAT_flocking_parameters"]["secondary_objectives"])
+            for (auto goal : config["secondary_objectives"])
             {
                 this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
                 std::cout << "agent " << goal.first.as<int>() << " : " << this->secondary_objectives[goal.first.as<int>()].transpose() << std::endl;
@@ -145,7 +145,7 @@ class MiniDancers : public rclcpp::Node
             this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
 
             this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
-            
+
             rclcpp::QoS qos_persistent = rclcpp::QoS(rclcpp::KeepAll()).reliable().transient_local();
 
             /* ----------- Publishers ----------- */
@@ -155,7 +155,6 @@ class MiniDancers : public rclcpp::Node
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
             this->network_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
-
 
             this->InitObstacles();
             
@@ -168,8 +167,8 @@ class MiniDancers : public rclcpp::Node
     private:
         std::vector<obstacle_t> obstacles;
         int n_uavs;
-        std::vector<agent_t> uavs;                          // TODO optim : use an array instead
-        std::vector<Eigen::Vector3d> desired_velocities;    // TODO optim : use an array instead
+        std::vector<agent_t> uavs;                          
+        std::vector<Eigen::Vector3d> desired_velocities;
         double step_size;
         uint64_t it;
         std::string phy_uds_server_address;
@@ -428,6 +427,7 @@ void MiniDancers::DisplayRviz()
 void MiniDancers::UpdateCmds()
 {
     std::vector<reference::VelocityHdg> controllers;
+    // Compute flocking commands using the VAT algorithm
     controllers = ComputeVATFlockingDesiredVelocities(this->uavs, this->obstacles, this->vat_params);
 
     for (int i=0; i < this->n_uavs; i++)
@@ -453,6 +453,12 @@ void MiniDancers::UpdateCmds()
     }
 }
 
+
+/**
+ * @brief Updates the internal state of the agents with neighbors lists received from the outside (typically received from the network simulator)
+ * 
+ * @param A Protobuf message of type PhysicsUpdate containing the neighbors lists for all agents
+ */
 void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdate_msg)
 {
     if(!PhysicsUpdate_msg.ordered_neighbors().empty())
@@ -470,7 +476,7 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
         {
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
-            // std::cout << neighbors_list_msg.DebugString() << std::endl;
+            std::cout << neighbors_list_msg.DebugString() << std::endl;
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());
@@ -545,6 +551,7 @@ void MiniDancers::Loop()
     socket_coord->accept(this->phy_uds_server_address, 0);
     RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
 
+    // Main simulation loop
     while (rclcpp::ok())
     {
         std::string received_data = gzip_decompress(socket_coord->receive_one_message());
@@ -554,7 +561,10 @@ void MiniDancers::Loop()
         // Transform the message received from the UDS socket (string -> protobuf)
         PhysicsUpdate_msg.ParseFromString(received_data);
 
-        this->probe.start();
+        if (this->save_compute_time)
+        {
+            this->probe.start();
+        }
 
         this->GetNeighbors(PhysicsUpdate_msg);
 
@@ -570,7 +580,10 @@ void MiniDancers::Loop()
 
         bool target_reached = false;
 
-        this->probe.stop();
+        if (this->save_compute_time)
+        {
+            this->probe.stop();
+        }
 
         // Generate the response message
         std::string response = this->GenerateResponseProtobuf(target_reached);

@@ -11,4 +11,5 @@ message OrderedNeighbors {
     repeated uint32 neighborId = 2;
     repeated double linkQuality = 3;
     repeated uint32 time_val = 4;
+    repeated uint32 neighborType = 5;
 }
