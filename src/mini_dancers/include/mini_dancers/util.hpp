@@ -93,6 +93,8 @@ struct agent_t
     mrs_multirotor_simulator::UavSystem uav_system;
     int id;
     std::vector<int> neighbors;
+    std::vector<int> neighbors_mission;
+    std::vector<int> neighbors_potential;
     std::vector<double> link_qualities;
     std::optional<Eigen::Vector3d> secondary_objective;
 };

@@ -23,15 +23,15 @@ struct VAT_params_t
 
 using namespace mrs_multirotor_simulator;
 
-Eigen::Vector3d alignment_term(std::vector<agent_t> uavs, int which_agent, VAT_params_t params)
+Eigen::Vector3d alignment_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent].uav_system.getState();
-    for (int neighbor_id : uavs[which_agent].neighbors)
+    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
+    for (int neighbor_id : uavs[which_agent]->neighbors)
     {
         if (neighbor_id != which_agent)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id].uav_system.getState();
+            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
             double distance = (agent_state.x - neighbor_state.x).norm();
             double velDiffNorm = (neighbor_state.v - agent_state.v).norm();
 
@@ -45,15 +45,15 @@ Eigen::Vector3d alignment_term(std::vector<agent_t> uavs, int which_agent, VAT_p
     return result;
 }
 
-Eigen::Vector3d attraction_term(std::vector<agent_t> uavs, int which_agent, VAT_params_t params)
+Eigen::Vector3d attraction_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent].uav_system.getState();
-    for (int neighbor_id : uavs[which_agent].neighbors)
+    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
+    for (int neighbor_id : uavs[which_agent]->neighbors)
     {
         if (neighbor_id != which_agent)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id].uav_system.getState();
+            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
             double distance = (agent_state.x - neighbor_state.x).norm();
             Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
             if (distance > params.r_0_att)
@@ -65,15 +65,15 @@ Eigen::Vector3d attraction_term(std::vector<agent_t> uavs, int which_agent, VAT_
     return result;   
 }
 
-Eigen::Vector3d repulsion_term(std::vector<agent_t> uavs, int which_agent, VAT_params_t params)
+Eigen::Vector3d repulsion_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent].uav_system.getState();
-    for (int neighbor_id : uavs[which_agent].neighbors)
+    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
+    for (int neighbor_id : uavs[which_agent]->neighbors)
     {
         if (neighbor_id != which_agent)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id].uav_system.getState();
+            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
             double distance = (agent_state.x - neighbor_state.x).norm();
             Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
             if (distance < params.r_0_rep && distance > 0.0)
@@ -85,10 +85,10 @@ Eigen::Vector3d repulsion_term(std::vector<agent_t> uavs, int which_agent, VAT_p
     return result;   
 }
 
-Eigen::Vector3d shill_term(std::vector<agent_t> uavs, int which_agent, VAT_params_t params, std::vector<obstacle_t> obstacles)
+Eigen::Vector3d shill_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, std::vector<obstacle_t> obstacles)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent].uav_system.getState();
+    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
     for (obstacle_t obstacle : obstacles)
     {
         Eigen::Vector3d shill_agent_position = GetNearestPointFromObstacle(agent_state.x, obstacle);
@@ -104,25 +104,25 @@ Eigen::Vector3d shill_term(std::vector<agent_t> uavs, int which_agent, VAT_param
     return result;   
 }
 
-Eigen::Vector3d secondary_objective(std::vector<agent_t> uavs, int which_agent, VAT_params_t params, Eigen::Vector3d goal)
+Eigen::Vector3d secondary_objective(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, Eigen::Vector3d goal)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent].uav_system.getState();
+    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
     
     Eigen::Vector3d relative_position = agent_state.x - goal;
 
     result += params.v_flock * -(relative_position);
 
-    if (result.norm() > params.v_max+6)
+    if (result.norm() > params.v_max)
     {
-        result = (params.v_max+6) * result.normalized();
+        result = params.v_max * result.normalized();
     }
 
 
     return result;
 }
 
-std::vector<reference::VelocityHdg> ComputeVATFlockingDesiredVelocities(const std::vector<agent_t> uavs, const std::vector<obstacle_t> obstacles, VAT_params_t flocking_params)
+std::vector<reference::VelocityHdg> ComputeVATFlockingDesiredVelocities(std::vector<agent_t *> uavs, const std::vector<obstacle_t> obstacles, VAT_params_t flocking_params)
 {
     std::vector<reference::VelocityHdg> controllers;
     for (int i=0; i < uavs.size(); i++)
@@ -130,13 +130,16 @@ std::vector<reference::VelocityHdg> ComputeVATFlockingDesiredVelocities(const st
         reference::VelocityHdg controller;
         controller.velocity = Eigen::Vector3d::Zero();
 
-        controller.velocity += alignment_term(uavs, i, flocking_params);
-        controller.velocity += attraction_term(uavs, i, flocking_params);
+        if (uavs[i]->id != 0)
+        {
+            controller.velocity += attraction_term(uavs, i, flocking_params);
+            controller.velocity += alignment_term(uavs, i, flocking_params);
+        }
         controller.velocity += repulsion_term(uavs, i, flocking_params);
         controller.velocity += shill_term(uavs, i, flocking_params, obstacles);
-        if (uavs[i].secondary_objective)
+        if (uavs[i]->secondary_objective)
         {
-            controller.velocity += secondary_objective(uavs, i, flocking_params, *uavs[i].secondary_objective);
+            controller.velocity += secondary_objective(uavs, i, flocking_params, *uavs[i]->secondary_objective);
         }
 
         if (controller.velocity.norm() > flocking_params.v_max)
