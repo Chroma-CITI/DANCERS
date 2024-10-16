@@ -78,45 +78,6 @@ static std::string gzip_decompress(const std::string &data)
 }
 
 /**
- * \brief Receives a message from a socket.
- *
- * This function will block until the next message is received, read its header (first 4 bytes)
- * and then read the content of the message and return it as a string.
- *
- * \param sock The socket on which to listen for the next message.
- * \return The received message as a std::string.
- */
-std::string receive_one_message(boost::asio::local::stream_protocol::socket &sock)
-{
-    // Read Preamble
-    uint32_t data_preamble[4];
-    size_t length = sock.receive(boost::asio::buffer(data_preamble, 4));
-    uint32_t receive_length = ntohl(*data_preamble);
-    // Read Message
-    char *data = new char[receive_length];
-    length = sock.receive(boost::asio::buffer(data, receive_length));
-    std::string data_string(data, length);
-
-    return data_string;
-}
-
-/**
- * \brief Sends a message from a socket.
- *
- * \param sock The socket used to send the message.
- * \param str The string message to send.
- */
-void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::string str)
-{
-    // Send Preamble
-    std::size_t response_size = str.size();
-    uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-    sock.send(boost::asio::buffer(&send_length, 4));
-    // Send Message
-    sock.send(boost::asio::buffer(str.data(), str.size()));
-}
-
-/**
  * \brief Generate a protobuf_msgs/ChannelData protobuf message holding information to be passed from the robotics to the network simulator.
  *
  * \param robot_poses A map of the robot's name and its absolute Pose in Gazebo.
@@ -451,7 +412,7 @@ public:
 
         for (auto building : config["buildings"])
         {
-            std::string name = building["name"].as<std::string>();
+            std::string name = building["id"].as<std::string>();
             double x = building["x"].as<double>();
             double y = building["y"].as<double>();
             double z = building["height"].as<double>() / 2;
@@ -510,12 +471,12 @@ public:
 
         if (config["VAT_flocking_parameters"]["secondary_objective_flag"].as<bool>() == true)
         {
-            for (auto secondary_objective : config["VAT_flocking_parameters"]["secondary_objectives"])
+            for (auto secondary_objective : config["secondary_objectives"])
             {
                 std::string name = "objective_robot_" + std::to_string(secondary_objective.first.as<uint32_t>());
-                uint32_t x = secondary_objective.second[0].as<uint32_t>();
-                uint32_t y = secondary_objective.second[1].as<uint32_t>();
-                uint32_t z = secondary_objective.second[2].as<uint32_t>();
+                int32_t x = secondary_objective.second[0].as<int32_t>();
+                int32_t y = secondary_objective.second[1].as<int32_t>();
+                int32_t z = secondary_objective.second[2].as<int32_t>();
                 std::string objectiveSdf = R"(
                         <?xml version="1.0" ?>
                         <sdf version='1.7'>

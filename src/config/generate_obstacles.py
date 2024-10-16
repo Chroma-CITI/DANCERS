@@ -114,7 +114,7 @@ if __name__ == '__main__':
         points = get_edges(coords[i, :], size_obst[i])
         plt.plot(points[:, 0], points[:, 1])
                     
-        config['buildings'].append({'name': 'building_'+str(i), 'x': float(coords[i, 0]), 'y': float(coords[i, 1]), 'size_x': float(size_obst[i]), 'size_y': float(size_obst[i]), 'height': float(height)})
+        config['buildings'].append({'id': str(i), 'x': float(coords[i, 0]), 'y': float(coords[i, 1]), 'size_x': float(size_obst[i]), 'size_y': float(size_obst[i]), 'height': float(height)})
         
     with open(newpath / filename, 'w') as file:
         yaml.dump(config, file)
