@@ -14,6 +14,172 @@ find_package(Boost REQUIRED iostreams filesystem system)
 find_package(ns3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
+# add_executable(ns-3_sim_adhoc src/ns-3_sim_adhoc.cpp)
+# target_link_libraries(ns-3_sim_adhoc 
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libtap-bridge
+#   ns3::libapplications)
+# ament_target_dependencies(ns-3_sim_adhoc
+#   Boost
+#   protobuf_msgs
+#   rclcpp
+# )
+  
+# add_executable(ns-3_sim_adhoc_no_tap src/ns-3_sim_adhoc_no_tap.cpp)
+# target_link_libraries(ns-3_sim_adhoc_no_tap
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libaodv
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libapplications
+#   ns3::libcsma
+#   ns3::libtap-bridge
+#   ns3::libflow-monitor)
+# ament_target_dependencies(ns-3_sim_adhoc_no_tap
+#   Boost 
+#   protobuf_msgs
+#   rclcpp)
+
+# add_executable(ns-3_sim_ap src/ns-3_sim_ap.cpp)
+# target_link_libraries(ns-3_sim_ap 
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libtap-bridge
+#   ns3::libapplications)
+# ament_target_dependencies(ns-3_sim_ap
+#   Boost
+#   protobuf_msgs
+#   rclcpp
+# )
+
+# add_executable(ns-3_sim_csma src/ns-3_sim_csma.cpp)
+# target_link_libraries(ns-3_sim_csma 
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libtap-bridge
+#   ns3::libapplications
+#   ns3::libcsma)
+# ament_target_dependencies(ns-3_sim_csma
+#   Boost
+#   protobuf_msgs
+#   rclcpp
+# )
+
+# add_executable(ns-3_only_adhoc src/ns-3_only_adhoc.cpp)
+# target_link_libraries(ns-3_only_adhoc
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libapplications
+#   ns3::libcsma
+#   ns3::libtap-bridge
+#   ns3::libflow-monitor)
+# ament_target_dependencies(ns-3_only_adhoc
+#   Boost 
+#   protobuf_msgs
+#   rclcpp)
+
+  
+# add_executable(ns-3_only_adhoc_no_tap src/ns-3_only_adhoc_no_tap.cpp)
+# target_link_libraries(ns-3_only_adhoc_no_tap
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libapplications
+#   ns3::libcsma
+#   ns3::libtap-bridge
+#   ns3::libflow-monitor)
+# ament_target_dependencies(ns-3_only_adhoc_no_tap
+#   Boost 
+#   protobuf_msgs
+#   rclcpp)
+
+# add_executable(ns-3_only_csma src/ns-3_only_csma.cpp)
+# target_link_libraries(ns-3_only_csma
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libapplications
+#   ns3::libcsma
+#   ns3::libtap-bridge)
+# ament_target_dependencies(ns-3_only_csma
+#   Boost 
+#   protobuf_msgs
+#   rclcpp)
+
+# add_executable(ns-3_only_ap src/ns-3_only_ap.cpp)
+# target_link_libraries(ns-3_only_ap
+#   yaml-cpp
+#   ns3::libcore
+#   ns3::libwifi
+#   ns3::libmobility
+#   ns3::libolsr
+#   ns3::libinternet
+#   ns3::libbuildings
+#   ns3::libpropagation
+#   ns3::libspectrum
+#   ns3::libnetwork
+#   ns3::libapplications
+#   ns3::libcsma
+#   ns3::libtap-bridge)
+# ament_target_dependencies(ns-3_only_ap
+#   Boost 
+#   protobuf_msgs
+#   rclcpp)
+
 # add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp 
 #   include/${PROJECT_NAME}/wifi-application.cpp 
 #   include/${PROJECT_NAME}/wifi-application.h
@@ -44,8 +210,6 @@ find_package(yaml-cpp REQUIRED)
 add_executable(adhoc_chain_flocking src/adhoc_chain_flocking.cpp 
   include/${PROJECT_NAME}/wifi-application.cpp 
   include/${PROJECT_NAME}/wifi-application.h
-  include/${PROJECT_NAME}/flocking-application.cpp
-  include/${PROJECT_NAME}/flocking-application.h
   include/${PROJECT_NAME}/chain-flocking-application.cpp
   include/${PROJECT_NAME}/chain-flocking-application.h
   include/${PROJECT_NAME}/pick-neighbors-header.cpp
@@ -58,9 +222,6 @@ target_link_libraries(adhoc_chain_flocking
   ns3::libmobility
   ns3::libolsr
   ns3::libaodv
-  ns3::libolsr
-  ns3::libdsr
-  ns3::libdsdv
   ns3::libinternet
   ns3::libbuildings
   ns3::libpropagation

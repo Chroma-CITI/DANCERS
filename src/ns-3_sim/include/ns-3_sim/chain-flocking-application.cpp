@@ -330,15 +330,6 @@ ChainFlocking::SetLeaderRank(uint32_t leaderRank)
     // end ChainFlocking::SetLeaderRank
 }
 
-
-void 
-ChainFlocking::SetFlowId(uint32_t flowId)
-{
-    m_flowId = flowId;
-    // end ChainFlocking::SetFlowId
-}
-
-
 void
 ChainFlocking::SetCounter(Ptr<CounterCalculator<>> calc)
 {

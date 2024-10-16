@@ -67,6 +67,7 @@ class FlockingBroadcaster : public Application
      */
     static TypeId GetTypeId();
     FlockingBroadcaster();
+    FlockingBroadcaster(std::shared_ptr<AlgoNeighbors> struct_algo);
     ~FlockingBroadcaster() override;
 
     /**
@@ -95,6 +96,7 @@ class FlockingBroadcaster : public Application
     Ptr<Socket> m_socket;                   //!< Sending socket.
     EventId m_sendEvent;                    //!< Send packet event.
     uint64_t m_sent;                        //!< Number of packets sent.
+    std::shared_ptr<AlgoNeighbors> m_struct_algo;
 
     /// Tx TracedCallback.
     TracedCallback<Ptr<const Packet>> m_txTrace;
@@ -116,6 +118,7 @@ class FlockingReceiver : public Application
      */
     static TypeId GetTypeId();
     FlockingReceiver();
+    FlockingReceiver(std::shared_ptr<AlgoNeighbors> struct_algo);
     ~FlockingReceiver() override;
 
     /**
@@ -136,6 +139,9 @@ class FlockingReceiver : public Application
      */
     uint64_t GetReceived() const;
 
+    std::map<uint16_t, Time> GetCurrentNeighbors() const;
+    
+
   protected:
     void DoDispose() override;
 
@@ -155,12 +161,13 @@ class FlockingReceiver : public Application
     
     Ptr<Socket> m_socket;           //!< Receiving socket.
     uint64_t m_received;            //!< Number of received packets
+    std::shared_ptr<AlgoNeighbors> m_struct_algo;
 
     Ptr<CounterCalculator<>> m_calc;           //!< Counter of the number of received packets.
     Ptr<TimeMinMaxAvgTotalCalculator> m_delay; //!< Delay calculator.
 
     /// Rx TracedCallback.
-    TracedCallback<Ptr<const Packet>, int> m_rxTrace;
+    TracedCallback<Ptr<const Packet>> m_rxTrace;
 
     // end class Receiver
 };

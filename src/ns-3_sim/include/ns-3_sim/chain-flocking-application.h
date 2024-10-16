@@ -46,12 +46,6 @@ public:
     void SetLeaderRank(uint32_t leaderRank);
 
     /**
-     * Set the flow id.
-     * \param flowId The flow id
-     */
-    void SetFlowId(uint32_t flowId);
-
-    /**
      * Set the counter calculator for received packets.
      * \param calc The CounterCalculator.
      */
@@ -100,7 +94,6 @@ private:
     uint32_t m_numRelays;                   //!< Maximum number of neighbors
     Time m_timeout;                         //!< Timeout after which an neighbor expires
     uint32_t m_leaderRank;
-    uint32_t m_flowId;
 
     std::map<uint32_t, double> m_currentNeighborsUp;   //!< Map of neighbor ID and link quality (current neighbors)
     std::map<uint32_t, double> m_currentNeighborsDown; //!< Map of neighbor ID and link quality (current neighbors)

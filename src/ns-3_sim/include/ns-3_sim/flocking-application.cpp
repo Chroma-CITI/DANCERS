@@ -50,6 +50,16 @@ FlockingBroadcaster::FlockingBroadcaster()
     m_interval = CreateObject<ConstantRandomVariable>();
     m_socket = nullptr;
     m_sent = 0;
+    m_struct_algo = nullptr;
+}
+
+FlockingBroadcaster::FlockingBroadcaster(std::shared_ptr<AlgoNeighbors> struct_algo)
+{
+    NS_LOG_FUNCTION_NOARGS();
+    m_interval = CreateObject<ConstantRandomVariable>();
+    m_socket = nullptr;
+    m_sent = 0;
+    m_struct_algo = struct_algo;
 }
 
 FlockingBroadcaster::~FlockingBroadcaster()
@@ -72,6 +82,40 @@ FlockingBroadcaster::StartApplication()
 {
     NS_LOG_FUNCTION_NOARGS();
 
+    if (!m_struct_algo)
+    {
+        AlgoNeighbors alg = AlgoNeighbors();
+        alg.is_leader = false;
+        alg.has_target = false;
+        alg.k = 1;
+        m_struct_algo = std::make_shared<AlgoNeighbors>(alg);
+    }
+
+    if (m_struct_algo->is_leader)
+    {
+        if (m_struct_algo->has_target)
+        {
+            m_struct_algo->leader_rank_up = 0;
+            m_struct_algo->leader_rank_down = INFINITY;
+            m_struct_algo->neighbors_up.push_back(-1);
+        }
+        else
+        {
+            m_struct_algo->leader_rank_up = INFINITY;
+            m_struct_algo->leader_rank_down = 0;
+            m_struct_algo->neighbors_down.push_back(-1);
+
+        }
+    }
+    else
+    {
+        m_struct_algo->leader_rank_up = INFINITY;
+        m_struct_algo->leader_rank_down = INFINITY;
+    }
+
+    std::cout << "\nIn start app broadcaster " << this->GetNode()->GetId() << "\n";
+    m_struct_algo->print();
+
     if (!m_socket)
     {
         Ptr<SocketFactory> socketFactory =
@@ -86,8 +130,6 @@ FlockingBroadcaster::StartApplication()
 
     Simulator::Cancel(m_sendEvent);
     m_sendEvent = Simulator::ScheduleNow(&FlockingBroadcaster::SendPacket, this);
-
-    // std::cout << "Broadcasting app Node " << GetNode()->GetId() << " started" << std::endl;
 
     // end FlockingBroadcaster::StartApplication
 }
@@ -107,6 +149,37 @@ FlockingBroadcaster::SendPacket()
     NS_LOG_INFO("Broadcasting packet at " << Simulator::Now());
 
     Ptr<Packet> packet = Create<Packet>(m_pktSize);
+
+    // != is a XOR operation in c++
+    // We want to "search for relay" when we have been designated a relay and search from the other side of the line
+    if (m_struct_algo->neighbors_up.empty() != m_struct_algo->neighbors_down.empty())
+    {   
+        // std::cout << this->GetNode()->GetId() << " looking for a relay with best_bneighbor size = "<< m_struct_algo->neighbors.size() << std::endl;
+        std::vector<uint16_t> neighbors = select_best_neighbors(m_struct_algo->potential_neighbors, m_struct_algo->k);
+        if (neighbors.size() >= m_struct_algo->k)
+        {
+            if (m_struct_algo->neighbors_up.empty())
+            {
+                PickNeighborsHeader header;
+                header.SetTowardTarget(true);
+                header.SetBestNeighbors(neighbors);
+                header.SetLeaderRank(m_struct_algo->leader_rank_up);
+                header.SetNumBestNeighbors(m_struct_algo->k);
+                packet->AddHeader(header);
+                std::cout << "adding header to look for a relay upstream" << std::endl;
+            }
+            else
+            {
+                PickNeighborsHeader header;
+                header.SetTowardTarget(false);
+                header.SetBestNeighbors(neighbors);
+                header.SetLeaderRank(m_struct_algo->leader_rank_down);
+                header.SetNumBestNeighbors(m_struct_algo->k);
+                packet->AddHeader(header);
+                std::cout << "adding header to look for a relay downstream" << std::endl;
+            }
+        }
+    }
 
     // Could connect the socket since the address never changes; using SendTo
     // here simply because all of the standard apps do not.
@@ -157,9 +230,20 @@ FlockingReceiver::GetTypeId()
 FlockingReceiver::FlockingReceiver()
     : m_calc(nullptr),
       m_delay(nullptr),
-      m_received(0)
+      m_received(0),
+      m_struct_algo(nullptr)
 {
     NS_LOG_FUNCTION_NOARGS();
+    m_socket = nullptr;
+}
+
+FlockingReceiver::FlockingReceiver(std::shared_ptr<AlgoNeighbors> struct_algo)
+{
+    NS_LOG_FUNCTION_NOARGS();
+    m_calc = nullptr;
+    m_delay = nullptr;
+    m_received = 0;
+    m_struct_algo = struct_algo;
     m_socket = nullptr;
 }
 
@@ -183,6 +267,15 @@ FlockingReceiver::StartApplication()
 {
     NS_LOG_FUNCTION_NOARGS();
 
+    if (!m_struct_algo)
+    {
+        AlgoNeighbors alg = AlgoNeighbors();
+        alg.is_leader = false;
+        alg.has_target = false;
+        alg.k = 1;
+        m_struct_algo = std::make_shared<AlgoNeighbors>(alg);
+    }
+
     if (!m_socket)
     {
         Ptr<SocketFactory> socketFactory =
@@ -195,9 +288,10 @@ FlockingReceiver::StartApplication()
         }
     }
 
-    m_socket->SetRecvCallback(MakeCallback(&FlockingReceiver::Receive, this));
+    std::cout << "\nIn start app receiver " << this->GetNode()->GetId() << "\n";
+    m_struct_algo->print();
 
-    // std::cout << "Receiver app Node " << this->GetNode()->GetId() << " started" << std::endl;
+    m_socket->SetRecvCallback(MakeCallback(&FlockingReceiver::Receive, this));
 
     // end FlockingReceiver::StartApplication
 }
@@ -244,15 +338,28 @@ FlockingReceiver::Receive(Ptr<Socket> socket)
             NS_LOG_INFO("Received " << packet->GetSize() << " bytes from "
                                     << peer_address);
 
+            PickNeighborsHeader header;
+            if (packet->PeekHeader(header) > 0)
+            {
+                for (auto n : header.GetBestNeighbors())
+                {
+                    if (n == node_id)
+                    {
+                        m_struct_algo->neighbors[peer_id] = Simulator::Now();
+                    }
+                }
+            }
+
+            // Report the event to the trace.
+            m_rxTrace(packet);
+            m_received++;
+
             // Save the reception timestamp in the neighbors_last_received map
             // We consider /24 addresses with the last 8 bits corresponding to the peer ID + 1 ( e.g. agent 0 has address 10.0.0.1/24 )
             uint32_t peer_id = peer_address.CombineMask("0.0.0.255").Get() - 1;
             uint32_t node_id = this->GetNode()->GetId();
 
-            // Report the event to the trace.
-            m_rxTrace(packet, peer_id);
-            m_received++;
-
+            m_struct_algo->potential_neighbors[peer_id] = Simulator::Now();
 
             // std::cout << this->GetNode()->GetId() << " Received a header from " << peer_id << std::endl;
             // header.Print(std::cout);
@@ -272,5 +379,10 @@ FlockingReceiver::Receive(Ptr<Socket> socket)
 uint64_t FlockingReceiver::GetReceived() const
 {
     return m_received;
+}
+
+std::map<uint16_t, Time> FlockingReceiver::GetCurrentNeighbors() const
+{
+    return m_struct_algo->neighbors;
 }
 
