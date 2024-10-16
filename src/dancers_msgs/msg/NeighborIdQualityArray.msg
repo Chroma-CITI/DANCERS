@@ -1,0 +1,1 @@
+dancers_msgs/NeighborIdQuality[] neighbors_id_quality_array
