@@ -69,6 +69,7 @@ class Sender : public Application
     uint32_t m_destPort;                    //!< Destination port.
     Ptr<ConstantRandomVariable> m_interval; //!< Rng for sending packets.
     uint32_t m_numPkts;                     //!< Number of packets to send.
+    uint32_t m_flowId;                      //!< Flow Id tagged on the packet
 
     Ptr<Socket> m_socket; //!< Sending socket.
     EventId m_sendEvent;  //!< Send packet event.

@@ -37,6 +37,11 @@ FlockingBroadcaster::GetTypeId()
                                           StringValue("ns3::ConstantRandomVariable[Constant=0.5]"),
                                           MakePointerAccessor(&FlockingBroadcaster::m_interval),
                                           MakePointerChecker<RandomVariableStream>())
+                            .AddAttribute("FlowId",
+                                          "Tag Id of this flow",
+                                          UintegerValue(2),
+                                          MakeUintegerAccessor(&FlockingBroadcaster::m_flowId),
+                                          MakeUintegerChecker<uint32_t>())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&FlockingBroadcaster::m_txTrace),
@@ -105,6 +110,11 @@ FlockingBroadcaster::SendPacket()
     NS_LOG_INFO("Broadcasting packet at " << Simulator::Now());
 
     Ptr<Packet> packet = Create<Packet>(m_pktSize);
+
+    FlowIdTag flow_id;
+    flow_id.SetFlowId(m_flowId);
+    packet->AddPacketTag(flow_id);
+
 
     // Could connect the socket since the address never changes; using SendTo
     // here simply because all of the standard apps do not.

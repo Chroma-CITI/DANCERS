@@ -46,6 +46,7 @@ class FlockingBroadcaster : public Application
     uint32_t m_pktSize;                     //!< The packet size.
     uint32_t m_destPort;                    //!< Destination port.
     Ptr<ConstantRandomVariable> m_interval; //!< Rng for sending packets.
+    uint32_t m_flowId;                      //!< Flow Id tagged in the packets
 
     Ptr<Socket> m_socket;                   //!< Sending socket.
     EventId m_sendEvent;                    //!< Send packet event.

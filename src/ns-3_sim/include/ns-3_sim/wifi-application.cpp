@@ -68,6 +68,11 @@ Sender::GetTypeId()
                                           StringValue("ns3::ConstantRandomVariable[Constant=0.5]"),
                                           MakePointerAccessor(&Sender::m_interval),
                                           MakePointerChecker<RandomVariableStream>())
+                            .AddAttribute("FlowId",
+                                          "Tag Id of this flow",
+                                          UintegerValue(2),
+                                          MakeUintegerAccessor(&Sender::m_flowId),
+                                          MakeUintegerChecker<uint32_t>())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&Sender::m_txTrace),
@@ -140,7 +145,7 @@ Sender::SendPacket()
     packet->AddByteTag(timestamp);
 
     FlowIdTag flow_id;
-    flow_id.SetFlowId(8);
+    flow_id.SetFlowId(m_flowId);
     packet->AddPacketTag(flow_id);
 
     // Could connect the socket since the address never changes; using SendTo
