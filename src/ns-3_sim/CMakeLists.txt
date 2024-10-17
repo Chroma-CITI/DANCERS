@@ -48,6 +48,8 @@ add_executable(adhoc_chain_flocking src/adhoc_chain_flocking.cpp
   include/${PROJECT_NAME}/chain-flocking-application.h
   include/${PROJECT_NAME}/pick-neighbors-header.cpp
   include/${PROJECT_NAME}/pick-neighbors-header.h
+  include/${PROJECT_NAME}/flocking-application.cpp
+  include/${PROJECT_NAME}/flocking-application.h
   )
 target_link_libraries(adhoc_chain_flocking
   yaml-cpp
@@ -56,6 +58,8 @@ target_link_libraries(adhoc_chain_flocking
   ns3::libmobility
   ns3::libolsr
   ns3::libaodv
+  ns3::libdsdv
+  ns3::libdsr
   ns3::libinternet
   ns3::libbuildings
   ns3::libpropagation

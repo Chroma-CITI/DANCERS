@@ -21,7 +21,7 @@ function parse_yaml {
 
 
 config_name='config_2.yaml'
-[ -n "$1" ] && config_name="$1"
+[ -n "$1" ] && config_name="$1"x
 config_name="${config_name/#\~/$HOME}"
 
 eval $(parse_yaml $config_name "config_")
