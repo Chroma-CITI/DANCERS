@@ -19,7 +19,9 @@ airframe=4001
 [ -n "$3" ] && airframe="$3"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-src_path=${HOME}/PX4-Autopilot-1.14
+
+# Default installation path of the PX4 autopilot, change that if you installed PX4 elsewhere or with a different name
+src_path=${HOME}/PX4-Autopilot
 
 build_path=${src_path}/build/px4_sitl_default
 
