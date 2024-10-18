@@ -37,6 +37,6 @@ tmux new-session -d -s $session "$ROS_WS/src/launch/spawn_px4.bash $config_robot
 window=0
 tmux rename-window -t $session:$window 'mission'
 # Launch the ROS2 that controls the robots
-tmux split-window -t $session:$window -v -d "cd $ROS_WS && echo waiting $(($config_robots_number+3)) s for spawn of px4 autopilots... && sleep $(($config_robots_number+3)) && ros2 launch multirobot_control N_VAT_neighbors.launch.py config_path:=$config_name"
+tmux split-window -t $session:$window -v -d "cd $ROS_WS && read -p 'Press any key when the drones have spawned' && sleep $(($config_robots_number+3)) && ros2 launch multirobot_control N_VAT_neighbors.launch.py config_path:=$config_name"
 
 tmux attach-session -t $session:$window -d
