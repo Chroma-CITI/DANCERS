@@ -40,8 +40,8 @@ window=0
 tmux rename-window -t $session:$window 'dancers'
 tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_name -p cosim_mode:=true"
 tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run coordinator coordinator --ros-args -p config_file:=$config_name"
-# tmux select-pane -t $session:$window.2
-# tmux split-window -t $session:$window -h -d "gz sim -g"
+tmux select-pane -t $session:$window.2
+tmux split-window -t $session:$window -h -d "gz sim -g"
 
 gnome-terminal -- ./src/tmux_scripts/start_px4_mission.sh $config_name
 pid_term=$!
