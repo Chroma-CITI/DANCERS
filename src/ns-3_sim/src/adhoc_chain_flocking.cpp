@@ -1,5 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 
+#include <stack>
+
 #include <boost/asio.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/filtering_streambuf.hpp>
@@ -630,7 +632,10 @@ public:
                     RCLCPP_DEBUG(this->get_logger(), "Network simulator received an update message with empty robots positions");
                 }
 
-                // this->updateNeighborsPathloss();
+                if (wifiType == "YansWifiPhy")
+                {
+                    this->updateNeighborsPathloss();
+                }
 
                 // Once all the events are scheduled, advance W time in the simulation and stop
                 Simulator::Stop(step_size);
@@ -648,6 +653,67 @@ public:
                 }
 
                 this->timeoutNeighbors();
+
+
+                // Fake neighborhood
+                std::vector<std::vector<std::pair<int, double>>> graph;
+                // fill graph
+                for (int16_t i = 0; i < this->nodes.GetN(); i++)
+                {
+                    std::vector<std::pair<int, double>> neighbors;
+                    for (int j = 0; j < this->nodes.GetN(); j++)
+                    {
+                        double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
+                        if (distance < 60.0)
+                        {
+                            neighbors.push_back(std::make_pair(j, distance));
+                        }
+                    }
+                    graph.push_back(neighbors);
+                }
+
+                this->mission_flow_neighbors.clear();
+                
+                for (auto source_node_id : config["mission_flow"]["source_robot_ids"])
+                {
+                    int source = source_node_id.as<int>();
+                    std::vector<double> dist;
+                    std::vector<int> parent;
+
+                    this->dijkstra(source, graph, dist, parent);
+
+                    std::stack<int> path;
+                    int current = sink_node_id;
+
+                    // Trace back from destination to source using the parent array
+                    while (current != -1) {
+                        path.push(current);
+                        current = parent[current];
+                    }
+
+
+                    // No path to source
+                    if (path.top() != source)
+                    {
+                        std::cout << "No path to source !!!!!!" << std::endl;
+                        continue;
+                    }
+
+                    int curr = source;
+                    std::cout << "Path: " << source;
+                    while (path.size() > 1) 
+                    {
+                        path.pop();
+                        int neighbor = path.top();
+                        double distance = this->nodes.Get(curr)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor)->GetObject<MobilityModel>());
+                        this->mission_flow_neighbors[curr][neighbor] = std::make_pair(distance, Simulator::Now());
+                        this->mission_flow_neighbors[neighbor][curr] = std::make_pair(distance, Simulator::Now());
+                        std::cout << " -> " << neighbor ;
+                        curr = neighbor;
+                    }
+                    std::cout << std::endl;
+                }
+
 
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
@@ -748,6 +814,9 @@ private:
     std::string generate_neighbors_msg();
 
     void timeoutNeighbors();
+    void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent);
+    void updateNeighborsPathloss();
+
 };
 
 void AdhocChainFlocking::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb)
@@ -857,6 +926,7 @@ AdhocChainFlocking::generate_neighbors_msg()
     std::map<uint32_t, int> flow_ids;
 
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
+
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
         if (this->mission_flow_neighbors.find(i) == this->mission_flow_neighbors.end())
@@ -965,6 +1035,67 @@ void AdhocChainFlocking::timeoutNeighbors()
             {
                 // std::cout << "Removing mission neighbor " << neigh.first << " from agent " << agent.first << std::endl;
                 this->mission_flow_neighbors[agent.first].erase(neigh.first);
+            }
+        }
+    }
+}
+
+void AdhocChainFlocking::updateNeighborsPathloss()
+{
+    for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+    {
+        for (uint32_t j = 0; j < this->nodes.GetN(); j++)
+        {
+            if (i != j)
+            {
+                Ptr<MobilityModel> mobilityA = this->nodes.Get(i)->GetObject<MobilityModel>();
+                Ptr<MobilityModel> mobilityB = this->nodes.Get(j)->GetObject<MobilityModel>();
+
+                double rxPow = this->m_propagationLossModel->CalcRxPower(18.0, mobilityA, mobilityB);
+                this->pathlosses[i][j] = rxPow; // it's not really a pathloss but it's the same with a constant difference
+                // std::cout << "Node " << i << " -> Node " << j << " : " << rxPow << std::endl;
+            }
+        }
+    }
+
+}
+
+
+void AdhocChainFlocking::dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent)
+{
+    double inf = std::numeric_limits<double>::infinity();
+    int n = graph.size(); // Number of vertices in the graph
+    dist.assign(n, inf);   // Initialize distances with infinity
+    parent.assign(n, -1);  // Initialize parent array with -1
+    dist[source] = 0;      // Distance to source is 0
+
+    // Priority queue to store (distance, vertex)
+    std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> pq;
+    pq.push({0, source}); // Push source node with distance 0
+
+    while (!pq.empty()) 
+    {
+        int u = pq.top().second;  // Get vertex with smallest distance
+        int d = pq.top().first;   // Get the smallest distance
+        pq.pop();
+
+        if (d > dist[u])
+        {
+            continue; // Ignore if we already found a shorter path
+        }
+
+        // Explore neighbors
+        for (auto &edge : graph[u]) 
+        {
+            int v = edge.first;  // Neighbor vertex
+            int weight = edge.second; // Edge weight
+
+            // Relax the edge if we find a shorter path
+            if (dist[u] + weight < dist[v]) 
+            {
+                dist[v] = dist[u] + weight;
+                parent[v] = u;  // Update parent of v to be u
+                pq.push({dist[v], v});
             }
         }
     }

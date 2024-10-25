@@ -65,45 +65,6 @@ static std::string gzip_decompress(const std::string &data)
     return decompressed.str();
 }
 
-/**
- * \brief Receives a message from a socket.
- *
- * This function will block until the next message is received, read its header (first 4 bytes)
- * and then read the content of the message and return it as a string.
- *
- * \param sock The socket on which to listen for the next message.
- * \return The received message as a std::string.
- */
-std::string receive_one_message(boost::asio::local::stream_protocol::socket &sock)
-{
-    // Read Preamble
-    uint32_t data_preamble[4];
-    size_t length = sock.receive(boost::asio::buffer(data_preamble, 4));
-    uint32_t receive_length = ntohl(*data_preamble);
-    // Read Message
-    char *data = new char[receive_length];
-    length = sock.receive(boost::asio::buffer(data, receive_length));
-    std::string data_string(data, length);
-
-    return data_string;
-}
-
-/**
- * \brief Sends a message from a socket.
- *
- * \param sock The socket used to send the message.
- * \param str The string message to send.
- */
-void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::string str)
-{
-    // Send Preamble
-    std::size_t response_size = str.size();
-    uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-    sock.send(boost::asio::buffer(&send_length, 4));
-    // Send Message
-    sock.send(boost::asio::buffer(str.data(), str.size()));
-}
-
 std::string generate_robots_positions(RobotPose *robots, int nb_robots)
 {
     robots_positions_proto::RobotsPositions RobotsPositions_msg;
@@ -122,7 +83,6 @@ std::string generate_robots_positions(RobotPose *robots, int nb_robots)
 
     return RobotsPositions_string;
 }
-
 
 /**
  * \brief Generates the final protobuf message of protobuf_msgs/PhysicsUpdate.

@@ -424,11 +424,15 @@ void VATPilot::cmd_vel_clbk(const geometry_msgs::msg::Twist &msg)
 void VATPilot::cmd_loop_clbk()
 {
     RCLCPP_DEBUG(this->get_logger(), "Entered cmd loop drone %d", this->robot_id);
-    if (this->offboard_setpoint_counter_ <= 10)
+        
+    if (this->nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
     {
-        // Change to Offboard mode after 10 setpoints (1s)
+        // Change to Offboard mode
         this->engage_offboard_mode();
-
+    }
+    
+    if (this->arming_state != px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED)
+    {
         // Arm the vehicle
         this->arm();
     }
@@ -454,8 +458,6 @@ void VATPilot::cmd_loop_clbk()
     {
         RCLCPP_WARN(this->get_logger(), "Offboard mode not active");
     }
-
-    std::cout << "\t\t\t" << this->robots_data[this->robot_id].position.z() << std::endl;
 
     this->offboard_setpoint_counter_++;
 }

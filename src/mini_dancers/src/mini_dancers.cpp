@@ -120,6 +120,7 @@ class MiniDancers : public rclcpp::Node
             this->n_uavs = config["robots_number"].as<int>();
             this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
             this->it = 0;
+            this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
             this->omega = 0.005;
             this->target_altitude = config["target_altitude"].as<double>();
@@ -153,7 +154,8 @@ class MiniDancers : public rclcpp::Node
             this->pose_array_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("agent_poses", 10);
             this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
-            this->network_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_links", 10);
+            this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
+            this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
             this->InitObstacles();
@@ -175,6 +177,7 @@ class MiniDancers : public rclcpp::Node
         std::map<int, Eigen::Vector3d> secondary_objectives;
         std::string ros_ws_path;
         VAT_params_t vat_params;
+        uint32_t mission_flow_id;
 
         double radius;
         double omega;
@@ -189,12 +192,15 @@ class MiniDancers : public rclcpp::Node
         std::string GenerateResponseProtobuf(bool targets_reached);
         void Loop();
 
+        void MakeStep(int i);
+
         /* Publishers */
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obstacles_pub_;
         rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr id_markers_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr desired_velocities_markers_pub_;
-        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_mission_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
 
         /* Compute time saving */
@@ -272,6 +278,8 @@ void MiniDancers::InitUavs()
         agent.id = i;
         agent.uav_system = uav_system;
         agent.neighbors = std::vector<int>();
+        agent.neighbors_mission = std::vector<int>();
+        agent.neighbors_potential = std::vector<int>();
         agent.link_qualities = std::vector<double>();
         if (this->secondary_objectives.find(i) != this->secondary_objectives.end())
         {
@@ -318,7 +326,7 @@ void MiniDancers::DisplayRviz()
         id_marker.scale.z = 2.0;
         id_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
         id_marker.text = std::to_string(i);
-        id_marker.pose.position.x = uav_state.x.x();
+        id_marker.pose.position.x = uav_state.x.x()-1;
         id_marker.pose.position.y = uav_state.x.y();
         id_marker.pose.position.z = uav_state.x.z();
         id_marker_array.markers.push_back(id_marker);
@@ -384,23 +392,24 @@ void MiniDancers::DisplayRviz()
     this->secondary_objectives_pub_->publish(secondary_objectives_marker);
 
     // Display edges between neighbors
-    visualization_msgs::msg::Marker network_marker{};
-    network_marker.header.frame_id = "map";
-    network_marker.id = 1001;
-    network_marker.type = visualization_msgs::msg::Marker::LINE_LIST;
-    network_marker.action = visualization_msgs::msg::Marker::ADD;
-    network_marker.scale.x = 0.2;
-    network_marker.color.r = 1.0;  // Red color
-    network_marker.color.g = 0.0;
-    network_marker.color.b = 0.0;
-    network_marker.color.a = 1.0;  // Fully opaque
-    network_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
+    // mission neighbors
+    visualization_msgs::msg::Marker network_marker_mission{};
+    network_marker_mission.header.frame_id = "map";
+    network_marker_mission.id = 1001;
+    network_marker_mission.type = visualization_msgs::msg::Marker::LINE_LIST;
+    network_marker_mission.action = visualization_msgs::msg::Marker::ADD;
+    network_marker_mission.scale.x = 0.3;
+    network_marker_mission.color.r = 1.0;  // Red color
+    network_marker_mission.color.g = 0.0;
+    network_marker_mission.color.b = 0.0;
+    network_marker_mission.color.a = 1.0;  // Fully opaque
+    network_marker_mission.lifetime = rclcpp::Duration::from_seconds(0.1);
     for (int i=0; i < this->n_uavs; i++)
     {
         Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-        for (size_t j=0; j < this->uavs[i].neighbors.size(); j++)
+        for (size_t j=0; j < this->uavs[i].neighbors_mission.size(); j++)
         {
-            int neighbor_id = this->uavs[i].neighbors[j];
+            int neighbor_id = this->uavs[i].neighbors_mission[j];
             if (i == neighbor_id)
                 continue; // (should never happen as we check this in GetNeighbors) 
             Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
@@ -409,15 +418,51 @@ void MiniDancers::DisplayRviz()
             p1.x = agent_pose.x();
             p1.y = agent_pose.y();
             p1.z = agent_pose.z();
-            network_marker.points.push_back(p1);
+            network_marker_mission.points.push_back(p1);
             geometry_msgs::msg::Point p2{};
             p2.x = other_agent_pose.x();
             p2.y = other_agent_pose.y();
             p2.z = other_agent_pose.z();
-            network_marker.points.push_back(p2);
+            network_marker_mission.points.push_back(p2);
         }
     }
-    this->network_pub_->publish(network_marker);    
+    this->network_mission_pub_->publish(network_marker_mission);
+
+    // potential neighbors
+    visualization_msgs::msg::Marker network_marker_potential{};
+    network_marker_potential.header.frame_id = "map";
+    network_marker_potential.id = 1001;
+    network_marker_potential.type = visualization_msgs::msg::Marker::LINE_LIST;
+    network_marker_potential.action = visualization_msgs::msg::Marker::ADD;
+    network_marker_potential.scale.x = 0.2;
+    network_marker_potential.color.r = 0.0;  
+    network_marker_potential.color.g = 0.0;
+    network_marker_potential.color.b = 1.0;  // Blue color
+    network_marker_potential.color.a = 1.0;  // Fully opaque
+    network_marker_potential.lifetime = rclcpp::Duration::from_seconds(0.1);
+    for (int i=0; i < this->n_uavs; i++)
+    {
+        Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
+        for (size_t j=0; j < this->uavs[i].neighbors_potential.size(); j++)
+        {
+            int neighbor_id = this->uavs[i].neighbors_potential[j];
+            if (i == neighbor_id)
+                continue; // (should never happen as we check this in GetNeighbors) 
+            Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
+
+            geometry_msgs::msg::Point p1{};
+            p1.x = agent_pose.x();
+            p1.y = agent_pose.y();
+            p1.z = agent_pose.z();
+            network_marker_potential.points.push_back(p1);
+            geometry_msgs::msg::Point p2{};
+            p2.x = other_agent_pose.x();
+            p2.y = other_agent_pose.y();
+            p2.z = other_agent_pose.z();
+            network_marker_potential.points.push_back(p2);
+        }
+    }
+    this->network_potential_pub_->publish(network_marker_potential); 
 
 }
 
@@ -427,8 +472,13 @@ void MiniDancers::DisplayRviz()
 void MiniDancers::UpdateCmds()
 {
     std::vector<reference::VelocityHdg> controllers;
+    std::vector<agent_t *> uavs_pointers;
+    for (int i=0; i < this->n_uavs; i++)
+    {
+        uavs_pointers.push_back(&this->uavs[i]);
+    }
     // Compute flocking commands using the VAT algorithm
-    controllers = ComputeVATFlockingDesiredVelocities(this->uavs, this->obstacles, this->vat_params);
+    controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
 
     for (int i=0; i < this->n_uavs; i++)
     {
@@ -469,6 +519,8 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
         for (int i=0; i < this->n_uavs; i++)
         {
             this->uavs[i].neighbors.clear();
+            this->uavs[i].neighbors_mission.clear();
+            this->uavs[i].neighbors_potential.clear();
             this->uavs[i].link_qualities.clear();
         }
         
@@ -476,7 +528,7 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
         {
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
-            std::cout << neighbors_list_msg.DebugString() << std::endl;
+            // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());
@@ -489,6 +541,14 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
                 }
                 else
                 {
+                    if(my_neighbors.neighbortype(j) == this->mission_flow_id)
+                    {
+                        this->uavs[agent_id].neighbors_mission.push_back(my_neighbors.neighborid(j));
+                    }
+                    else
+                    {
+                        this->uavs[agent_id].neighbors_potential.push_back(my_neighbors.neighborid(j));
+                    }
                     this->uavs[agent_id].neighbors.push_back(my_neighbors.neighborid(j));
                     this->uavs[agent_id].link_qualities.push_back(my_neighbors.linkquality(j));
                 }
@@ -497,7 +557,7 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
     }
     else
     {
-        RCLCPP_INFO(this->get_logger(), "No neighbors received !");
+        RCLCPP_DEBUG(this->get_logger(), "No neighbors received !");
     }
 }
 
@@ -508,8 +568,6 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
  * It will fill the message with the (compressed) robots_positions for the current simulation window,
  * change the message-type to END, string-serialize the protobuf message and return it.
  *
- * \param robots_positions A std::string which is a string-serialized ChannelData protobuf message.
- * \param PhysicsUpdate_msg A protobuf message of type PhysicsUpdate. Usually it is an empty message with type BEGIN, this function will fill the message and
  */
 std::string MiniDancers::GenerateResponseProtobuf(bool targets_reached)
 {
@@ -569,10 +627,18 @@ void MiniDancers::Loop()
         this->GetNeighbors(PhysicsUpdate_msg);
 
         this->UpdateCmds();
+
+        std::vector<std::thread> workers;
         for (int i=0; i < this->n_uavs; i++)
         {
-            this->uavs[i].uav_system.makeStep(this->step_size);
+            workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
         }
+        for (int i=0; i < this->n_uavs; i++)
+        {
+            workers[i].join();
+        }
+        workers.clear();
+
 
         this->DisplayRviz();
         
@@ -592,6 +658,11 @@ void MiniDancers::Loop()
         socket_coord->send_one_message(response);
 
     }
+}
+
+void MiniDancers::MakeStep(int i)
+{
+    this->uavs[i].uav_system.makeStep(this->step_size);
 }
 
 int main(int argc, char **argv)

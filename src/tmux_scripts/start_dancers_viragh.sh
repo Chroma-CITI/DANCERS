@@ -25,7 +25,7 @@ tmux new-session -d -s $session "cd $path_to_viragh &&  ./robotflocksim_main -ob
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim ns-3_sim_wifi_adhoc --ros-args -p config_file:=$config_path"
+tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path"
 tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run coordinator coordinator --ros-args -p config_file:=$config_path"
 tmux select-pane -t $session:$window.2
 tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run viragh_connector viragh_connector --ros-args -p config_file:=$config_path -p viragh_path:=$path_to_viragh"
