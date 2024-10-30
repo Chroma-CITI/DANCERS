@@ -4,6 +4,7 @@
 
 #include <uav_system.hpp>
 #include <VAT_flocking_controller.hpp>
+#include <planned_flight.hpp>
 #include <udp_tcp_socket.hpp>
 
 #include <visualization_msgs/msg/marker.hpp>
@@ -36,6 +37,10 @@ class MiniDancers : public rclcpp::Node
             auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
             param_desc.description = "Path to the YAML configuration file.";
             this->declare_parameter("config_file", "", param_desc);
+            param_desc.description = "Executes in co-simulation or mini-dancers only.";
+            this->declare_parameter("cosim_mode", true, param_desc);
+
+            this->cosim_mode = this->get_parameter("cosim_mode").get_parameter_value().get<bool>();
 
             // Fetch the parameter path to the config file using ros2 parameter
             std::string config_file_path = this->get_parameter("config_file").get_parameter_value().get<std::string>();
@@ -120,6 +125,7 @@ class MiniDancers : public rclcpp::Node
             this->n_uavs = config["robots_number"].as<int>();
             this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
             this->it = 0;
+            this->it_end_sim = uint64_t(config["simulation_length"].as<double>() / this->step_size);
             this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
             this->omega = 0.005;
@@ -144,6 +150,9 @@ class MiniDancers : public rclcpp::Node
             this->vat_params.p_shill = config["VAT_flocking_parameters"]["p_shill"].as<double>();
             this->vat_params.r_0_shill = config["VAT_flocking_parameters"]["r_0_shill"].as<double>();
             this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
+
+            this->circle_params.gain = config["circle_parameters"]["gain"].as<double>();
+            this->circle_params.omega = config["circle_parameters"]["omega"].as<double>();
 
             this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
 
@@ -173,11 +182,15 @@ class MiniDancers : public rclcpp::Node
         std::vector<Eigen::Vector3d> desired_velocities;
         double step_size;
         uint64_t it;
+        uint64_t it_end_sim;
         std::string phy_uds_server_address;
         std::map<int, Eigen::Vector3d> secondary_objectives;
         std::string ros_ws_path;
         VAT_params_t vat_params;
+        circle_params_t circle_params;
         uint32_t mission_flow_id;
+        bool cosim_mode;
+        
 
         double radius;
         double omega;
@@ -296,6 +309,7 @@ void MiniDancers::DisplayRviz()
     // Display robots
     geometry_msgs::msg::PoseArray pose_array{};
     pose_array.header.frame_id = "map";
+    pose_array.header.stamp = this->get_clock()->now();
     visualization_msgs::msg::MarkerArray id_marker_array{};
     visualization_msgs::msg::MarkerArray desired_velocities_marker_array{};
     for (int i = 0; i < n_uavs ; i++)
@@ -479,6 +493,7 @@ void MiniDancers::UpdateCmds()
     }
     // Compute flocking commands using the VAT algorithm
     controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
+    // controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
 
     for (int i=0; i < this->n_uavs; i++)
     {
@@ -602,61 +617,100 @@ std::string MiniDancers::GenerateResponseProtobuf(bool targets_reached)
 
 void MiniDancers::Loop()
 {
-    /* ---- Create socket (server) with Coordinator ---- */
-    Socket *socket_coord;
-    boost::asio::io_context io_context;
-    socket_coord = new UDSSocket(io_context);
-    socket_coord->accept(this->phy_uds_server_address, 0);
-    RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
-
-    // Main simulation loop
-    while (rclcpp::ok())
+    if (cosim_mode)
     {
-        std::string received_data = gzip_decompress(socket_coord->receive_one_message());
+        /* ---- Create socket (server) with Coordinator ---- */
+        Socket *socket_coord;
+        boost::asio::io_context io_context;
+        socket_coord = new UDSSocket(io_context);
+        socket_coord->accept(this->phy_uds_server_address, 0);
+        RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
 
-        // Initialize empty protobuf message type [PhysicsUpdate]
-        physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
-        // Transform the message received from the UDS socket (string -> protobuf)
-        PhysicsUpdate_msg.ParseFromString(received_data);
-
-        if (this->save_compute_time)
+        // Main simulation loop
+        while (rclcpp::ok())
         {
-            this->probe.start();
+            std::string received_data = gzip_decompress(socket_coord->receive_one_message());
+
+            // Initialize empty protobuf message type [PhysicsUpdate]
+            physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
+            // Transform the message received from the UDS socket (string -> protobuf)
+            PhysicsUpdate_msg.ParseFromString(received_data);
+
+            if (this->save_compute_time)
+            {
+                this->probe.start();
+            }
+
+            this->GetNeighbors(PhysicsUpdate_msg);
+
+            this->UpdateCmds();
+
+            std::vector<std::thread> workers;
+            for (int i=0; i < this->n_uavs; i++)
+            {
+                workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
+            }
+            for (int i=0; i < this->n_uavs; i++)
+            {
+                workers[i].join();
+            }
+            workers.clear();
+
+
+            this->DisplayRviz();
+            
+            this->it++;
+
+            bool target_reached = false;
+
+            if (this->save_compute_time)
+            {
+                this->probe.stop();
+            }
+
+            // Generate the response message
+            std::string response = this->GenerateResponseProtobuf(target_reached);
+
+            // Send the response in the UDS socket
+            socket_coord->send_one_message(response);
+
         }
-
-        this->GetNeighbors(PhysicsUpdate_msg);
-
-        this->UpdateCmds();
-
-        std::vector<std::thread> workers;
-        for (int i=0; i < this->n_uavs; i++)
+    }
+    else            // mini-dancers only mode
+    {
+        while(rclcpp::ok() && this->it < this->it_end_sim)
         {
-            workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
+            if (this->save_compute_time)
+            {
+                this->probe.start();
+            }
+
+            // Carefull, in "mini-dancers only" mode, we have no neighbor, so we need to have a command algorithm that does not use neighbor information in UpdateCmds !
+            this->UpdateCmds();
+
+            std::vector<std::thread> workers;
+            for (int i=0; i < this->n_uavs; i++)
+            {
+                workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
+            }
+            for (int i=0; i < this->n_uavs; i++)
+            {
+                workers[i].join();
+            }
+            workers.clear();
+
+
+            this->DisplayRviz();
+            
+            this->it++;
+
+            bool target_reached = false;
+
+            if (this->save_compute_time)
+            {
+                this->probe.stop();
+            }
         }
-        for (int i=0; i < this->n_uavs; i++)
-        {
-            workers[i].join();
-        }
-        workers.clear();
-
-
-        this->DisplayRviz();
-        
-        this->it++;
-
-        bool target_reached = false;
-
-        if (this->save_compute_time)
-        {
-            this->probe.stop();
-        }
-
-        // Generate the response message
-        std::string response = this->GenerateResponseProtobuf(target_reached);
-
-        // Send the response in the UDS socket
-        socket_coord->send_one_message(response);
-
     }
 }
 

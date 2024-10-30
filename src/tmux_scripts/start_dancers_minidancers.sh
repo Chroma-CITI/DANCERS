@@ -17,7 +17,7 @@ if [ "$config_path" = "RecursionError" ]; then
     exit 1
 fi
 
-tmux new-session -d -s $session "ros2 run mini_dancers mini_dancers --ros-args -p config_file:=$config_path"
+tmux new-session -d -s $session "ros2 run mini_dancers mini_dancers --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # Uncoment this line if you want to see the output of the modules.
 # tmux set remain-on-exit on
 
@@ -26,8 +26,8 @@ tmux new-session -d -s $session "ros2 run mini_dancers mini_dancers --ros-args -
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path"
-tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path"
+tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path -p use_sim_time:=true"
+tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # tmux select-pane -t $session:$window.1
 # tmux split-window -t $session:$window -h "ros2 run rviz2 rviz2 -d ~/.rviz2/visualizer_v0.0.rviz"
 

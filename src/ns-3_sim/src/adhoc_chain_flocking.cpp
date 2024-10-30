@@ -166,7 +166,7 @@ public:
                 {
                     this->m_computation_time_file = temp_path;
                 }
-            }
+            }            
 
             // initialize the output file with headers
             this->probe = WallTimeProbe(this->m_computation_time_file);
@@ -664,7 +664,7 @@ public:
                     for (int j = 0; j < this->nodes.GetN(); j++)
                     {
                         double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
-                        if (distance < 60.0)
+                        if (distance < 50.0)
                         {
                             neighbors.push_back(std::make_pair(j, distance));
                         }

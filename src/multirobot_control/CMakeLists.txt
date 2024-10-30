@@ -13,11 +13,13 @@ find_package(std_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(obstacle_detector REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(gz-sim8 REQUIRED)
 find_package(gz-common5 REQUIRED)
 find_package(dancers_msgs REQUIRED)
+find_package(Boost REQUIRED filesystem)
 
 set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
@@ -53,11 +55,25 @@ ament_target_dependencies(VAT_neighbors
   dancers_msgs
 )
 
+add_executable(pose_array_saver src/pose_array_saver.cpp)
+
+target_link_libraries(pose_array_saver
+  yaml-cpp
+)
+
+ament_target_dependencies(pose_array_saver
+  rclcpp
+  geometry_msgs
+  Boost
+)
+
+
 
 INSTALL(
   TARGETS 
   gz_odom_publisher
   VAT_neighbors
+  pose_array_saver
   DESTINATION lib/${PROJECT_NAME})
 
 # Install launch files.
