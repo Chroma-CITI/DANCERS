@@ -57,3 +57,6 @@ data/
 # IDEs
 .vscode
 .idea
+
+# databases
+.db
