@@ -199,7 +199,7 @@ INSTALL(
   adhoc_chain_flocking
   fake_neighborhood
   # packet_success_exp
-  carousel-use-case
+  # carousel-use-case
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
