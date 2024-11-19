@@ -17,7 +17,7 @@ robots_number: 12
 robots_model: x500
 
 # Length of the simulation in seconds
-simulation_length: 0 # s
+simulation_length: 2000 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******
@@ -36,7 +36,7 @@ mission_flow:
   interval: 500000 # us
   timeout: 500000 # us
   start_time: 0.0 # s
-  stop_time: 1.0 # s
+  stop_time: 2000.0 # s
   flow_id: 1
 
 broadcast_flow:
@@ -44,9 +44,9 @@ broadcast_flow:
   port: 4000
   packet_size: 64 # bytes
   interval: 500000 # us
-  timeout: 2000000 # us
+  timeout: 500000 # us
   start_time: 0.0 # s
-  stop_time: 300.0 # s
+  stop_time: 1000.0 # s
   flow_id: 2
 
 # ******* FLOCKING *******
@@ -69,6 +69,11 @@ VAT_flocking_parameters:
   auto_propulsion_flag: false
   secondary_objective_flag: true
 
+# ******* PRE-PLANNED FLIGHT *******
+circle_parameters:
+  gain: 10
+  omega: 0.1
+ 
 # secondary objectives of the drones, with the form robot_ID: [x, y, z, target(true)|sink(false)] 
 # Be careful, there is no check that on the robot_ID in this list, if add a secondary objective for robot 10 and robot 10 does not exist, it will be ignored
 secondary_objectives: 
@@ -81,7 +86,7 @@ secondary_objectives:
   # 1: [30, 200, 10, false]
 
   0: [0, 0, 10, true]
-  1: [50, 150, 10, false]
+  1: [100, 200, 10, false]
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
