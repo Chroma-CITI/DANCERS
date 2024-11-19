@@ -4,8 +4,8 @@
 
 struct circle_params_t
 {
-    double gain;
-    double omega;
+    double gain = 10.0;
+    double omega = 0.1;
 };
 
 using namespace mrs_multirotor_simulator;

@@ -95,6 +95,7 @@ struct agent_t
     std::vector<int> neighbors;
     std::vector<int> neighbors_mission;
     std::vector<int> neighbors_potential;
+    std::vector<int> neighbors_routing;
     std::vector<double> link_qualities;
     std::optional<Eigen::Vector3d> secondary_objective;
 };

@@ -127,6 +127,7 @@ class MiniDancers : public rclcpp::Node
             this->it = 0;
             this->it_end_sim = uint64_t(config["simulation_length"].as<double>() / this->step_size);
             this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
+            this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
             this->omega = 0.005;
             this->target_altitude = config["target_altitude"].as<double>();
@@ -135,24 +136,43 @@ class MiniDancers : public rclcpp::Node
                 this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
                 std::cout << "agent " << goal.first.as<int>() << " : " << this->secondary_objectives[goal.first.as<int>()].transpose() << std::endl;
             }
-            this->vat_params.v_flock = config["VAT_flocking_parameters"]["v_flock"].as<double>();
-            this->vat_params.v_max = config["VAT_flocking_parameters"]["v_max"].as<double>();
-            this->vat_params.a_frict = config["VAT_flocking_parameters"]["a_frict"].as<double>();
-            this->vat_params.p_frict = config["VAT_flocking_parameters"]["p_frict"].as<double>();
-            this->vat_params.r_0_frict = config["VAT_flocking_parameters"]["r_0_frict"].as<double>();
-            this->vat_params.C_frict = config["VAT_flocking_parameters"]["C_frict"].as<double>();
-            this->vat_params.v_frict = config["VAT_flocking_parameters"]["v_frict"].as<double>();
-            this->vat_params.p_att = config["VAT_flocking_parameters"]["p_att"].as<double>();
-            this->vat_params.r_0_att = config["VAT_flocking_parameters"]["r_0_att"].as<double>();
-            this->vat_params.p_rep = config["VAT_flocking_parameters"]["p_rep"].as<double>();
-            this->vat_params.r_0_rep = config["VAT_flocking_parameters"]["r_0_rep"].as<double>();
-            this->vat_params.a_shill = config["VAT_flocking_parameters"]["a_shill"].as<double>();
-            this->vat_params.p_shill = config["VAT_flocking_parameters"]["p_shill"].as<double>();
-            this->vat_params.r_0_shill = config["VAT_flocking_parameters"]["r_0_shill"].as<double>();
-            this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
 
-            this->circle_params.gain = config["circle_parameters"]["gain"].as<double>();
-            this->circle_params.omega = config["circle_parameters"]["omega"].as<double>();
+            try
+            {
+                this->vat_params.v_flock = config["VAT_flocking_parameters"]["v_flock"].as<double>();
+                this->vat_params.v_max = config["VAT_flocking_parameters"]["v_max"].as<double>();
+                this->vat_params.a_frict = config["VAT_flocking_parameters"]["a_frict"].as<double>();
+                this->vat_params.p_frict = config["VAT_flocking_parameters"]["p_frict"].as<double>();
+                this->vat_params.r_0_frict = config["VAT_flocking_parameters"]["r_0_frict"].as<double>();
+                this->vat_params.C_frict = config["VAT_flocking_parameters"]["C_frict"].as<double>();
+                this->vat_params.v_frict = config["VAT_flocking_parameters"]["v_frict"].as<double>();
+                this->vat_params.p_att = config["VAT_flocking_parameters"]["p_att"].as<double>();
+                this->vat_params.r_0_att = config["VAT_flocking_parameters"]["r_0_att"].as<double>();
+                this->vat_params.p_rep = config["VAT_flocking_parameters"]["p_rep"].as<double>();
+                this->vat_params.r_0_rep = config["VAT_flocking_parameters"]["r_0_rep"].as<double>();
+                this->vat_params.a_shill = config["VAT_flocking_parameters"]["a_shill"].as<double>();
+                this->vat_params.p_shill = config["VAT_flocking_parameters"]["p_shill"].as<double>();
+                this->vat_params.r_0_shill = config["VAT_flocking_parameters"]["r_0_shill"].as<double>();
+                this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
+            }
+            catch(const std::exception& e)
+            {
+                std::cerr << e.what() << '\n';
+                std::cerr << "Failed to read at least one VAT flocking parameter, using ALL default VAT params." << '\n';
+            }
+            
+
+            try
+            {
+                this->circle_params.gain = config["circle_parameters"]["gain"].as<double>();
+                this->circle_params.omega = config["circle_parameters"]["omega"].as<double>();
+            }
+            catch(const std::exception& e)
+            {
+                std::cerr << e.what() << '\n';
+                std::cerr << "Failed to read at least one circle parameter, using ALL default circle params." << '\n';
+            }
+            
 
             this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
 
@@ -165,6 +185,7 @@ class MiniDancers : public rclcpp::Node
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
             this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
             this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
+            this->network_routing_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_routing_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
             this->InitObstacles();
@@ -189,6 +210,8 @@ class MiniDancers : public rclcpp::Node
         VAT_params_t vat_params;
         circle_params_t circle_params;
         uint32_t mission_flow_id;
+        uint32_t potential_flow_id;
+        uint32_t routing_flow_id;
         bool cosim_mode;
         
 
@@ -214,6 +237,7 @@ class MiniDancers : public rclcpp::Node
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr desired_velocities_markers_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_mission_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_routing_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
 
         /* Compute time saving */
@@ -293,6 +317,7 @@ void MiniDancers::InitUavs()
         agent.neighbors = std::vector<int>();
         agent.neighbors_mission = std::vector<int>();
         agent.neighbors_potential = std::vector<int>();
+        agent.neighbors_routing = std::vector<int>();
         agent.link_qualities = std::vector<double>();
         if (this->secondary_objectives.find(i) != this->secondary_objectives.end())
         {
@@ -445,7 +470,7 @@ void MiniDancers::DisplayRviz()
     // potential neighbors
     visualization_msgs::msg::Marker network_marker_potential{};
     network_marker_potential.header.frame_id = "map";
-    network_marker_potential.id = 1001;
+    network_marker_potential.id = 1002;
     network_marker_potential.type = visualization_msgs::msg::Marker::LINE_LIST;
     network_marker_potential.action = visualization_msgs::msg::Marker::ADD;
     network_marker_potential.scale.x = 0.2;
@@ -478,6 +503,42 @@ void MiniDancers::DisplayRviz()
     }
     this->network_potential_pub_->publish(network_marker_potential); 
 
+    // routing neighbors
+    visualization_msgs::msg::Marker network_marker_routing{};
+    network_marker_routing.header.frame_id = "map";
+    network_marker_routing.id = 1003;
+    network_marker_routing.type = visualization_msgs::msg::Marker::LINE_LIST;
+    network_marker_routing.action = visualization_msgs::msg::Marker::ADD;
+    network_marker_routing.scale.x = 0.3;
+    network_marker_routing.color.r = 0.0;  
+    network_marker_routing.color.g = 1.0;   // green color
+    network_marker_routing.color.b = 0.0;
+    network_marker_routing.color.a = 1.0;   // Fully opaque
+    network_marker_routing.lifetime = rclcpp::Duration::from_seconds(0.1);
+    for (int i=0; i < this->n_uavs; i++)
+    {
+        Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
+        for (size_t j=0; j < this->uavs[i].neighbors_routing.size(); j++)
+        {
+            int neighbor_id = this->uavs[i].neighbors_routing[j];
+            if (i == neighbor_id)
+                continue; // (should never happen as we check this in GetNeighbors) 
+            Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
+
+            geometry_msgs::msg::Point p1{};
+            p1.x = agent_pose.x();
+            p1.y = agent_pose.y();
+            p1.z = agent_pose.z();
+            network_marker_routing.points.push_back(p1);
+            geometry_msgs::msg::Point p2{};
+            p2.x = other_agent_pose.x();
+            p2.y = other_agent_pose.y();
+            p2.z = other_agent_pose.z();
+            network_marker_routing.points.push_back(p2);
+        }
+    }
+    this->network_routing_pub_->publish(network_marker_routing);
+
 }
 
 /**
@@ -492,8 +553,8 @@ void MiniDancers::UpdateCmds()
         uavs_pointers.push_back(&this->uavs[i]);
     }
     // Compute flocking commands using the VAT algorithm
-    controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
-    // controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
+    // controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
+    controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
 
     for (int i=0; i < this->n_uavs; i++)
     {
@@ -536,6 +597,7 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
             this->uavs[i].neighbors.clear();
             this->uavs[i].neighbors_mission.clear();
             this->uavs[i].neighbors_potential.clear();
+            this->uavs[i].neighbors_routing.clear();
             this->uavs[i].link_qualities.clear();
         }
         
@@ -560,9 +622,13 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
                     {
                         this->uavs[agent_id].neighbors_mission.push_back(my_neighbors.neighborid(j));
                     }
-                    else
+                    else if (my_neighbors.neighbortype(j) == this->potential_flow_id)
                     {
                         this->uavs[agent_id].neighbors_potential.push_back(my_neighbors.neighborid(j));
+                    }
+                    else
+                    {
+                        this->uavs[agent_id].neighbors_routing.push_back(my_neighbors.neighborid(j));
                     }
                     this->uavs[agent_id].neighbors.push_back(my_neighbors.neighborid(j));
                     this->uavs[agent_id].link_qualities.push_back(my_neighbors.linkquality(j));
