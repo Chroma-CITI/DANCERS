@@ -17,7 +17,7 @@ robots_number: 12
 robots_model: x500
 
 # Length of the simulation in seconds
-simulation_length: 0 # s
+simulation_length: 300.0 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******
@@ -36,7 +36,7 @@ mission_flow:
   interval: 500000 # us
   timeout: 500000 # us
   start_time: 0.0 # s
-  stop_time: 1.0 # s
+  stop_time: 300.0 # s
   flow_id: 1
 
 broadcast_flow:
