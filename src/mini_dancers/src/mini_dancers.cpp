@@ -553,8 +553,8 @@ void MiniDancers::UpdateCmds()
         uavs_pointers.push_back(&this->uavs[i]);
     }
     // Compute flocking commands using the VAT algorithm
-    // controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
-    controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
+    controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
+    // controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
 
     for (int i=0; i < this->n_uavs; i++)
     {
