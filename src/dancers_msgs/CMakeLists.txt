@@ -27,7 +27,7 @@ set(ROS_MSG_DIR_LIST "${ROS_MSG_DIR_LIST}" CACHE INTERNAL "ROS_MSG_DIR_LIST")
 
 # Generate introspection typesupport for C and C++ and IDL files
 rosidl_generate_interfaces(${PROJECT_NAME} ${DANCERS_MSGS}
-	DEPENDENCIES builtin_interfaces
+	DEPENDENCIES builtin_interfaces geometry_msgs
 	ADD_LINTER_TESTS
 )
 
