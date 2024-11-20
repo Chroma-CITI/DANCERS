@@ -12,9 +12,9 @@ find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(dancers_msgs REQUIRED)
 find_package(protobuf_msgs REQUIRED)
 find_package(Boost REQUIRED system iostreams filesystem)
-
 
 add_executable(mini_dancers src/mini_dancers.cpp)
 
@@ -22,6 +22,7 @@ ament_target_dependencies(mini_dancers
   rclcpp
   visualization_msgs
   geometry_msgs
+  dancers_msgs
   protobuf_msgs
   Boost
 )

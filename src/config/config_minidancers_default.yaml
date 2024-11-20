@@ -17,7 +17,7 @@ robots_number: 12
 robots_model: x500
 
 # Length of the simulation in seconds
-simulation_length: 300.0 # s
+simulation_length: 300 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******

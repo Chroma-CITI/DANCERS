@@ -10,6 +10,7 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
+#include <dancers_msgs/msg/velocity_heading_array.hpp>
 
 #include <protobuf_msgs/physics_update.pb.h>
 #include <protobuf_msgs/robots_positions.pb.h>
@@ -188,6 +189,10 @@ class MiniDancers : public rclcpp::Node
             this->network_routing_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_routing_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
+            /* ----------- Subscribers ----------- */
+            this->velocity_commands_sub_ = this->create_subscription<dancers_msgs::msg::VelocityHeadingArray>(
+                "velocity_commands", 10, std::bind(&MiniDancers::UpdateCmds, this, std::placeholders::_1));
+
             this->InitObstacles();
             
             this->InitUavs();
@@ -223,7 +228,7 @@ class MiniDancers : public rclcpp::Node
         void InitObstacles();
         void InitUavs();
         void DisplayRviz();
-        void UpdateCmds();
+        void UpdateCmds(const dancers_msgs::msg::VelocityHeadingArray &msg);
         void GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdate_msg);
         std::string GenerateResponseProtobuf(bool targets_reached);
         void Loop();
@@ -239,6 +244,9 @@ class MiniDancers : public rclcpp::Node
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_routing_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
+        
+        /* Subscribers */
+        rclcpp::Subscription<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr velocity_commands_sub_;
 
         /* Compute time saving */
         bool save_compute_time;
@@ -544,38 +552,22 @@ void MiniDancers::DisplayRviz()
 /**
  * This is where the controller code goes !
  */
-void MiniDancers::UpdateCmds()
+void MiniDancers::UpdateCmds(const dancers_msgs::msg::VelocityHeadingArray &msg)
 {
-    std::vector<reference::VelocityHdg> controllers;
-    std::vector<agent_t *> uavs_pointers;
-    for (int i=0; i < this->n_uavs; i++)
-    {
-        uavs_pointers.push_back(&this->uavs[i]);
-    }
-    // Compute flocking commands using the VAT algorithm
-    controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
-    // controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
+
+    assert(msg.velocity_heading_array.size() == this->n_uavs);
 
     for (int i=0; i < this->n_uavs; i++)
     {
+        reference::VelocityHdg controller;
 
-        // Dumb proportional altitude controller (z up)
-        Eigen::Vector3d agent_position = this->uavs[i].uav_system.getState().x;
-        if (agent_position[2] > this->target_altitude + 0.5)
-        {
-            controllers[i].velocity[2] = 0.1 * (this->target_altitude - agent_position[2]);
-        }
-        else if (agent_position[2] < this->target_altitude - 0.5)
-        {
-            controllers[i].velocity[2] = 0.1 * (this->target_altitude - agent_position[2]);
-        }
-        else
-        {
-            controllers[i].velocity[2] = 0.0;
-        }
+        controller.velocity[0] = msg.velocity_heading_array[i].velocity.x;
+        controller.velocity[1] = msg.velocity_heading_array[i].velocity.y;
+        controller.velocity[2] = msg.velocity_heading_array[i].velocity.z;
+        controller.heading = msg.velocity_heading_array[i].heading;
 
-        this->desired_velocities[i] = controllers[i].velocity;
-        this->uavs[i].uav_system.setInput(controllers[i]);
+        this->desired_velocities[i] = controller.velocity;
+        this->uavs[i].uav_system.setInput(controller);
     }
 }
 
@@ -709,7 +701,8 @@ void MiniDancers::Loop()
 
             this->GetNeighbors(PhysicsUpdate_msg);
 
-            this->UpdateCmds();
+            // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
+            // this->UpdateCmds();
 
             std::vector<std::thread> workers;
             for (int i=0; i < this->n_uavs; i++)
@@ -752,7 +745,7 @@ void MiniDancers::Loop()
             }
 
             // Carefull, in "mini-dancers only" mode, we have no neighbor, so we need to have a command algorithm that does not use neighbor information in UpdateCmds !
-            this->UpdateCmds();
+            // this->UpdateCmds();
 
             std::vector<std::thread> workers;
             for (int i=0; i < this->n_uavs; i++)
