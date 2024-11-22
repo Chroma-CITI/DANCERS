@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(viragh_connector)
+project(robotsim_connector)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -12,16 +12,16 @@ find_package(Boost REQUIRED system iostreams program_options filesystem)
 find_package(protobuf_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
-add_executable(viragh_connector src/viragh_connector.cpp)
+add_executable(robotsim_connector src/robotsim_connector.cpp)
 
-ament_target_dependencies(viragh_connector
+ament_target_dependencies(robotsim_connector
   rclcpp
   Boost
   protobuf_msgs)
 
 include_directories(include/${PROJECT_NAME})
 
-target_link_libraries(viragh_connector
+target_link_libraries(robotsim_connector
   yaml-cpp)
 
 # hard-coded include path makes this file fail if moved
@@ -41,7 +41,7 @@ endif()
 
 INSTALL(
   TARGETS 
-  viragh_connector
+  robotsim_connector
   DESTINATION lib/${PROJECT_NAME})
 
 
