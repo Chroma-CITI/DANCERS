@@ -35,6 +35,11 @@
 
 using namespace ns3;
 
+/**
+ * @brief Convenience function to print the neighborhood of all the agents
+ *
+ * @param neighbors The neighborhood "matrix"
+ */
 void printNeighborhood(std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors)
 {
     for (auto &node : neighbors)
@@ -88,11 +93,15 @@ gzip_decompress(const std::string &data)
     return decompressed.str();
 }
 
-
-class AdhocChainFlocking : public rclcpp::Node
+/**
+ * @brief The ns-3 ROS2 Node, part of the DANCERS co-simulator
+ * 
+ * This class is a ROS2 node that holds the network simulation for mobile communicating nodes, using the ns-3 simulator.
+ */
+class FakeNeighborhood : public rclcpp::Node
 {
 public:
-    AdhocChainFlocking() : Node("adhoc_chain_flocking")
+    FakeNeighborhood() : Node("adhoc_chain_flocking")
     {
         RCLCPP_INFO(this->get_logger(), "Adhoc Chain Flocking Node Created");
 
@@ -307,11 +316,11 @@ public:
 
             spectrumWifiPhy.SetChannel(spectrumChannel);
             spectrumWifiPhy.SetErrorRateModel(errorModelType);
-            spectrumWifiPhy.Set("TxPowerStart", DoubleValue(16)); // dBm  (1.26 mW)
-            spectrumWifiPhy.Set("TxPowerEnd", DoubleValue(16));
+            spectrumWifiPhy.Set("TxPowerStart", DoubleValue(14)); // dBm
+            spectrumWifiPhy.Set("TxPowerEnd", DoubleValue(14));
 
             // Connect a callback that will save the pathloss value in an attribute every time it is calculated
-            spectrumChannel->TraceConnectWithoutContext("PathLoss", MakeCallback(&AdhocChainFlocking::SpectrumPathLossTrace, this));
+            spectrumChannel->TraceConnectWithoutContext("PathLoss", MakeCallback(&FakeNeighborhood::SpectrumPathLossTrace, this));
 
             devices = wifi.Install(spectrumWifiPhy, mac, this->nodes);
         }
@@ -371,8 +380,8 @@ public:
             Ptr<WifiPhy> wifi_phy = devices.Get(i)->GetObject<WifiNetDevice>()->GetPhy();
 
             this->mac_to_id[wifi_mac->GetAddress()] = i;
-            wifi_phy->TraceConnect("PhyTxBegin", std::to_string(i), MakeCallback(&AdhocChainFlocking::PhyTxBeginTrace, this));
-            wifi_phy->TraceConnect("PhyRxEnd", std::to_string(i), MakeCallback(&AdhocChainFlocking::PhyRxEndTrace, this));
+            wifi_phy->TraceConnect("PhyTxBegin", std::to_string(i), MakeCallback(&FakeNeighborhood::PhyTxBeginTrace, this));
+            wifi_phy->TraceConnect("PhyRxEnd", std::to_string(i), MakeCallback(&FakeNeighborhood::PhyRxEndTrace, this));
         }
 
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of IP/ROUTING module");
@@ -409,7 +418,7 @@ public:
                 Ptr<ConstantRandomVariable> rand = CreateObject<ConstantRandomVariable>();
                 rand->SetAttribute("Constant", DoubleValue(interval/1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
                 sender->SetAttribute("Interval", PointerValue(rand));
-                sender->TraceConnectWithoutContext("Tx", MakeCallback(&AdhocChainFlocking::mission_flow_sender_clbk, this));
+                sender->TraceConnectWithoutContext("Tx", MakeCallback(&FakeNeighborhood::mission_flow_sender_clbk, this));
 
                 RCLCPP_INFO(this->get_logger(), "Configured mission app (source) for node %d", source_node_id.as<uint32_t>());
             }
@@ -419,7 +428,7 @@ public:
             sink_node->AddApplication(receiver);
             receiver->SetStartTime(Seconds(0.0));
             receiver->SetAttribute("Port", UintegerValue(mission_flow_port));
-            receiver->TraceConnectWithoutContext("Rx", MakeCallback(&AdhocChainFlocking::mission_flow_receiver_clbk, this));
+            receiver->TraceConnectWithoutContext("Rx", MakeCallback(&FakeNeighborhood::mission_flow_receiver_clbk, this));
 
             RCLCPP_INFO(this->get_logger(), "Configured mission app (sink) for node %d", sink_node_id);
             
@@ -460,11 +469,11 @@ public:
 
                 flock_receiver->SetStartTime(Seconds(0.0));
 
-                if (broadcaster->TraceConnect("Tx",std::to_string(i), MakeCallback(&AdhocChainFlocking::flocking_broadcaster_clbk, this)))
+                if (broadcaster->TraceConnect("Tx",std::to_string(i), MakeCallback(&FakeNeighborhood::flocking_broadcaster_clbk, this)))
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Connected broadcaster to node %d", i);
                 }
-                if (flock_receiver->TraceConnect("Rx", std::to_string(i), MakeCallback(&AdhocChainFlocking::flock_receiver_clbk, this)))
+                if (flock_receiver->TraceConnect("Rx", std::to_string(i), MakeCallback(&FakeNeighborhood::flock_receiver_clbk, this)))
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Connected receiver to node %d", i);
                 }
@@ -520,7 +529,7 @@ public:
             }
 
             // Connect the callback to all the trace sources
-            Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxEnd", MakeCallback(&AdhocChainFlocking::PhyTxEndTrace, this));
+            Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxEnd", MakeCallback(&FakeNeighborhood::PhyTxEndTrace, this));
 
             this->navEffectiveTx = CreateObject<PacketCounterCalculator>();
             navEffectiveTx->SetKey("nav_effective_tx");
@@ -654,6 +663,75 @@ public:
 
                 this->timeoutNeighbors();
 
+
+                // Fake neighborhood
+                std::vector<std::vector<std::pair<int, double>>> graph;
+                // fill graph
+                for (int16_t i = 0; i < this->nodes.GetN(); i++)
+                {
+                    std::vector<std::pair<int, double>> neighbors;
+                    for (int j = 0; j < this->nodes.GetN(); j++)
+                    {
+                        if (i == j)
+                            continue;
+                        // j is not a "potential neighbor" of i
+                        if (this->potential_neighbors[i].count(j) == 0)
+                            continue;
+                        double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
+                        double r1 = 30;
+                        double c1 = 10;
+                        double rMax = 100;
+                        if (distance < rMax)
+                        {
+                            neighbors.push_back(std::make_pair(j, costFunction(distance, r1, c1)));
+                        }
+                    }
+                    graph.push_back(neighbors);
+                }
+
+                this->mission_flow_neighbors.clear();
+                
+                for (auto source_node_id : config["mission_flow"]["source_robot_ids"])
+                {
+                    int source = source_node_id.as<int>();
+                    std::vector<double> dist;
+                    std::vector<int> parent;
+
+                    this->dijkstra(source, graph, dist, parent);
+
+                    std::stack<int> path;
+                    int current = sink_node_id;
+
+                    // Trace back from destination to source using the parent array
+                    while (current != -1) {
+                        path.push(current);
+                        current = parent[current];
+                    }
+
+
+                    // No path to source
+                    if (path.top() != source)
+                    {
+                        // std::cout << "No path to source !!!!!!" << std::endl;
+                        continue;
+                    }
+
+                    int curr = source;
+                    // std::cout << "Path: " << source;
+                    while (path.size() > 1) 
+                    {
+                        path.pop();
+                        int neighbor = path.top();
+                        double distance = this->nodes.Get(curr)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor)->GetObject<MobilityModel>());
+                        this->mission_flow_neighbors[curr][neighbor] = std::make_pair(distance, Simulator::Now());
+                        this->mission_flow_neighbors[neighbor][curr] = std::make_pair(distance, Simulator::Now());
+                        // std::cout << " -> " << neighbor ;
+                        curr = neighbor;
+                    }
+                    // std::cout << std::endl;
+                }
+
+
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
@@ -753,11 +831,18 @@ private:
     std::string generate_neighbors_msg();
 
     void timeoutNeighbors();
+    void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent);
     void updateNeighborsPathloss();
+    double costFunction(double dist, double r1, double c1);
 
 };
 
-void AdhocChainFlocking::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb)
+/**
+ * @brief Callback for the SpectrumChannel "PathLoss" trace
+ * 
+ * It saves the pathloss value computed by the spectrum propagation module in the pathloss matrix 
+ */
+void FakeNeighborhood::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb)
 {
     uint32_t txId = txPhy->GetDevice()->GetNode()->GetId();
     uint32_t rxId = rxPhy->GetDevice()->GetNode()->GetId();
@@ -765,7 +850,12 @@ void AdhocChainFlocking::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr
     // std::cout << "Tx: " << txId << " Rx: " << rxId << " Loss: " << lossDb << std::endl;
 }
 
-void AdhocChainFlocking::PhyTxBeginTrace(std::string context, Ptr<const Packet> packet, double txPow)
+/**
+ * @brief Callback for the WifiPhy "PhyTxBegin" trace
+ *
+ * When a packet tagged with FlowId "mission" is being sent at the PHY level, it saves the MAC layer "destination" (so, the next hop) of the packet as a neighbor.
+ */
+void FakeNeighborhood::PhyTxBeginTrace(std::string context, Ptr<const Packet> packet, double txPow)
 {
     WifiMacHeader hdr;
     packet->PeekHeader(hdr);
@@ -788,7 +878,12 @@ void AdhocChainFlocking::PhyTxBeginTrace(std::string context, Ptr<const Packet> 
     }
 }
 
-void AdhocChainFlocking::PhyTxEndTrace(Ptr<const Packet> packet)
+/**
+ * @brief Callback for the WifiPhy "PhyTxEnd" trace
+ *
+ * Used only for stats here
+ */
+void FakeNeighborhood::PhyTxEndTrace(Ptr<const Packet> packet)
 {    
     FlowIdTag nav_flow;
     if (packet->PeekPacketTag(nav_flow))
@@ -800,7 +895,12 @@ void AdhocChainFlocking::PhyTxEndTrace(Ptr<const Packet> packet)
     }
 }
 
-void AdhocChainFlocking::PhyRxEndTrace(std::string context, Ptr<const Packet> packet)
+/**
+ * @brief Callback for the WifiPhy "PhyRxEnd" trace
+ *
+ * When a packet tagged with FlowId "mission" is being received at the PHY level, it saves the MAC layer "source" (so, the previous hop) of the packet as a neighbor.
+ */
+void FakeNeighborhood::PhyRxEndTrace(std::string context, Ptr<const Packet> packet)
 {
     WifiMacHeader hdr;
     packet->PeekHeader(hdr);
@@ -827,18 +927,26 @@ void AdhocChainFlocking::PhyRxEndTrace(std::string context, Ptr<const Packet> pa
     }
 }
 
-
-void AdhocChainFlocking::mission_flow_receiver_clbk(Ptr<const Packet> packet)
+/**
+ * @brief Callback for the mission flow receiver
+ */
+void FakeNeighborhood::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
     RCLCPP_INFO(this->get_logger(), "Mission flow packet received");
 }
 
-void AdhocChainFlocking::mission_flow_sender_clbk(Ptr<const Packet> packet)
+/**
+ * @brief Callback for the mission flow sender
+ */
+void FakeNeighborhood::mission_flow_sender_clbk(Ptr<const Packet> packet)
 {
     RCLCPP_INFO(this->get_logger(), "Mission flow packet sent");
 }
 
-void AdhocChainFlocking::flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id)
+/**
+ * @brief Callback for the reception of a packet at the application layer
+ */
+void FakeNeighborhood::flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id)
 {
     RCLCPP_DEBUG(this->get_logger(), "Flock packet received");
 
@@ -847,7 +955,10 @@ void AdhocChainFlocking::flock_receiver_clbk(std::string context, Ptr<const Pack
     this->potential_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
 }
 
-void AdhocChainFlocking::flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet)
+/**
+ * @brief Callback for the transmission of a packet at the application layer
+ */
+void FakeNeighborhood::flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet)
 {
     RCLCPP_DEBUG(this->get_logger(), "Flocking broadcast packet sent");
 }
@@ -858,7 +969,7 @@ void AdhocChainFlocking::flocking_broadcaster_clbk(std::string context, Ptr<cons
  * @returns A string-serialized version of the "ordered_neighbors" protobuf message
  */
 std::string
-AdhocChainFlocking::generate_neighbors_msg()
+FakeNeighborhood::generate_neighbors_msg()
 {
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
     std::map<uint32_t, int> flow_ids;
@@ -938,7 +1049,7 @@ AdhocChainFlocking::generate_neighbors_msg()
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-AdhocChainFlocking::generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg)
+FakeNeighborhood::generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg)
 {
     // Change message type to "END"
     NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
@@ -949,7 +1060,12 @@ AdhocChainFlocking::generate_response(network_update_proto::NetworkUpdate &Netwo
     return str_response;
 }
 
-void AdhocChainFlocking::timeoutNeighbors()
+/**
+ * @brief Clear timed out neighbors
+ *
+ * Removes neighbors that have not been heard for a while.
+ */
+void FakeNeighborhood::timeoutNeighbors()
 {
     // remove timed-out neighbors from potential_neighbors  
     for (std::pair<uint32_t, std::map<uint32_t, std::pair<double, Time>>> const &agent : this->potential_neighbors)
@@ -978,7 +1094,12 @@ void AdhocChainFlocking::timeoutNeighbors()
     }
 }
 
-void AdhocChainFlocking::updateNeighborsPathloss()
+/**
+ * @brief Update the pathlosses matrix when the YansWifiPhy model is used
+ * 
+ * Explanation for this is that the YansWifiPhy model does not provide the same "pathloss" traceSource that the SpectrumChannel entity provides, thus, we need to actually compute and save the pathloss values between nodes, when we use the YansWifiPhy model   
+ */
+void FakeNeighborhood::updateNeighborsPathloss()
 {
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
@@ -999,12 +1120,77 @@ void AdhocChainFlocking::updateNeighborsPathloss()
 }
 
 /**
+ * @brief Shortest path dijkstra algorithm (recursive)
+ *
+ * \param source The source node
+ * \param graph The graph
+ * \param dist The distance vector
+ * \param parent The parent vector
+ */
+void FakeNeighborhood::dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent)
+{
+    double inf = std::numeric_limits<double>::infinity();
+    int n = graph.size(); // Number of vertices in the graph
+    dist.assign(n, inf);   // Initialize distances with infinity
+    parent.assign(n, -1);  // Initialize parent array with -1
+    dist[source] = 0;      // Distance to source is 0
+
+    // Priority queue to store (distance, vertex)
+    std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> pq;
+    pq.push({0, source}); // Push source node with distance 0
+
+    while (!pq.empty()) 
+    {
+        int u = pq.top().second;  // Get vertex with smallest distance
+        int d = pq.top().first;   // Get the smallest distance
+        pq.pop();
+
+        if (d > dist[u])
+        {
+            continue; // Ignore if we already found a shorter path
+        }
+
+        // Explore neighbors
+        for (auto &edge : graph[u]) 
+        {
+            int v = edge.first;  // Neighbor vertex
+            int weight = edge.second; // Edge weight
+
+            // Relax the edge if we find a shorter path
+            if (dist[u] + weight < dist[v]) 
+            {
+                dist[v] = dist[u] + weight;
+                parent[v] = u;  // Update parent of v to be u
+                pq.push({dist[v], v});
+            }
+        }
+    }
+}
+
+/**
+ * @brief Cost function
+ * 
+ * Here, this cost function is used for the Dijkstra algorithm costs. As a function of ditance, it is a flat function that becomes exponential at r1
+ */
+double FakeNeighborhood::costFunction(double dist, double r1, double c1)
+{
+    if (dist < r1)
+    {
+        return c1;
+    }
+    else
+    {
+        return pow((dist - r1), 2) + c1;
+    }
+}
+
+/**
  * \brief The main function, spins the ROS2 Node
  */
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<AdhocChainFlocking>());
+    rclcpp::spin(std::make_shared<FakeNeighborhood>());
     rclcpp::shutdown();
     return 0;
 }

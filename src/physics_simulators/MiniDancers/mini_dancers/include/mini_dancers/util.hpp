@@ -9,6 +9,11 @@
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 
+/**
+ * @struct Obstacle structure
+ * 
+ * Obstacles are only cuboïds defined by their center and their sizes along each axis
+ */
 struct obstacle_t
 {
     int id;
@@ -16,11 +21,22 @@ struct obstacle_t
     double size_x, size_y, size_z;
 };
 
+/**
+ * @struct Triangle structure
+ *
+ * Triangles are defined by their 3 vertices
+ */
 struct triangle
 {
     Eigen::Vector3d p1, p2, p3;
 };
 
+/**
+ * @brief Convert an obstacle to a list of triangles
+ *
+ * @param obst Obstacle to convert
+ * @return std::vector<triangle> List of triangles
+ */
 std::vector<triangle> obstacle_to_triangles_list(obstacle_t obst)
 {
     std::vector<triangle> triangles{};
@@ -88,6 +104,11 @@ double SigmoidLin(const double r, const double a, const double p)
     }
 }
 
+/**
+ * @struct The struct holding information for a connected UAV agent
+ * 
+ * It holds the UavSystem object, its id, the list(s) of its neighbors and its objectives (targets)
+ */
 struct agent_t
 {
     mrs_multirotor_simulator::UavSystem uav_system;
@@ -100,6 +121,13 @@ struct agent_t
     std::optional<Eigen::Vector3d> secondary_objective;
 };
 
+/**
+ * @brief Get the nearest point from an obstacle
+ *
+ * @param point The point to check
+ * @param obst The obstacle
+ * @return Eigen::Vector3d The nearest point from the obstacle
+ */
 Eigen::Vector3d GetNearestPointFromObstacle(Eigen::Vector3d point, obstacle_t obst)
 {
     double half_x = obst.size_x / 2.0f;

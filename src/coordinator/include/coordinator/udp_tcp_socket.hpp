@@ -2,6 +2,10 @@
 #include <iostream>
 #include <thread>
 
+
+/**
+ * @brief A virtual class of a Socket
+ */
 class Socket
 {
 public:
@@ -16,6 +20,9 @@ public:
     virtual void close() = 0;
 };
 
+/**
+ * @brief A Unix Domain Socket (UDS) implementation of the Socket class using the Boost library
+ */
 class UDSSocket : public Socket
 {
 public:
@@ -107,6 +114,9 @@ private:
     boost::asio::local::stream_protocol::socket socket_;
 };
 
+/**
+ * @brief A TCP implementation of the Socket class using the Boost library
+ */
 class TCPSocket : public Socket
 {
 public:

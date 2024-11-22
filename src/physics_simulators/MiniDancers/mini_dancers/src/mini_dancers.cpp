@@ -26,6 +26,12 @@
 
 using namespace mrs_multirotor_simulator;
 
+
+/**
+ * @brief The MiniDancers ROS2 node, part of the DANCERS co-simulator
+ * 
+ * This class is ROS2 node that is the main node for Mini-Dancers, a multi-UAV simulator specifically made to work with the DANCERS co-simulator. You can see this node as a ROS2 wrapper around the multi-rotor model created by the CTU in Prague : https://github.com/ctu-mrs/mrs_uav_system.
+ */
 class MiniDancers : public rclcpp::Node 
 {
     public: 
@@ -247,6 +253,11 @@ class MiniDancers : public rclcpp::Node
 
 };
 
+/**
+ * @brief Initialize the obstacles in Rviz
+ * 
+ * The obstacles are only displayed once, at the beginning of the simulation. If Rviz was not started at this time, the obstacles will not appear.
+ */
 void MiniDancers::InitObstacles()
 {
     // Display obstacles (once)
@@ -292,6 +303,11 @@ void MiniDancers::InitObstacles()
     }
 }
 
+/**
+ * @brief Initialize the UAV models
+ * 
+ * This function initializes the vectors related to the UAVs, including their dynamic model (UavSystem) with initial positions in a grid, their associated struct (agent_t), and their initial desired velocity (0)
+ */
 void MiniDancers::InitUavs()
 {
     int n_columns = (int)sqrt(this->n_uavs);
@@ -306,10 +322,6 @@ void MiniDancers::InitUavs()
         // Default ModelParams is the x500 configuration
         MultirotorModel::ModelParams x500_params = MultirotorModel::ModelParams();
         UavSystem uav_system = UavSystem(x500_params, Eigen::Vector3d(spawn_x, spawn_y, spawn_z), spawn_heading);
-
-        // TODO: check if usefull
-        uav_system.makeStep(0.01);
-        uav_system.makeStep(0.01);
 
         agent_t agent;
         agent.id = i;
@@ -329,6 +341,12 @@ void MiniDancers::InitUavs()
     }
 }
 
+
+/**
+ * @brief Display every dynamic object in Rviz (UAVs, targets, network links)
+ * 
+ * Displaying an object in Rviz is done by publishing a marker. The marker is created here and published here, every time this function is called.
+ */
 void MiniDancers::DisplayRviz()
 {
     // Display robots
@@ -542,6 +560,8 @@ void MiniDancers::DisplayRviz()
 }
 
 /**
+ * @brief Updates the internal state of the agents with the new input commands (called at every timestep)
+ * 
  * This is where the controller code goes !
  */
 void MiniDancers::UpdateCmds()
@@ -681,9 +701,15 @@ std::string MiniDancers::GenerateResponseProtobuf(bool targets_reached)
     return str_response;
 }
 
+
+/**
+ * @brief Main simulation loop
+ * 
+ * This function should be called only once at the end of the ROS2 node's constructor. If the co-simulation mode is used, it connects to the Coordinator node via an UDS Socket and them loop until the end off the   
+ */
 void MiniDancers::Loop()
 {
-    if (cosim_mode)
+    if (cosim_mode)         // co-simulation mode
     {
         /* ---- Create socket (server) with Coordinator ---- */
         Socket *socket_coord;
@@ -693,7 +719,7 @@ void MiniDancers::Loop()
         RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
 
         // Main simulation loop
-        while (rclcpp::ok())
+        while (rclcpp::ok() && this->it < this->it_end_sim)
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
@@ -711,6 +737,7 @@ void MiniDancers::Loop()
 
             this->UpdateCmds();
 
+            // We step the dynamics of each agents in separated thread, actually not 100% sure this is an optimization.
             std::vector<std::thread> workers;
             for (int i=0; i < this->n_uavs; i++)
             {
@@ -721,7 +748,6 @@ void MiniDancers::Loop()
                 workers[i].join();
             }
             workers.clear();
-
 
             this->DisplayRviz();
             
@@ -780,6 +806,9 @@ void MiniDancers::Loop()
     }
 }
 
+/**
+ * @brief Wrapper around UavSystem::makeStep() to be used in a thread
+ */
 void MiniDancers::MakeStep(int i)
 {
     this->uavs[i].uav_system.makeStep(this->step_size);
