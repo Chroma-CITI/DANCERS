@@ -26,7 +26,7 @@ target_link_libraries(coordinator
   yaml-cpp)
 
 include_directories(include/${PROJECT_NAME})
-
+# hard-coded include path makes this file fail if moved
 include_directories(../_include_all)
 
 INSTALL(

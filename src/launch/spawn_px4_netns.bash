@@ -22,7 +22,7 @@ separated_ros_domains=true # set to false if you want to use the same ROS_DOMAIN
 [ -n "$4" ] && separated_ros_domains="$4"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-src_path=${HOME}/PX4-Autopilot
+src_path=${HOME}/PX4-Autopilot-1.15
 
 build_path=${src_path}/build/px4_sitl_default
 
@@ -31,10 +31,15 @@ echo "killing running instances"
 pkill -x px4 || true
 pkill -x MicroXRCEAgent || true
 
-sleep 4
+sleep 2
 
-export PX4_SIM_MODEL=$model
+source $src_path/src/modules/simulation/gz_bridge/gz_env.sh.in
+
+
+export PX4_GZ_MODEL=$model
 export PX4_SYS_AUTOSTART=$airframe
+export GZ_SIM_RESOURCE_PATH="${src_path}/Tools/simulation/gz/models/:${src_path}/Tools/simulation/gz/models/"
+export PX4_GZ_STANDALONE=1
 # export ROS_LOCALHOST_ONLY=1
 # unset GZ_IP
 
@@ -71,7 +76,7 @@ while [ $n -lt $(($sitl_num+1)) ]; do
     pushd "$working_dir" &>/dev/null
     echo "starting instance $n in $(pwd) with netns net$n"
     # >out.log 2>err.log
-    echo $GZ_IP
+    netns-exec net$n echo $GZ_IP
     echo "ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY"
     netns-exec net$n $build_path/bin/px4 -i $n -d $build_path/etc >out.log 2>err.log &
     netns-exec net$n /usr/local/bin/MicroXRCEAgent udp4 -p 8888 >out_uxrce-dds.log 2>err_uxrce-dds.log &

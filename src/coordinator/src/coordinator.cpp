@@ -60,6 +60,12 @@ static std::string gzip_decompress(const std::string &data)
     return decompressed.str();
 }
 
+
+/**
+ * @brief The Coordinator ROS2 node, part of the DANCERS co-simulator
+ * 
+ * It handles the synchronization and information-passing between a network simulator and a physics simulator. 
+ */
 class Coordinator : public rclcpp::Node
 {
 public:
@@ -209,6 +215,11 @@ private:
     std::string ros_ws_path;
 };
 
+/**
+ * @brief Thread function for interaction with the physics simulator
+ * 
+ * The function executed in a thread that handles all interactions with the physics simulator. It uses sockets (UDS or TCP) to exchange protobuf messages with the physics simulator
+ */
 void Coordinator::run_phy_protobuf_client_()
 {
     RCLCPP_INFO(this->get_logger(), "Starting PHY protobuf client in thread.");
@@ -316,6 +327,11 @@ void Coordinator::run_phy_protobuf_client_()
     }
 }
 
+/**
+ * @brief Thread function for interaction with the network simulator
+ * 
+ * The function executed in a thread that handles all interactions with the network simulator. It uses sockets (UDS or TCP) to exchange protobuf messages with the network simulator
+ */
 void Coordinator::run_net_protobuf_client_()
 {
     RCLCPP_INFO(this->get_logger(), "Starting NET protobuf client in thread.");

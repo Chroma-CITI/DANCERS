@@ -19,14 +19,15 @@ fi
 
 tmux new-session -d -s $session "ros2 run mini_dancers mini_dancers --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # Uncoment this line if you want to see the output of the modules.
-# tmux set remain-on-exit on
+tmux set remain-on-exit on
 
 # Add this between 'ros2 run' and 'package-name' to enable gdb debug on a ros2 node
 # --prefix 'gdb -ex run --args'
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path -p use_sim_time:=true"
+# Available ns-3 sim modules : [fake_neighborhood , adhoc_chain_flocking]
+tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim fake_neighborhood --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # tmux select-pane -t $session:$window.1
 # tmux split-window -t $session:$window -h "ros2 run rviz2 rviz2 -d ~/.rviz2/visualizer_v0.0.rviz"
