@@ -149,7 +149,7 @@ buildings:
 
 # ******* GAZEBO *******
 
-world_sdf_path: /src/worlds/default.sdf
+world_sdf_path: /src/physics_simulators/worlds/default.sdf       # (from root of ROS2 workspace)
 update_rate: 20000 # in Hz | The objective rate at which Gazebo tries to run simulation loops. 
 
 # Period of the command loop of the robots (Gazebo only)

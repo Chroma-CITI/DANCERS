@@ -183,7 +183,8 @@ message("ns-3 version " ${ns3_VERSION})
 # message("Boost version " ${Boost_VERSION_STRING})
 
 include_directories(include/${PROJECT_NAME})
-include_directories(../_include_all)
+# hard-coded include path makes this file fail if moved
+include_directories(../../_include_all)
 
 INSTALL(
   TARGETS 

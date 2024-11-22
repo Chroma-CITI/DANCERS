@@ -24,6 +24,9 @@ include_directories(include/${PROJECT_NAME})
 target_link_libraries(viragh_connector
   yaml-cpp)
 
+# hard-coded include path makes this file fail if moved
+include_directories(../../../_include_all)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights

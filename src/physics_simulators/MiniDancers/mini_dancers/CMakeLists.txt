@@ -15,7 +15,6 @@ find_package(geometry_msgs REQUIRED)
 find_package(protobuf_msgs REQUIRED)
 find_package(Boost REQUIRED system iostreams filesystem)
 
-
 add_executable(mini_dancers src/mini_dancers.cpp)
 
 ament_target_dependencies(mini_dancers
@@ -33,7 +32,8 @@ target_link_libraries(mini_dancers
 
 include_directories(include/${PROJECT_NAME})
 include_directories(include/${PROJECT_NAME}/command_algorithms)
-include_directories(../_include_all)
+# hard-coded include path makes this file fail if moved
+include_directories(../../../_include_all)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

@@ -131,7 +131,8 @@ class MiniDancers : public rclcpp::Node
             this->n_uavs = config["robots_number"].as<int>();
             this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
             this->it = 0;
-            this->it_end_sim = uint64_t(config["simulation_length"].as<double>() / this->step_size);
+            this->simulation_length = config["simulation_length"].as<double>();
+            this->it_end_sim = uint64_t(simulation_length / this->step_size);
             this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
             this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
@@ -208,6 +209,7 @@ class MiniDancers : public rclcpp::Node
         std::vector<agent_t> uavs;                          
         std::vector<Eigen::Vector3d> desired_velocities;
         double step_size;
+        double simulation_length;
         uint64_t it;
         uint64_t it_end_sim;
         std::string phy_uds_server_address;
@@ -719,7 +721,7 @@ void MiniDancers::Loop()
         RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
 
         // Main simulation loop
-        while (rclcpp::ok() && this->it < this->it_end_sim)
+        while (rclcpp::ok() && (this->it < this->it_end_sim || this->simulation_length == 0.0))
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 

@@ -63,96 +63,96 @@ world_sdf_path: /home/theotime/simulation_ws/src/worlds/default.sdf
 
 # Buildings are defined with their center (x, y), and their size in the three dimensions : (size_x, size_y, height)
 buildings:
-  - name: high_building_1
-    x: 20
-    y: 0
-    height: 20
-    size_x: 10
-    size_y: 10
-  - name: high_building_2
-    x: 0
-    y: 30
-    height: 20
-    size_x: 10
-    size_y: 30
-  - name: high_building_3
-    x: 30
-    y: 30
-    height: 20
-    size_x: 30
-    size_y: 10
-  - name: high_building_4
-    x: -500
-    y: 200
-    height: 20
-    size_x: 100
-    size_y: 300
-  - name: high_building_5
-    x: 0
-    y: 30
-    height: 20
-    size_x: 10
-    size_y: 30
   # - name: high_building_1
-  #   x: 10
+  #   x: 20
   #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 3
-  # - name: high_building_2
-  #   x: 13
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 6
-  # - name: high_building_3
-  #   x: 16
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 9
-  # - name: high_building_4
-  #   x: 19
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 12
-  # - name: high_building_5
-  #   x: 22
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 15
-  # - name: high_building_6
-  #   x: 25
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 18
-  # - name: high_building_7
-  #   x: 28
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 21
-  # - name: high_building_8
-  #   x: 31
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 24
-  # - name: high_building_9
-  #   x: 34
-  #   y: 0
-  #   height: 15
-  #   size_x: 3
-  #   size_y: 27
-  # - name: high_building_10
-  #   x: 60
-  #   y: 0
-  #   height: 15
-  #   size_x: 60
+  #   height: 20
+  #   size_x: 10
   #   size_y: 10
+  # - name: high_building_2
+  #   x: 0
+  #   y: 30
+  #   height: 20
+  #   size_x: 10
+  #   size_y: 30
+  # - name: high_building_3
+  #   x: 30
+  #   y: 30
+  #   height: 20
+  #   size_x: 30
+  #   size_y: 10
+  # - name: high_building_4
+  #   x: -500
+  #   y: 200
+  #   height: 20
+  #   size_x: 100
+  #   size_y: 300
+  # - name: high_building_5
+  #   x: 0
+  #   y: 30
+  #   height: 20
+  #   size_x: 10
+  #   size_y: 30
+  - name: high_building_1
+    x: 10
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 3
+  - name: high_building_2
+    x: 13
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 6
+  - name: high_building_3
+    x: 16
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 9
+  - name: high_building_4
+    x: 19
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 12
+  - name: high_building_5
+    x: 22
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 15
+  - name: high_building_6
+    x: 25
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 18
+  - name: high_building_7
+    x: 28
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 21
+  - name: high_building_8
+    x: 31
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 24
+  - name: high_building_9
+    x: 34
+    y: 0
+    height: 15
+    size_x: 3
+    size_y: 27
+  - name: high_building_10
+    x: 60
+    y: 0
+    height: 15
+    size_x: 60
+    size_y: 10
   # - name: high_building_10
   #   x: 80
   #   y: 5

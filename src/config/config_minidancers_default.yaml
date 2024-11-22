@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 12
+robots_number: 8
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -28,7 +28,7 @@ phy_mode: 'ErpOfdmRate54Mbps'
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
-  enable: true
+  enable: false
   source_robot_ids: [1]
   sink_robot_id: 0
   port: 7777
@@ -46,7 +46,7 @@ broadcast_flow:
   interval: 500000 # us
   timeout: 500000 # us
   start_time: 0.0 # s
-  stop_time: 1000.0 # s
+  stop_time: 2000.0 # s
   flow_id: 2
 
 # ******* FLOCKING *******
@@ -86,7 +86,7 @@ secondary_objectives:
   # 1: [30, 200, 10, false]
 
   0: [0, 0, 10, true]
-  1: [100, 200, 10, false]
+  1: [50, 100, 10, false]
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
@@ -110,12 +110,12 @@ arena_center_x: 0
 arena_center_y: 100
 
 buildings:
-  # - id: 1
-  #   x: 10
-  #   y: 40
-  #   height: 20
-  #   size_x: 20
-  #   size_y: 10
+  - id: 1
+    x: 20
+    y: 50
+    height: 20
+    size_x: 20
+    size_y: 20
 
 # CORRIDOR
   # - id: 1
