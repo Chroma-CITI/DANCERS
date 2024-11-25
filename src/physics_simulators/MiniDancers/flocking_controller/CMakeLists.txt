@@ -8,18 +8,18 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(dancers_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(dancers_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
 
-add_executable(flocking_controller_vat src/vat_controller.cpp)
-ament_target_dependencies(flocking_controller_vat rclcpp dancers_msgs geometry_msgs)
-
-install(TARGETS
-  flocking_controller_vat
-  DESTINATION lib/${PROJECT_NAME}
+add_executable(flocking_controller_vat src/vat_controller_node.cpp src/vat_controller.cpp)
+ament_target_dependencies(flocking_controller_vat 
+  rclcpp 
+  dancers_msgs 
+  geometry_msgs
 )
+
 
 include_directories(
   include
@@ -27,6 +27,11 @@ include_directories(
 
 target_link_libraries(flocking_controller_vat 
   Eigen3::Eigen
+)
+
+install(TARGETS
+  flocking_controller_vat
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

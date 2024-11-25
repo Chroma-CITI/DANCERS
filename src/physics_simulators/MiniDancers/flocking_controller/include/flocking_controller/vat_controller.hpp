@@ -1,163 +1,140 @@
 #pragma once
 
+#include <map>
+#include <optional>
+#include <vector>
+
 #include <Eigen/Core>
-#include <uav_system.hpp>
-#include <util.hpp>
 
-#include "dancers_msgs/NeighborIdQualityArray.hpp"
-#include "dancers_msgs/VelocityHeadingArray.hpp"
-#include "geometry_msgs/msg/vector3.hpp"
+#include <dancers_msgs/msg/agent_state.hpp>
+#include <dancers_msgs/msg/velocity_heading.hpp>
 
-struct VAT_params_t
+// Forward declarations TO REMOVE
+struct agent_t; 
+struct obstacle_t; 
+
+/**
+ * @brief Flocking controller based on the VAT controller for a single agent with parameters 
+ * for iddle neighbors and mission neighbors. 
+ * @details The VAT mathematical model uses the model from https://hal.science/hal-03365129.
+ */
+class VATController
 {
-    float v_flock = 1.5;
-    float v_max = 1;
-    float a_frict = 4.16;
-    float p_frict = 3.2;
-    float r_0_frict = 85.3;
-    float C_frict = 0.8;
-    float v_frict = 0.63;
-    float p_att = 0.08;
-    float r_0_att = 15;
-    float p_rep = 0.13;
-    float r_0_rep = 15;
-    float a_shill = 53;
-    float p_shill = 3.55;
-    float r_0_shill = 0.3;
-    float v_shill = 13.622;
-};
-
-using namespace mrs_multirotor_simulator;
-
-Eigen::Vector3d alignment_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
-{
-    Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
-    {
-        if (neighbor_id != which_agent)
+    public:
+        /**
+         * @brief Role of agent. Iddle means the agent is not part of the mission's data routhing path while Mission is.
+         */
+        enum AgentRoleType
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            double velDiffNorm = (neighbor_state.v - agent_state.v).norm();
-
-            double v_frictmax = std::max((double)params.v_frict, SigmoidLin(distance - params.r_0_frict, params.a_frict, params.p_frict));
-            if (velDiffNorm > v_frictmax)
-            {
-                result += params.C_frict * (velDiffNorm - v_frictmax) * (neighbor_state.v - agent_state.v) / velDiffNorm;
-            }
-        }
-    }
-    return result;
-}
-
-Eigen::Vector3d attraction_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
-{
-    Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
-    {
-        if (neighbor_id != which_agent)
-        {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
-            if (distance > params.r_0_att)
-            {
-                result += params.p_att * (params.r_0_att - distance) * (relative_position) / distance;
-            }
-        }
-    }
-    return result;   
-}
-
-Eigen::Vector3d repulsion_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
-{
-    Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
-    {
-        if (neighbor_id != which_agent)
-        {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
-            if (distance < params.r_0_rep && distance > 0.0)
-            {
-                result += params.p_rep * (params.r_0_rep - distance) * (relative_position) / distance;
-            }
-        }
-    }
-    return result;   
-}
-
-Eigen::Vector3d shill_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, std::vector<obstacle_t> obstacles)
-{
-    Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (obstacle_t obstacle : obstacles)
-    {
-        Eigen::Vector3d shill_agent_position = GetNearestPointFromObstacle(agent_state.x, obstacle);
-        Eigen::Vector3d shill_agent_velocity = params.v_shill * -(shill_agent_position - agent_state.x).normalized();
-        double velDiffNorm = (shill_agent_velocity - agent_state.v).norm();
-        double v_shillmax = SigmoidLin((shill_agent_position - agent_state.x).norm() - params.r_0_shill, params.a_shill, params.p_shill);
-        if (velDiffNorm > v_shillmax)
-        {
-            result += -(velDiffNorm - v_shillmax) * (agent_state.v - shill_agent_velocity) / velDiffNorm;
-        }
-    }
-
-    return result;   
-}
-
-Eigen::Vector3d secondary_objective(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, Eigen::Vector3d goal)
-{
-    Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    
-    Eigen::Vector3d relative_position = agent_state.x - goal;
-
-    result += params.v_flock * -(relative_position);
-
-    if (result.norm() > params.v_max)
-    {
-        result = params.v_max * result.normalized();
-    }
-
-
-    return result;
-}
-
-std::vector<reference::VelocityHdg> ComputeVATFlockingDesiredVelocities(std::vector<agent_t *> uavs, const std::vector<obstacle_t> obstacles, VAT_params_t flocking_params)
-{
-    std::vector<reference::VelocityHdg> controllers;
-    for (int i=0; i < uavs.size(); i++)
-    {
-        reference::VelocityHdg controller;
-        controller.velocity = Eigen::Vector3d::Zero();
-
-        if (uavs[i]->id != 0)
-        {
-            controller.velocity += attraction_term(uavs, i, flocking_params);
-            controller.velocity += alignment_term(uavs, i, flocking_params);
-        }
-        controller.velocity += repulsion_term(uavs, i, flocking_params);
-        controller.velocity += shill_term(uavs, i, flocking_params, obstacles);
-        if (uavs[i]->secondary_objective)
-        {
-            controller.velocity += secondary_objective(uavs, i, flocking_params, *uavs[i]->secondary_objective);
-        }
-
-        if (controller.velocity.norm() > flocking_params.v_max)
-        {
-            controller.velocity = flocking_params.v_max * controller.velocity.normalized();
-        }
-
+            Iddle=0,
+            Mission
+        };
         
-        controller.heading = 0.0;
+        /**
+         * @brief Parameters of the VAT described in https://hal.science/hal-03365129.
+         */
+        struct VAT_params_t
+        {
+            float v_flock;
+            float v_max;
+            float a_frict;
+            float p_frict;
+            float r_0_frict;
+            float C_frict;
+            float v_frict;
+            float p_att;
+            float r_0_att;
+            float p_rep;
+            float r_0_rep;
+            float a_shill;
+            float p_shill;
+            float r_0_shill;
+            float v_shill;
+        };
 
-        controllers.push_back(controller);
+        /**
+         * @brief Computes the velocity command of the agent based on the VAT controller.
+         * @param agent Agent containinig its position, velocities and neighbors information.
+         * @param obstacles Array of 3D obstacles in the environement.
+         * @return Return the computed velocity command as a ROS message. 
+         */
+        dancers_msgs::msg::VelocityHeading getVelocityHeading(const agent_t& agent, const std::vector<obstacle_t>& obstacles);
+    
+        /**
+         * @brief Constructor of the VAT controller that initialize the internal states of the controller.
+         * @param id The id of the agent among the swarm.
+         */
+        VATController(const int id);
 
-    }
-    return controllers;
-}
+    private:
+        /**
+         * @brief Id of the agent among the swarm. 
+         */
+        int id_;
+
+        /**
+         * @brief Role of the current agent.
+         */
+         AgentRoleType self_role_ = AgentRoleType::Iddle;
+
+        /**
+         * @brief Objective point in space that attracts the agent, if defined.
+         */
+        std::optional<Eigen::Vector3d> secondary_objective_;
+
+        /**
+         * @brief VAT parameters for the iddle role.
+         */
+        VAT_params_t VAT_params_iddle_;
+
+        /**
+         * @brief VAT parameters for the mission role.
+         */
+        VAT_params_t VAT_params_mission_;
+        
+        /**
+         * @brief VAT parameters for the iddle neighbors.
+         */
+        VATController::VAT_params_t iddle_params_;
+
+
+        /* ----------- Flocking behaviors ----------- */
+        /**
+         * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.
+         * @param self_agent Current agent states.
+         * @param neighbors List of all neighbors of the given type.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d alignmentTerm(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+
+        /**
+         * @brief Flocking behavior that attracts the agent towards its neighbors of a given neighbor type.
+         * @param self_agent Current agent states.
+         * @param neighbors List of all neighbors of the given type.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d attraction_term(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+
+        /**
+         * @brief Flocking behavior that repulse the agent from its neighbors of a given neighbor type.
+         * @param self_agent Current agent states.
+         * @param neighbors List of all neighbors of the given type.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d repulsion_term(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+
+        /**
+         * @brief Flocking behavior that pushes the heading of the agent perpendicaly from the nearest obstacle surfaces.
+         * @param self_agent Current agent states.
+         * @param obstacles 3D Obstacles that present in the environment.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d shill_term(const agent_t& self_agent, const std::vector<obstacle_t>& obstacles);
+        
+        /**
+         * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.
+         * @param self_agent Current agent states.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d secondary_objective(const agent_t& self_agent);
+};
