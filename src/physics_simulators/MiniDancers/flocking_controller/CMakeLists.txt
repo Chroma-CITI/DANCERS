@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(dancers_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(mini_dancers REQUIRED)
 
 
 add_executable(flocking_controller_vat src/vat_controller_node.cpp src/vat_controller.cpp)
@@ -18,11 +19,6 @@ ament_target_dependencies(flocking_controller_vat
   rclcpp 
   dancers_msgs 
   geometry_msgs
-)
-
-
-include_directories(
-  include
 )
 
 target_link_libraries(flocking_controller_vat 
