@@ -9,10 +9,6 @@
 #include <dancers_msgs/msg/agent_state.hpp>
 #include <dancers_msgs/msg/velocity_heading.hpp>
 
-// Forward declarations TO REMOVE
-struct agent_t; 
-struct obstacle_t; 
-
 /**
  * @brief Flocking controller based on the VAT controller for a single agent with parameters 
  * for iddle neighbors and mission neighbors. 
