@@ -26,7 +26,9 @@ file(GLOB ROS_MSG_DIR_LIST "${MSGS_DIR}/*.msg")
 set(ROS_MSG_DIR_LIST "${ROS_MSG_DIR_LIST}" CACHE INTERNAL "ROS_MSG_DIR_LIST")
 
 # Generate introspection typesupport for C and C++ and IDL files
-rosidl_generate_interfaces(${PROJECT_NAME} ${DANCERS_MSGS}
+rosidl_generate_interfaces(${PROJECT_NAME} 
+	${DANCERS_MSGS}
+	"srv/GetAgentVelocities.srv"
 	DEPENDENCIES builtin_interfaces geometry_msgs
 	ADD_LINTER_TESTS
 )
