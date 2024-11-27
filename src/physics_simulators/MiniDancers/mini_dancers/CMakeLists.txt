@@ -33,9 +33,20 @@ target_link_libraries(mini_dancers
 )
 
 include_directories(include/${PROJECT_NAME})
+include_directories(include/${PROJECT_NAME}/util)
 include_directories(include/${PROJECT_NAME}/command_algorithms)
 # hard-coded include path makes this file fail if moved
 include_directories(../../../_include_all)
+
+INSTALL(
+  TARGETS mini_dancers DESTINATION lib/${PROJECT_NAME}
+)
+
+INSTALL(
+  DIRECTORY include/ DESTINATION include
+)
+
+ament_export_include_directories(include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -48,11 +59,5 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
-
-INSTALL(
-  TARGETS 
-  mini_dancers
-  DESTINATION lib/${PROJECT_NAME})
-
 
 ament_package()
