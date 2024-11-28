@@ -1,4 +1,6 @@
 #include <iostream>
+#include <utility>
+#include <chrono>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -11,6 +13,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <dancers_msgs/msg/velocity_heading_array.hpp>
+#include <dancers_msgs/srv/get_agent_velocities.hpp>
 
 #include <protobuf_msgs/physics_update.pb.h>
 #include <protobuf_msgs/robots_positions.pb.h>
@@ -26,7 +29,7 @@
 #include <yaml-cpp/yaml.h>
 
 using namespace mrs_multirotor_simulator;
-
+using namespace std::chrono_literals;
 
 /**
  * @brief The MiniDancers ROS2 node, part of the DANCERS co-simulator
@@ -196,9 +199,8 @@ class MiniDancers : public rclcpp::Node
             this->network_routing_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_routing_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
-            /* ----------- Subscribers ----------- */
-            this->velocity_commands_sub_ = this->create_subscription<dancers_msgs::msg::VelocityHeadingArray>(
-                "velocity_commands", 10, std::bind(&MiniDancers::UpdateCmds, this, std::placeholders::_1));
+            /* ----------- Service client ----------- */
+            command_client_ = this->create_client<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities");
 
             this->InitObstacles();
             
@@ -226,7 +228,7 @@ class MiniDancers : public rclcpp::Node
         uint32_t potential_flow_id;
         uint32_t routing_flow_id;
         bool cosim_mode;
-        
+
 
         double radius;
         double omega;
@@ -236,7 +238,7 @@ class MiniDancers : public rclcpp::Node
         void InitObstacles();
         void InitUavs();
         void DisplayRviz();
-        void UpdateCmds(const dancers_msgs::msg::VelocityHeadingArray &msg);
+        void UpdateCmds();
         void GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdate_msg);
         std::string GenerateResponseProtobuf(bool targets_reached);
         void Loop();
@@ -252,9 +254,9 @@ class MiniDancers : public rclcpp::Node
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_routing_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
-        
-        /* Subscribers */
-        rclcpp::Subscription<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr velocity_commands_sub_;
+
+        /* Service client*/
+        rclcpp::Client<dancers_msgs::srv::GetAgentVelocities>::SharedPtr command_client_;
 
         /* Compute time saving */
         bool save_compute_time;
@@ -574,23 +576,86 @@ void MiniDancers::DisplayRviz()
  * 
  * This is where the controller code goes !
  */
-void MiniDancers::UpdateCmds(const dancers_msgs::msg::VelocityHeadingArray &msg)
+void MiniDancers::UpdateCmds()
 {
-
-    assert(msg.velocity_heading_array.size() == this->n_uavs);
-
+    /*************** Get commands ***************/
+    // Wait for existence of service: 1s.
+    command_client_->wait_for_service(1s);
+    if (!rclcpp::ok())
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
+        return;
+    }
+    
+    auto request = std::make_shared<dancers_msgs::srv::GetAgentVelocities::Request>();
+ 
     for (int i=0; i < this->n_uavs; i++)
     {
-        reference::VelocityHdg controller;
+        dancers_msgs::msg::AgentStruct agent_struct;
+        agent_t& self_agent = this->uavs[i];
 
-        controller.velocity[0] = msg.velocity_heading_array[i].velocity.x;
-        controller.velocity[1] = msg.velocity_heading_array[i].velocity.y;
-        controller.velocity[2] = msg.velocity_heading_array[i].velocity.z;
-        controller.heading = msg.velocity_heading_array[i].heading;
+        agent_struct.agent_id = self_agent.id;
+        //agent_struct.agent_role = self_agent.id;
+        agent_struct.state.position.x = self_agent.uav_system.getState().x[0];
+        agent_struct.state.position.y = self_agent.uav_system.getState().x[1];
+        agent_struct.state.position.z = self_agent.uav_system.getState().x[2];
+        
+        agent_struct.state.velocity_heading.velocity.x = self_agent.uav_system.getState().v[0];
+        agent_struct.state.velocity_heading.velocity.y = self_agent.uav_system.getState().v[1];
+        agent_struct.state.velocity_heading.velocity.z = self_agent.uav_system.getState().v[2];
+        
+        agent_struct.neighbor_array.neighbors = self_agent.neighbors;
 
-        this->desired_velocities[i] = controller.velocity;
-        this->uavs[i].uav_system.setInput(controller);
+        // TODO: Removre this default iddle value.
+        agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
+
+        // Ajouter l'identification de rôle
+        /* if()
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
+        }
+        else if()
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_MISSION;
+        }
+        else
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
+            RCLCPP_ERROR(node->get_logger(), "The agent "<< agent_struct.agent_id<< " has an invalid role. Only Iddle and Mission are surpported. Assuming Iddle.");
+         }*/
+
+        request->agent_structs.push_back(std::move(agent_struct));
     }
+
+
+    auto result = command_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result) == rclcpp::FutureReturnCode::SUCCESS)
+    {
+        std::vector<dancers_msgs::msg::VelocityHeading>& velocity_headings = result.get()->velocity_headings.velocity_heading_array;
+        RCLCPP_ERROR_STREAM(this->get_logger(), "Size of headings: "<< velocity_headings.size() << ". n_auvs: " << this->n_uavs);
+        
+        assert(velocity_headings.size() == this->n_uavs);
+
+        for (int i=0; i < this->n_uavs; i++)
+        {
+            reference::VelocityHdg controller;
+
+            controller.velocity[0] = velocity_headings[i].velocity.x;
+            controller.velocity[1] = velocity_headings[i].velocity.y;
+            controller.velocity[2] = velocity_headings[i].velocity.z;
+            controller.heading = velocity_headings[i].heading;
+
+            this->desired_velocities[i] = controller.velocity;
+            this->uavs[i].uav_system.setInput(controller);
+        }
+    }
+    else
+    {
+        RCLCPP_ERROR_STREAM(this->get_logger(), "Couldn't call the command service: " << command_client_->get_service_name()<< ". Skipping control step");
+        return;
+    }
+
+
 }
 
 
@@ -730,7 +795,7 @@ void MiniDancers::Loop()
             this->GetNeighbors(PhysicsUpdate_msg);
 
             // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
-            // this->UpdateCmds();
+            this->UpdateCmds();
 
             // We step the dynamics of each agents in separated thread, actually not 100% sure this is an optimization.
             std::vector<std::thread> workers;
