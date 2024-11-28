@@ -1,1 +1,1 @@
-dancers_msgs/Neighbor[] neighbors
+int32[] neighbors
