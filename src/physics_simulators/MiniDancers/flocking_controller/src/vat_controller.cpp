@@ -1,8 +1,7 @@
-#include "flocking_controller/vat_controller.hpp"
-//#include <uav_system.hpp>
-//#include <util.hpp>
+#include "vat_controller.hpp"
+#include "rclcpp/rclcpp.hpp"
 
-VATController::VATController(const int id): id_(id)
+VATController::VATController(const int id, std::optional<Eigen::Vector3d> secondary_objective): id_(id), secondary_objective_(secondary_objective)
 {
     // Iddle role parameter initialization
     VAT_params_iddle_.v_flock = 1.5;
@@ -39,142 +38,151 @@ VATController::VATController(const int id): id_(id)
     VAT_params_mission_.v_shill = 13.622;
 }
 
+dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles)
+{
+    dancers_msgs::msg::VelocityHeading velocity_heading;
+    VAT_params_t *role_params;
+    if (self_agent.role_type == agent_util::AgentRoleType::Iddle)
+    {
+        role_params = &VAT_params_iddle_;
+    }
+    else if (self_agent.role_type == agent_util::AgentRoleType::Mission)
+    {
+        role_params = &VAT_params_mission_;
+    }
+    else
+    {
+        // Should not happen, add error logging
+        return velocity_heading;
+    }
 
-/* using namespace mrs_multirotor_simulator;
+    Eigen::Vector3d summed_velocity = Eigen::Vector3d::Zero();;
 
-Eigen::Vector3d alignmentTerm(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
+    summed_velocity = summed_velocity + alignmentTerm(self_agent, neighbors, role_params) +
+                    attractionTerm(self_agent, neighbors, role_params) + 
+                    repulsionTerm(self_agent, neighbors, role_params) +
+                    shillTerm(self_agent, obstacles, role_params);
+
+    // Verify if the agent has a secondary objective.
+    if (secondary_objective_.has_value())
+    {
+        summed_velocity += secondaryObjective(self_agent, secondary_objective_.value(), role_params);
+    }
+
+    if (summed_velocity.norm() > role_params->v_max)
+    {
+        summed_velocity = role_params->v_max * summed_velocity.normalized();
+    }
+ 
+    velocity_heading.velocity.x = summed_velocity[0];
+    velocity_heading.velocity.y = summed_velocity[1];
+    velocity_heading.velocity.y = summed_velocity[2];
+
+    
+    return velocity_heading;
+}
+
+Eigen::Vector3d VATController::alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+    
+    if(role_params)
     {
-        if (neighbor_id != which_agent)
+        for (std::shared_ptr<const agent_util::AgentState_t> neighbor: neighbors)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            double velDiffNorm = (neighbor_state.v - agent_state.v).norm();
+            const double distance = (self_agent.position - neighbor->position).norm();
+            const double velDiffNorm = (self_agent.velocity - neighbor->velocity).norm();
 
-            double v_frictmax = std::max((double)params.v_frict, SigmoidLin(distance - params.r_0_frict, params.a_frict, params.p_frict));
+            double v_frictmax = std::max((double)role_params->v_frict, sigmoidLin(distance - role_params->r_0_frict, role_params->a_frict, role_params->p_frict));
             if (velDiffNorm > v_frictmax)
             {
-                result += params.C_frict * (velDiffNorm - v_frictmax) * (neighbor_state.v - agent_state.v) / velDiffNorm;
+                result += role_params->C_frict * (velDiffNorm - v_frictmax) * (neighbor->velocity - self_agent.velocity) / velDiffNorm;
             }
         }
     }
+
     return result;
 }
 
-Eigen::Vector3d attraction_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
+Eigen::Vector3d VATController::attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+
+    if(role_params)
     {
-        if (neighbor_id != which_agent)
+        for (std::shared_ptr<const agent_util::AgentState_t> neighbor: neighbors)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
-            if (distance > params.r_0_att)
+            const Eigen::Vector3d relative_position = self_agent.position  - neighbor->position;
+            const double distance = relative_position.norm();
+
+            if (distance > role_params->r_0_att)
             {
-                result += params.p_att * (params.r_0_att - distance) * (relative_position) / distance;
+                result += role_params->p_att * (role_params->r_0_att - distance) * (relative_position) / distance;
             }
         }
     }
     return result;   
 }
 
-Eigen::Vector3d repulsion_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params)
+Eigen::Vector3d VATController::repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+
+    if(role_params)
     {
-        if (neighbor_id != which_agent)
+        for (std::shared_ptr<const agent_util::AgentState_t> neighbor: neighbors)
         {
-            MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
-            double distance = (agent_state.x - neighbor_state.x).norm();
-            Eigen::Vector3d relative_position = agent_state.x - neighbor_state.x;
-            if (distance < params.r_0_rep && distance > 0.0)
+            const Eigen::Vector3d relative_position = self_agent.position  - neighbor->position;
+            const double distance = relative_position.norm();
+            if (distance < role_params->r_0_rep && distance > 0.0)
             {
-                result += params.p_rep * (params.r_0_rep - distance) * (relative_position) / distance;
+                result += role_params->p_rep * (role_params->r_0_rep - distance) * (relative_position) / distance;
             }
         }
     }
-    return result;   
+
+    return result;  
 }
 
-Eigen::Vector3d shill_term(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, std::vector<obstacle_t> obstacles)
+Eigen::Vector3d VATController::shillTerm(const agent_util::AgentState_t& self_agent, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t* role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (obstacle_t obstacle : obstacles)
+
+    if(role_params)
     {
-        Eigen::Vector3d shill_agent_position = GetNearestPointFromObstacle(agent_state.x, obstacle);
-        Eigen::Vector3d shill_agent_velocity = params.v_shill * -(shill_agent_position - agent_state.x).normalized();
-        double velDiffNorm = (shill_agent_velocity - agent_state.v).norm();
-        double v_shillmax = SigmoidLin((shill_agent_position - agent_state.x).norm() - params.r_0_shill, params.a_shill, params.p_shill);
-        if (velDiffNorm > v_shillmax)
+        for (const cuboid::obstacle_t& obstacle : obstacles)
         {
-            result += -(velDiffNorm - v_shillmax) * (agent_state.v - shill_agent_velocity) / velDiffNorm;
+            Eigen::Vector3d shill_agent_position = cuboid::get_nearest_point_from_obstacle(self_agent.position, obstacle);
+            const Eigen::Vector3d relative_shill_position = shill_agent_position - self_agent.position;
+
+            Eigen::Vector3d shill_agent_velocity = role_params->v_shill * - relative_shill_position.normalized();
+            const double velDiffNorm = (self_agent.velocity - shill_agent_velocity).norm();
+            const double v_shillmax = sigmoidLin(relative_shill_position.norm() - role_params->r_0_shill, role_params->a_shill, role_params->p_shill);
+            if (velDiffNorm > v_shillmax)
+            {
+                result += -(velDiffNorm - v_shillmax) * (self_agent.velocity - shill_agent_velocity) / velDiffNorm;
+            }
         }
     }
 
     return result;   
 }
 
-Eigen::Vector3d secondary_objective(std::vector<agent_t *> uavs, int which_agent, VAT_params_t params, Eigen::Vector3d goal)
+Eigen::Vector3d VATController::secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t* role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
     
-    Eigen::Vector3d relative_position = agent_state.x - goal;
-
-    result += params.v_flock * -(relative_position);
-
-    if (result.norm() > params.v_max)
+    if(role_params)
     {
-        result = params.v_max * result.normalized();
-    }
+        Eigen::Vector3d relative_position = self_agent.position - goal;
 
+        result += role_params->v_flock * -(relative_position);
+
+        if (result.norm() > role_params->v_max)
+        {
+            result = role_params->v_max * result.normalized();
+        }
+    }
 
     return result;
 }
-
-std::vector<dancer_msgs::msg::VelocityHeadingArray> ComputeVATFlockingDesiredVelocities(const dancer_msgs::msg::VelocityHeadingArray& velocity_array,
-                                                                                        const std::vector<obstacle_t> obstacles,
-                                                                                        VAT_params_t flocking_params)
-{
-    dancer_msgs::msg::VelocityHeadingArray& velocity_array;
-
-    std::vector<reference::VelocityHdg> controllers;
-    for (int i=0; i < uavs.size(); i++)
-    {
-        reference::VelocityHdg controller;
-        controller.velocity = Eigen::Vector3d::Zero();
-
-        if (uavs[i]->id != 0)
-        {
-            controller.velocity += attraction_term(uavs, i, flocking_params);
-            controller.velocity += alignment_term(uavs, i, flocking_params);
-        }
-        controller.velocity += repulsion_term(uavs, i, flocking_params);
-        controller.velocity += shill_term(uavs, i, flocking_params, obstacles);
-        if (uavs[i]->secondary_objective)
-        {
-            controller.velocity += secondary_objective(uavs, i, flocking_params, *uavs[i]->secondary_objective);
-        }
-
-        if (controller.velocity.norm() > flocking_params.v_max)
-        {
-            controller.velocity = flocking_params.v_max * controller.velocity.normalized();
-        }
-
-        
-        controller.heading = 0.0;
-
-        controllers.push_back(controller);
-
-    }
-    return controllers;
-} */

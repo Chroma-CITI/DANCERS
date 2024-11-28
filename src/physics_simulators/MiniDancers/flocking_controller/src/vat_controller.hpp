@@ -3,29 +3,26 @@
 #include <map>
 #include <optional>
 #include <vector>
+#include <memory>
 
 #include <Eigen/Core>
 
 #include <dancers_msgs/msg/agent_state.hpp>
+#include <dancers_msgs/msg/neighbor_array.hpp>
 #include <dancers_msgs/msg/velocity_heading.hpp>
+
+#include <flocking_controller/agent_util.hpp>
+#include <flocking_controller/cuboid_obstacle_util.hpp>
 
 /**
  * @brief Flocking controller based on the VAT controller for a single agent with parameters 
- * for iddle neighbors and mission neighbors. 
+ * for iddle neighbors and mission neighbors.
  * @details The VAT mathematical model uses the model from https://hal.science/hal-03365129.
  */
 class VATController
 {
     public:
-        /**
-         * @brief Role of agent. Iddle means the agent is not part of the mission's data routhing path while Mission is.
-         */
-        enum AgentRoleType
-        {
-            Iddle=0,
-            Mission
-        };
-        
+       
         /**
          * @brief Parameters of the VAT described in https://hal.science/hal-03365129.
          */
@@ -50,28 +47,25 @@ class VATController
 
         /**
          * @brief Computes the velocity command of the agent based on the VAT controller.
-         * @param agent Agent containinig its position, velocities and neighbors information.
+         * @param self_agent Agent containinig its position, velocities and neighbors information.
+         * @param neighbors List of all neighbors.
          * @param obstacles Array of 3D obstacles in the environement.
          * @return Return the computed velocity command as a ROS message. 
          */
-        dancers_msgs::msg::VelocityHeading getVelocityHeading(const agent_t& agent, const std::vector<obstacle_t>& obstacles);
+        dancers_msgs::msg::VelocityHeading getVelocityHeading(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles);
     
         /**
          * @brief Constructor of the VAT controller that initialize the internal states of the controller.
          * @param id The id of the agent among the swarm.
+         * @param secondary_objective Potential secondary goal that attracts the robot. Default: std::nullopt (No secondary objective).
          */
-        VATController(const int id);
+        VATController(const int id, std::optional<Eigen::Vector3d> secondary_objective = std::nullopt);
 
     private:
         /**
          * @brief Id of the agent among the swarm. 
          */
         int id_;
-
-        /**
-         * @brief Role of the current agent.
-         */
-         AgentRoleType self_role_ = AgentRoleType::Iddle;
 
         /**
          * @brief Objective point in space that attracts the agent, if defined.
@@ -91,46 +85,71 @@ class VATController
         /**
          * @brief VAT parameters for the iddle neighbors.
          */
-        VATController::VAT_params_t iddle_params_;
-
+        VAT_params_t iddle_params_;
 
         /* ----------- Flocking behaviors ----------- */
         /**
          * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.
          * @param self_agent Current agent states.
-         * @param neighbors List of all neighbors of the given type.
+         * @param neighbors List of all neighbors.
+         * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d alignmentTerm(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+        Eigen::Vector3d alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
 
         /**
          * @brief Flocking behavior that attracts the agent towards its neighbors of a given neighbor type.
          * @param self_agent Current agent states.
-         * @param neighbors List of all neighbors of the given type.
+         * @param neighbors List of all neighbors.
+         * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d attraction_term(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+        Eigen::Vector3d attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
 
         /**
          * @brief Flocking behavior that repulse the agent from its neighbors of a given neighbor type.
          * @param self_agent Current agent states.
-         * @param neighbors List of all neighbors of the given type.
+         * @param neighbors List of all neighbors.
+         * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d repulsion_term(const agent_t& self_agent, const std::vector<agent_t *>& neighbors);
+        Eigen::Vector3d repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
 
         /**
          * @brief Flocking behavior that pushes the heading of the agent perpendicaly from the nearest obstacle surfaces.
          * @param self_agent Current agent states.
          * @param obstacles 3D Obstacles that present in the environment.
+         * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d shill_term(const agent_t& self_agent, const std::vector<obstacle_t>& obstacles);
+        Eigen::Vector3d shillTerm(const agent_util::AgentState_t& self_agent, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t* role_params);
         
         /**
-         * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.
+         * @brief Flocking behavior that attracts the agent towards a goal position.
          * @param self_agent Current agent states.
+         * @param goal Goal position that attracts the agent.
+         * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d secondary_objective(const agent_t& self_agent);
+        Eigen::Vector3d secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t* role_params);
+
+
+        /**
+         * @brief Function used for flocking computation, see curve in Vásárhelyi 2018 Fig.6. for parameters.
+         */
+        double sigmoidLin(const double r, const double a, const double p)
+        {
+            if (r <= 0)
+            {
+                return 0;
+            }
+            else if (r * p > 0 && r * p < a / p)
+            {
+                return r * p;
+            }
+            else
+            {
+                return std::sqrt(2 * a * r - std::pow(a, 2) / std::pow(p, 2));
+            }
+        }
 };
