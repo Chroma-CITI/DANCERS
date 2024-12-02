@@ -1,5 +1,7 @@
-uint8 AGENT_ROLE_IDDLE=0
+uint8 AGENT_ROLE_UNDEFINED=0
 uint8 AGENT_ROLE_MISSION=1
+uint8 AGENT_ROLE_POTENTIAL=2
+uint8 AGENT_ROLE_IDLE=3
 
 uint8 agent_role
 uint8 agent_id

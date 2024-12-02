@@ -609,13 +609,13 @@ void MiniDancers::UpdateCmds()
         
         agent_struct.neighbor_array.neighbors = self_agent.neighbors;
 
-        // TODO: Removre this default iddle value.
-        agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
+        // TODO: Removre this default idle value.
+        agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
 
         // Ajouter l'identification de rôle
         /* if()
         {
-            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
         }
         else if()
         {
@@ -623,8 +623,8 @@ void MiniDancers::UpdateCmds()
         }
         else
         {
-            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDDLE;
-            RCLCPP_ERROR(node->get_logger(), "The agent "<< agent_struct.agent_id<< " has an invalid role. Only Iddle and Mission are surpported. Assuming Iddle.");
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
+            RCLCPP_ERROR(node->get_logger(), "The agent "<< agent_struct.agent_id<< " has an invalid role. Only Idle and Mission are surpported. Assuming Idle.");
          }*/
 
         request->agent_structs.push_back(std::move(agent_struct));

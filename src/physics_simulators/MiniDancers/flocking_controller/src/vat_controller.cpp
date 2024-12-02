@@ -11,7 +11,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
 {
     dancers_msgs::msg::VelocityHeading velocity_heading;
     VAT_params_t *role_params;
-    if (self_agent.role_type == agent_util::AgentRoleType::Iddle)
+    if (self_agent.role_type == agent_util::AgentRoleType::Idle)
     {
         role_params = &VAT_params_iddle_;
     }

@@ -10,12 +10,14 @@ namespace agent_util
 {
 
     /**
-     * @brief Role of agent. Iddle means the agent is not part of the mission's data routhing path while Mission is.
+     * @brief Role of agent. Idle means the agent is not part of the mission's data routhing path while Mission is.
      */
     enum AgentRoleType
     {
-        Iddle=0,
-        Mission
+        Undefined = 0,
+        Mission,
+        Potential,
+        Idle
     };
 
     /**
@@ -41,9 +43,9 @@ namespace agent_util
         AgentState_t agent_state;
         agent_state.id = agent_struct.agent_id;
         
-        if (agent_struct.agent_role == agent_struct.AGENT_ROLE_IDDLE)
+        if (agent_struct.agent_role == agent_struct.AGENT_ROLE_IDLE)
         {
-            agent_state.role_type = AgentRoleType::Iddle;
+            agent_state.role_type = AgentRoleType::Idle;
         }
         else if(agent_struct.agent_role == agent_struct.AGENT_ROLE_MISSION)
         {

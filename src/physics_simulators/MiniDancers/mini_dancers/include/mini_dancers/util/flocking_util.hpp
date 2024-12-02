@@ -25,6 +25,6 @@ double SigmoidLin(const double r, const double a, const double p)
  */
 enum AgentRoleType
 {
-    Iddle=0,
+    Idle=0,
     Mission
 };

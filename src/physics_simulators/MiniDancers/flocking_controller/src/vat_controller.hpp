@@ -16,7 +16,7 @@
 
 /**
  * @brief Flocking controller based on the VAT controller for a single agent with parameters 
- * for iddle neighbors and mission neighbors.
+ * for idle neighbors and mission neighbors.
  * @details The VAT mathematical model uses the model from https://hal.science/hal-03365129.
  */
 class VATController
@@ -56,9 +56,9 @@ class VATController
             int id;
 
             /**
-             * @brief VAT parameters of the iddle role.
+             * @brief VAT parameters of the idle role.
              */
-            VAT_params_t VAT_params_iddle;
+            VAT_params_t VAT_params_idle;
 
             /**
              * @brief VAT parameters of the mission role.
@@ -100,9 +100,9 @@ class VATController
         int id_;
 
         /**
-         * @brief VAT parameters for the iddle role.
+         * @brief VAT parameters for the idle role.
          */
-        VAT_params_t VAT_params_iddle_;
+        VAT_params_t VAT_params_idle_;
 
         /**
          * @brief VAT parameters for the mission role.
@@ -110,9 +110,9 @@ class VATController
         VAT_params_t VAT_params_mission_;
         
         /**
-         * @brief VAT parameters for the iddle neighbors.
+         * @brief VAT parameters for the idle neighbors.
          */
-        VAT_params_t iddle_params_;
+        VAT_params_t idle_params_;
 
         /**
          * @brief Objective point in space that attracts the agent, if defined.
