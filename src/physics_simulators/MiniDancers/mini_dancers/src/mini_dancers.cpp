@@ -1,4 +1,6 @@
 #include <iostream>
+#include <utility>
+#include <chrono>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -10,6 +12,8 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
+#include <dancers_msgs/msg/velocity_heading_array.hpp>
+#include <dancers_msgs/srv/get_agent_velocities.hpp>
 
 #include <protobuf_msgs/physics_update.pb.h>
 #include <protobuf_msgs/network_update.pb.h>
@@ -26,7 +30,7 @@
 #include <yaml-cpp/yaml.h>
 
 using namespace mrs_multirotor_simulator;
-
+using namespace std::chrono_literals;
 
 /**
  * @brief The MiniDancers ROS2 node, part of the DANCERS co-simulator
@@ -138,7 +142,6 @@ class MiniDancers : public rclcpp::Node
             this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
             this->omega = 0.005;
-            this->target_altitude = config["target_altitude"].as<double>();
             for (auto goal : config["secondary_objectives"])
             {
                 this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
@@ -147,21 +150,21 @@ class MiniDancers : public rclcpp::Node
 
             try
             {
-                this->vat_params.v_flock = config["VAT_flocking_parameters"]["v_flock"].as<double>();
-                this->vat_params.v_max = config["VAT_flocking_parameters"]["v_max"].as<double>();
-                this->vat_params.a_frict = config["VAT_flocking_parameters"]["a_frict"].as<double>();
-                this->vat_params.p_frict = config["VAT_flocking_parameters"]["p_frict"].as<double>();
-                this->vat_params.r_0_frict = config["VAT_flocking_parameters"]["r_0_frict"].as<double>();
-                this->vat_params.C_frict = config["VAT_flocking_parameters"]["C_frict"].as<double>();
-                this->vat_params.v_frict = config["VAT_flocking_parameters"]["v_frict"].as<double>();
-                this->vat_params.p_att = config["VAT_flocking_parameters"]["p_att"].as<double>();
-                this->vat_params.r_0_att = config["VAT_flocking_parameters"]["r_0_att"].as<double>();
-                this->vat_params.p_rep = config["VAT_flocking_parameters"]["p_rep"].as<double>();
-                this->vat_params.r_0_rep = config["VAT_flocking_parameters"]["r_0_rep"].as<double>();
-                this->vat_params.a_shill = config["VAT_flocking_parameters"]["a_shill"].as<double>();
-                this->vat_params.p_shill = config["VAT_flocking_parameters"]["p_shill"].as<double>();
-                this->vat_params.r_0_shill = config["VAT_flocking_parameters"]["r_0_shill"].as<double>();
-                this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
+                this->vat_params.v_flock = config["VAT_mission_flocking_parameters"]["v_flock"].as<double>();
+                this->vat_params.v_max = config["VAT_mission_flocking_parameters"]["v_max"].as<double>();
+                this->vat_params.a_frict = config["VAT_mission_flocking_parameters"]["a_frict"].as<double>();
+                this->vat_params.p_frict = config["VAT_mission_flocking_parameters"]["p_frict"].as<double>();
+                this->vat_params.r_0_frict = config["VAT_mission_flocking_parameters"]["r_0_frict"].as<double>();
+                this->vat_params.C_frict = config["VAT_mission_flocking_parameters"]["C_frict"].as<double>();
+                this->vat_params.v_frict = config["VAT_mission_flocking_parameters"]["v_frict"].as<double>();
+                this->vat_params.p_att = config["VAT_mission_flocking_parameters"]["p_att"].as<double>();
+                this->vat_params.r_0_att = config["VAT_mission_flocking_parameters"]["r_0_att"].as<double>();
+                this->vat_params.p_rep = config["VAT_mission_flocking_parameters"]["p_rep"].as<double>();
+                this->vat_params.r_0_rep = config["VAT_mission_flocking_parameters"]["r_0_rep"].as<double>();
+                this->vat_params.a_shill = config["VAT_mission_flocking_parameters"]["a_shill"].as<double>();
+                this->vat_params.p_shill = config["VAT_mission_flocking_parameters"]["p_shill"].as<double>();
+                this->vat_params.r_0_shill = config["VAT_mission_flocking_parameters"]["r_0_shill"].as<double>();
+                this->vat_params.v_shill = config["VAT_mission_flocking_parameters"]["v_shill"].as<double>();
             }
             catch(const std::exception& e)
             {
@@ -196,6 +199,9 @@ class MiniDancers : public rclcpp::Node
             this->network_routing_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_routing_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
+            /* ----------- Service client ----------- */
+            command_client_ = this->create_client<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities");
+
             this->InitObstacles();
             
             this->InitUavs();
@@ -222,7 +228,7 @@ class MiniDancers : public rclcpp::Node
         uint32_t potential_flow_id;
         uint32_t routing_flow_id;
         bool cosim_mode;
-        
+
 
         double radius;
         double omega;
@@ -248,6 +254,9 @@ class MiniDancers : public rclcpp::Node
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_routing_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
+
+        /* Service client*/
+        rclcpp::Client<dancers_msgs::srv::GetAgentVelocities>::SharedPtr command_client_;
 
         /* Compute time saving */
         bool save_compute_time;
@@ -576,42 +585,89 @@ void MiniDancers::DisplayRviz()
  */
 void MiniDancers::UpdateCmds()
 {
-    std::vector<reference::VelocityHdg> controllers;
-    std::vector<agent_t *> uavs_pointers;
+    /*************** Get commands ***************/
+    // Wait for existence of service: 1s.
+    while(!command_client_->wait_for_service(1s))
+    {
+        if (!rclcpp::ok())
+        {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
+            return;
+        }
+        RCLCPP_WARN_STREAM(rclcpp::get_logger("rclcpp"), "Service "<< command_client_->get_service_name() << " not available, waiting again...");
+    }
+    
+    auto request = std::make_shared<dancers_msgs::srv::GetAgentVelocities::Request>();
+ 
     for (int i=0; i < this->n_uavs; i++)
     {
-        uavs_pointers.push_back(&this->uavs[i]);
-    }
-    // Compute flocking commands using the VAT algorithm
-    controllers = ComputeVATFlockingDesiredVelocities(uavs_pointers, this->obstacles, this->vat_params);
-    // controllers = ComputeCircleVelocities(uavs_pointers, this->it * this->step_size , this->circle_params);
+        dancers_msgs::msg::AgentStruct agent_struct;
+        agent_t& self_agent = this->uavs[i];
 
-    for (int i=0; i < this->n_uavs; i++)
+        agent_struct.agent_id = self_agent.id;
+        //agent_struct.agent_role = self_agent.id;
+        agent_struct.state.position.x = self_agent.uav_system.getState().x[0];
+        agent_struct.state.position.y = self_agent.uav_system.getState().x[1];
+        agent_struct.state.position.z = self_agent.uav_system.getState().x[2];
+        
+        agent_struct.state.velocity_heading.velocity.x = self_agent.uav_system.getState().v[0];
+        agent_struct.state.velocity_heading.velocity.y = self_agent.uav_system.getState().v[1];
+        agent_struct.state.velocity_heading.velocity.z = self_agent.uav_system.getState().v[2];
+        
+        agent_struct.neighbor_array.neighbors = self_agent.neighbors;
+
+        // TODO: Removre this default idle value.
+        agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
+
+        // Ajouter l'identification de rôle
+        /* if()
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
+        }
+        else if()
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_MISSION;
+        }
+        else
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
+            RCLCPP_ERROR(node->get_logger(), "The agent "<< agent_struct.agent_id<< " has an invalid role. Only Idle and Mission are surpported. Assuming Idle.");
+         }*/
+
+        request->agent_structs.push_back(std::move(agent_struct));
+    }
+    
+    auto result = command_client_->async_send_request(request);
+
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result) == rclcpp::FutureReturnCode::SUCCESS)
     {
-        reference::VelocityHdg controller;
-        controller.velocity = Eigen::Vector3d::Zero();
-        controller.heading = 0.0;
+        // Can't get the reference directly of velocity heading directly since result becomes invalid after the get() call.
+        std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Response> request_msg = result.get();
+        std::vector<dancers_msgs::msg::VelocityHeading>& velocity_headings = request_msg->velocity_headings.velocity_heading_array;
+        
+        assert(velocity_headings.size() == this->n_uavs);
 
-        controllers.push_back(controller);
+        for (int i=0; i < this->n_uavs; i++)
+        {
+            reference::VelocityHdg controller;
 
-        // // Dumb proportional altitude controller (z up)
-        // Eigen::Vector3d agent_position = this->uavs[i].uav_system.getState().x;
-        // if (agent_position[2] > this->target_altitude + 0.5)
-        // {
-        //     controllers[i].velocity[2] = 0.1 * (this->target_altitude - agent_position[2]);
-        // }
-        // else if (agent_position[2] < this->target_altitude - 0.5)
-        // {
-        //     controllers[i].velocity[2] = 0.1 * (this->target_altitude - agent_position[2]);
-        // }
-        // else
-        // {
-        //     controllers[i].velocity[2] = 0.0;
-        // }
+            controller.velocity[0] = velocity_headings[i].velocity.x;
+            controller.velocity[1] = velocity_headings[i].velocity.y;
+            controller.velocity[2] = velocity_headings[i].velocity.z;
+            controller.heading = velocity_headings[i].heading;
 
-        this->desired_velocities[i] = controllers[i].velocity;
-        this->uavs[i].uav_system.setInput(controllers[i]);
+            this->desired_velocities[i] = controller.velocity;
+            this->uavs[i].uav_system.setInput(controller);
+        }
     }
+    else
+    {
+        command_client_->remove_pending_request(result);
+        RCLCPP_ERROR_STREAM(this->get_logger(), "Couldn't call the command service: " << command_client_->get_service_name()<< ". Skipping control step");
+        return;
+    }
+
+
 }
 
 
@@ -749,6 +805,7 @@ void MiniDancers::Loop()
 
             this->GetNeighbors(network_update_msg);
 
+            // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
             this->UpdateCmds();
 
             // We step the dynamics of each agents in separated thread, actually not 100% sure this is an optimization.
@@ -791,7 +848,7 @@ void MiniDancers::Loop()
             }
 
             // Carefull, in "mini-dancers only" mode, we have no neighbor, so we need to have a command algorithm that does not use neighbor information in UpdateCmds !
-            this->UpdateCmds();
+            // this->UpdateCmds();
 
             std::vector<std::thread> workers;
             for (int i=0; i < this->n_uavs; i++)

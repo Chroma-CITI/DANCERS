@@ -1,0 +1,3 @@
+dancers_msgs/AgentStruct[] agent_structs
+---
+dancers_msgs/VelocityHeadingArray velocity_headings

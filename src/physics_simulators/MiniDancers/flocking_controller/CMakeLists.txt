@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(mini_dancers)
+project(flocking_controller)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -10,43 +10,30 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(visualization_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(dancers_msgs REQUIRED)
-find_package(protobuf_msgs REQUIRED)
-find_package(Boost REQUIRED system iostreams filesystem)
+find_package(geometry_msgs REQUIRED)
 
-add_executable(mini_dancers src/mini_dancers.cpp)
 
-ament_target_dependencies(mini_dancers
-  rclcpp
-  visualization_msgs
+add_executable(flocking_controller_vat 
+               src/vat_controller_node.cpp 
+               src/vat_controller.cpp)
+ament_target_dependencies(flocking_controller_vat 
+  rclcpp 
+  dancers_msgs 
   geometry_msgs
-  dancers_msgs
-  protobuf_msgs
-  Boost
 )
 
-target_link_libraries(mini_dancers 
+target_link_libraries(flocking_controller_vat 
   Eigen3::Eigen
   yaml-cpp
 )
 
-include_directories(include/${PROJECT_NAME})
-include_directories(include/${PROJECT_NAME}/util)
-include_directories(include/${PROJECT_NAME}/command_algorithms)
-# hard-coded include path makes this file fail if moved
-include_directories(../../../_include_all)
-
-INSTALL(
-  TARGETS mini_dancers DESTINATION lib/${PROJECT_NAME}
+install(TARGETS
+  flocking_controller_vat
+  DESTINATION lib/${PROJECT_NAME}
 )
 
-INSTALL(
-  DIRECTORY include/ DESTINATION include
-)
-
-ament_export_include_directories(include)
+include_directories(include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

@@ -1,0 +1,2 @@
+geometry_msgs/Vector3 position
+dancers_msgs/VelocityHeading velocity_heading

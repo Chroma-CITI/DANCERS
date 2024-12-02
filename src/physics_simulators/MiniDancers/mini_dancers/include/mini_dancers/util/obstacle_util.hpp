@@ -1,13 +1,7 @@
-
-#ifndef UTIL_HPP
-#define UTIL_HPP
-
-#include <uav_system.hpp>
-
-#include <boost/asio.hpp>
-#include <boost/iostreams/filtering_streambuf.hpp>
-#include <boost/iostreams/copy.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
+#ifndef OBsss_HPP
+#define OBsss_HPP
+#include <Eigen/Core>
+#include <vector>
 
 /**
  * @struct Obstacle structure
@@ -86,42 +80,6 @@ std::vector<triangle> obstacle_to_triangles_list(obstacle_t obst)
 }
 
 /**
- * @brief Function used for flocking computation, see curve in Vásárhelyi 2018 Fig.6.
- */
-double SigmoidLin(const double r, const double a, const double p)
-{
-    if (r <= 0)
-    {
-        return 0;
-    }
-    else if (r * p > 0 && r * p < a / p)
-    {
-        return r * p;
-    }
-    else
-    {
-        return std::sqrt(2 * a * r - std::pow(a, 2) / std::pow(p, 2));
-    }
-}
-
-/**
- * @struct The struct holding information for a connected UAV agent
- * 
- * It holds the UavSystem object, its id, the list(s) of its neighbors and its objectives (targets)
- */
-struct agent_t
-{
-    mrs_multirotor_simulator::UavSystem uav_system;
-    int id;
-    std::vector<int> neighbors;
-    std::vector<int> neighbors_mission;
-    std::vector<int> neighbors_potential;
-    std::vector<int> neighbors_routing;
-    std::vector<double> link_qualities;
-    std::optional<Eigen::Vector3d> secondary_objective;
-};
-
-/**
  * @brief Get the nearest point from an obstacle
  *
  * @param point The point to check
@@ -142,81 +100,4 @@ Eigen::Vector3d GetNearestPointFromObstacle(Eigen::Vector3d point, obstacle_t ob
     return nearest_point;
 }
 
-/**
- * \brief Compresses a string with the zip protocol.
- *
- * \param data The string to compress.
- * \return The compressed string.
- */
-static std::string gzip_compress(const std::string &data)
-{
-    std::stringstream compressed;
-    std::stringstream origin(data);
-
-    boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
-    in.push(boost::iostreams::gzip_compressor());
-    in.push(origin);
-    boost::iostreams::copy(in, compressed);
-
-    return compressed.str();
-}
-
-/**
- * \brief Decompress a string with the zip protocol.
- *
- * \param data The compressed string to decompress.
- * \return The decompressed string.
- */
-static std::string gzip_decompress(const std::string &data)
-{
-    std::stringstream compressed(data);
-    std::stringstream decompressed;
-
-    boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
-    in.push(boost::iostreams::gzip_decompressor());
-    in.push(compressed);
-    boost::iostreams::copy(in, decompressed);
-
-    return decompressed.str();
-}
-
-/**
- * \brief Receives a message from a socket.
- *
- * This function will block until the next message is received, read its header (first 4 bytes)
- * and then read the content of the message and return it as a string.
- *
- * \param sock The socket on which to listen for the next message.
- * \return The received message as a std::string.
- */
-std::string receive_one_message(boost::asio::local::stream_protocol::socket &sock)
-{
-    // Read Preamble
-    uint32_t data_preamble[4];
-    size_t length = sock.receive(boost::asio::buffer(data_preamble, 4));
-    uint32_t receive_length = ntohl(*data_preamble);
-    // Read Message
-    char *data = new char[receive_length];
-    length = sock.receive(boost::asio::buffer(data, receive_length));
-    std::string data_string(data, length);
-
-    return data_string;
-}
-
-/**
- * \brief Sends a message from a socket.
- *
- * \param sock The socket used to send the message.
- * \param str The string message to send.
- */
-void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::string str)
-{
-    // Send Preamble
-    std::size_t response_size = str.size();
-    uint32_t send_length = htonl(static_cast<uint32_t>(response_size));
-    sock.send(boost::asio::buffer(&send_length, 4));
-    // Send Message
-    sock.send(boost::asio::buffer(str.data(), str.size()));
-}
-
-#endif // UTIL_HPP
+#endif 

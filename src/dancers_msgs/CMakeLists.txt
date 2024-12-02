@@ -11,6 +11,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 # ##############################################################################
 # Generate ROS messages, ROS2 interfaces and IDL files #
@@ -25,8 +26,10 @@ file(GLOB ROS_MSG_DIR_LIST "${MSGS_DIR}/*.msg")
 set(ROS_MSG_DIR_LIST "${ROS_MSG_DIR_LIST}" CACHE INTERNAL "ROS_MSG_DIR_LIST")
 
 # Generate introspection typesupport for C and C++ and IDL files
-rosidl_generate_interfaces(${PROJECT_NAME} ${DANCERS_MSGS}
-	DEPENDENCIES builtin_interfaces
+rosidl_generate_interfaces(${PROJECT_NAME} 
+	${DANCERS_MSGS}
+	"srv/GetAgentVelocities.srv"
+	DEPENDENCIES builtin_interfaces geometry_msgs
 	ADD_LINTER_TESTS
 )
 

@@ -50,7 +50,26 @@ broadcast_flow:
   flow_id: 2
 
 # ******* FLOCKING *******
-VAT_flocking_parameters:
+VAT_idle_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08  # old 0.08
+  r_0_att: 20
+  p_rep: 0.13
+  r_0_rep: 20
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+
+VAT_mission_flocking_parameters:
   v_flock: 0.5
   v_max: 3
   a_frict: 4.16
@@ -90,7 +109,7 @@ secondary_objectives:
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
-target_altitude: 10.0 # Flocking is done at fixed altitude for now.
+#target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
 
 neighbor_timeout_value: 2000000 # Value after which the robot will be considered as lost (microseconds)
 
