@@ -50,7 +50,7 @@ broadcast_flow:
   flow_id: 2
 
 # ******* FLOCKING *******
-VAT_iddle_flocking_parameters:
+VAT_idle_flocking_parameters:
   v_flock: 0.5
   v_max: 3
   a_frict: 4.16
