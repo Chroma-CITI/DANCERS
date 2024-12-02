@@ -580,11 +580,14 @@ void MiniDancers::UpdateCmds()
 {
     /*************** Get commands ***************/
     // Wait for existence of service: 1s.
-    command_client_->wait_for_service(1s);
-    if (!rclcpp::ok())
+    while(!command_client_->wait_for_service(1s))
     {
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
-        return;
+        if (!rclcpp::ok())
+        {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
+            return;
+        }
+        RCLCPP_WARN_STREAM(rclcpp::get_logger("rclcpp"), "Service "<< command_client_->get_service_name() << " not available, waiting again...");
     }
     
     auto request = std::make_shared<dancers_msgs::srv::GetAgentVelocities::Request>();
@@ -626,13 +629,14 @@ void MiniDancers::UpdateCmds()
 
         request->agent_structs.push_back(std::move(agent_struct));
     }
-
-
+    
     auto result = command_client_->async_send_request(request);
+
     if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result) == rclcpp::FutureReturnCode::SUCCESS)
     {
-        std::vector<dancers_msgs::msg::VelocityHeading>& velocity_headings = result.get()->velocity_headings.velocity_heading_array;
-        RCLCPP_ERROR_STREAM(this->get_logger(), "Size of headings: "<< velocity_headings.size() << ". n_auvs: " << this->n_uavs);
+        // Can't get the reference directly of velocity heading directly since result becomes invalid after the get() call.
+        std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Response> request_msg = result.get();
+        std::vector<dancers_msgs::msg::VelocityHeading>& velocity_headings = request_msg->velocity_headings.velocity_heading_array;
         
         assert(velocity_headings.size() == this->n_uavs);
 
@@ -651,6 +655,7 @@ void MiniDancers::UpdateCmds()
     }
     else
     {
+        command_client_->remove_pending_request(result);
         RCLCPP_ERROR_STREAM(this->get_logger(), "Couldn't call the command service: " << command_client_->get_service_name()<< ". Skipping control step");
         return;
     }
