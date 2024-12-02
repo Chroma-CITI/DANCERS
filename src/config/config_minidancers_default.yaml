@@ -109,7 +109,7 @@ secondary_objectives:
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
-target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
+#target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
 
 neighbor_timeout_value: 2000000 # Value after which the robot will be considered as lost (microseconds)
 

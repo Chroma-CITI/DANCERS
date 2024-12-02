@@ -45,7 +45,28 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
 
     velocity_heading.velocity.x = summed_velocity[0];
     velocity_heading.velocity.y = summed_velocity[1];
-    velocity_heading.velocity.z = summed_velocity[2];
+
+    if (desired_fixed_altitude_.has_value())
+    {
+        // Proportional controller with deadband
+        const float altitude_error = desired_fixed_altitude_.value() - self_agent.position[2];
+
+        if (altitude_error > altitude_deadband_ || altitude_error < -altitude_deadband_)
+        {
+            velocity_heading.velocity.z = 0.1 * altitude_error;
+        }
+        else
+        {
+            velocity_heading.velocity.z = 0.0;
+        }
+    }
+    else
+    {
+        velocity_heading.velocity.z = summed_velocity[2];
+    }
+
+
+    
     
     return velocity_heading;
 }
