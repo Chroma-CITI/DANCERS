@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>viragh_connector</name>
+  <name>robotsim_connector</name>
   <version>0.0.0</version>
   <description>Connects Viragh's "robotsimulator" to the DANCERS co-simulator</description>
   <maintainer email="theotime.balaguer@gmail.com">theotime</maintainer>

@@ -165,7 +165,6 @@ public:
             RCLCPP_FATAL(this->get_logger(), "The synchronization window size (sync_window) must be divisible by both the physics and network step sizes (phy_step_size ; net_step_size). Aborting.");
             exit(EXIT_FAILURE);
         }
-        this->targets_reached = false;
 
         this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_, this);
         this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_, this);
@@ -188,7 +187,6 @@ private:
     std::string compressed_ordered_neighbors;
     std::mutex robots_positions_mutex;
     std::mutex ordered_neighbors_mutex;
-    bool targets_reached;
 
     bool phy_use_uds_socket;
     bool net_use_uds_socket;
@@ -249,20 +247,19 @@ void Coordinator::run_phy_protobuf_client_()
             {
 
                 // Send start request
-                physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
-                PhysicsUpdate_msg.set_time_val(static_cast<uint32_t>(this->current_sim_time.nanoseconds()));
-                PhysicsUpdate_msg.set_msg_type(physics_update_proto::PhysicsUpdate::BEGIN);
+                network_update_proto::NetworkUpdate network_update_msg;
+                network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::BEGIN);
 
                 // Add the neighbors list if we received one from the network simulator
                 this->ordered_neighbors_mutex.lock();
                 if (!this->compressed_ordered_neighbors.empty())
                 {
-                    PhysicsUpdate_msg.set_ordered_neighbors(this->compressed_ordered_neighbors);
+                    network_update_msg.set_ordered_neighbors(this->compressed_ordered_neighbors);
                     this->compressed_ordered_neighbors.clear();
                 }
                 this->ordered_neighbors_mutex.unlock();
 
-                std::string request = gzip_compress(PhysicsUpdate_msg.SerializeAsString());
+                std::string request = gzip_compress(network_update_msg.SerializeAsString());
 
                 socket->send_one_message(request);
 
@@ -274,14 +271,16 @@ void Coordinator::run_phy_protobuf_client_()
                     RCLCPP_INFO(this->get_logger(), "Empty message");
                     continue;
                 }
-                PhysicsUpdate_msg.ParseFromString(response);
+
+                physics_update_proto::PhysicsUpdate physics_update_msg;
+                physics_update_msg.ParseFromString(response);
 
                 robots_positions_proto::RobotsPositions robots_positions_msg;
-                robots_positions_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.robots_positions()));
+                robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
 
                 // RCLCPP_INFO(this->get_logger(), "Received robots positions from physics simulator: %s", robots_positions_msg.DebugString().c_str());
 
-                if (PhysicsUpdate_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
+                if (physics_update_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
                 {
                     throw "Coordinator received a non-END message from physics simulator !";
                 }
@@ -298,9 +297,8 @@ void Coordinator::run_phy_protobuf_client_()
                         this->clock_publisher_->publish(clock_msg);
                     }
 
-                    this->targets_reached = PhysicsUpdate_msg.targets_reached();
                     std::lock_guard<std::mutex> lock(this->robots_positions_mutex);
-                    this->compressed_robots_positions = PhysicsUpdate_msg.robots_positions();
+                    this->compressed_robots_positions = physics_update_msg.robots_positions();
                 }
             }
 
@@ -361,21 +359,19 @@ void Coordinator::run_net_protobuf_client_()
             {
 
                 // Send start request
-                network_update_proto::NetworkUpdate NetworkUpdate_msg;
-                NetworkUpdate_msg.set_time_val(static_cast<uint32_t>(this->current_sim_time.nanoseconds()));
-                NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::BEGIN);
+                physics_update_proto::PhysicsUpdate physics_update_msg;
+                physics_update_msg.set_msg_type(physics_update_proto::PhysicsUpdate::BEGIN);
 
                 // Add the positions of the robots only if we received them from the physics simulator !
                 this->robots_positions_mutex.lock();
                 if (!this->compressed_robots_positions.empty())
                 {
-                    NetworkUpdate_msg.set_robots_positions(this->compressed_robots_positions);
+                    physics_update_msg.set_robots_positions(this->compressed_robots_positions);
                     this->compressed_robots_positions.clear();
                 }
                 this->robots_positions_mutex.unlock();
-                NetworkUpdate_msg.set_targets_reached(this->targets_reached);
 
-                std::string request = gzip_compress(NetworkUpdate_msg.SerializeAsString());
+                std::string request = gzip_compress(physics_update_msg.SerializeAsString());
 
                 socket->send_one_message(request);
 
@@ -385,8 +381,11 @@ void Coordinator::run_net_protobuf_client_()
                 {
                     continue;
                 }
-                NetworkUpdate_msg.ParseFromString(response);
-                if (NetworkUpdate_msg.msg_type() != network_update_proto::NetworkUpdate::END)
+                
+                network_update_proto::NetworkUpdate network_update_msg;
+                network_update_msg.ParseFromString(response);
+                
+                if (network_update_msg.msg_type() != network_update_proto::NetworkUpdate::END)
                 {
                     throw "Coordinator received a non-END message from network simulator !";
                 }
@@ -404,7 +403,7 @@ void Coordinator::run_net_protobuf_client_()
                     }
 
                     std::lock_guard<std::mutex> lock(this->ordered_neighbors_mutex);
-                    this->compressed_ordered_neighbors = NetworkUpdate_msg.ordered_neighbors();
+                    this->compressed_ordered_neighbors = network_update_msg.ordered_neighbors();
                 }
             }
         }

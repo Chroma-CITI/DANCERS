@@ -9,8 +9,5 @@ message NetworkUpdate {
     }
 
     MsgType msg_type = 1;
-    uint32 time_val = 2;
-    bytes robots_positions = 3;
-    bytes ordered_neighbors = 4;
-    bool targets_reached = 5;
+    bytes ordered_neighbors = 2;
 }

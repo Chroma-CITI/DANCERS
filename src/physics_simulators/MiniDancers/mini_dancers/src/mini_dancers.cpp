@@ -16,6 +16,7 @@
 #include <dancers_msgs/srv/get_agent_velocities.hpp>
 
 #include <protobuf_msgs/physics_update.pb.h>
+#include <protobuf_msgs/network_update.pb.h>
 #include <protobuf_msgs/robots_positions.pb.h>
 #include <protobuf_msgs/ordered_neighbors.pb.h>
 
@@ -238,8 +239,8 @@ class MiniDancers : public rclcpp::Node
         void InitUavs();
         void DisplayRviz();
         void UpdateCmds();
-        void GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdate_msg);
-        std::string GenerateResponseProtobuf(bool targets_reached);
+        void GetNeighbors(network_update_proto::NetworkUpdate &network_update_msg);
+        std::string GenerateResponseProtobuf();
         void Loop();
 
         void MakeStep(int i);
@@ -325,10 +326,17 @@ void MiniDancers::InitUavs()
     double spacing = 3.0;
     for (int i = 0; i < this->n_uavs; i++)
     {
+        // Grid spawn
         double spawn_x = i / n_columns * spacing;
         double spawn_y = spacing * (i% n_columns);
         double spawn_z = 1.0;
         double spawn_heading = 0.0;
+
+        // Already in line robots
+        // double spawn_x = (rand() % 200 - 100) / 100.0;
+        // double spawn_y = i * 50.0;
+        // double spawn_z = 1.0;
+        // double spawn_heading = 0.0;
 
         // Default ModelParams is the x500 configuration
         MultirotorModel::ModelParams x500_params = MultirotorModel::ModelParams();
@@ -668,12 +676,14 @@ void MiniDancers::UpdateCmds()
  * 
  * @param A Protobuf message of type PhysicsUpdate containing the neighbors lists for all agents
  */
-void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdate_msg)
+void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_update_msg)
 {
-    if(!PhysicsUpdate_msg.ordered_neighbors().empty())
+    if(!network_update_msg.ordered_neighbors().empty())
     {
         ordered_neighbors_proto::OrderedNeighborsList neighbors_list_msg;
-        neighbors_list_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.ordered_neighbors()));
+        neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.ordered_neighbors()));
+
+        // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
         for (int i=0; i < this->n_uavs; i++)
         {
@@ -688,7 +698,6 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
         {
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
-            // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());
@@ -728,12 +737,11 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
 /**
  * \brief Generates the final protobuf message of protobuf_msgs/PhysicsUpdate.
  *
- * Usually, this function will be passed an empty [PhysicsUpdate] protobuf message with message-type BEGIN.
  * It will fill the message with the (compressed) robots_positions for the current simulation window,
- * change the message-type to END, string-serialize the protobuf message and return it.
+ * change the message-type to END, string-serialize the protobuf message, compress it, and return it.
  *
  */
-std::string MiniDancers::GenerateResponseProtobuf(bool targets_reached)
+std::string MiniDancers::GenerateResponseProtobuf()
 {
     // Change message's type to END
     physics_update_proto::PhysicsUpdate physics_update_msg;
@@ -754,7 +762,6 @@ std::string MiniDancers::GenerateResponseProtobuf(bool targets_reached)
 
     // Fill the channel_data field with the compressed data from the physics simulation
     physics_update_msg.set_robots_positions(gzip_compress(robots_positions_string));
-    physics_update_msg.set_targets_reached(targets_reached);
 
     // Transform the response [protobuf] --> [string]
     std::string str_response;
@@ -786,17 +793,17 @@ void MiniDancers::Loop()
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
-            // Initialize empty protobuf message type [PhysicsUpdate]
-            physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
+            // Initialize empty protobuf message type [NetworkUpdate]
+            network_update_proto::NetworkUpdate network_update_msg;
             // Transform the message received from the UDS socket (string -> protobuf)
-            PhysicsUpdate_msg.ParseFromString(received_data);
+            network_update_msg.ParseFromString(received_data);
 
             if (this->save_compute_time)
             {
                 this->probe.start();
             }
 
-            this->GetNeighbors(PhysicsUpdate_msg);
+            this->GetNeighbors(network_update_msg);
 
             // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
             this->UpdateCmds();
@@ -817,7 +824,6 @@ void MiniDancers::Loop()
             
             this->it++;
 
-            bool target_reached = false;
 
             if (this->save_compute_time)
             {
@@ -825,7 +831,7 @@ void MiniDancers::Loop()
             }
 
             // Generate the response message
-            std::string response = this->GenerateResponseProtobuf(target_reached);
+            std::string response = this->GenerateResponseProtobuf();
 
             // Send the response in the UDS socket
             socket_coord->send_one_message(response);
@@ -859,8 +865,6 @@ void MiniDancers::Loop()
             this->DisplayRviz();
             
             this->it++;
-
-            bool target_reached = false;
 
             if (this->save_compute_time)
             {

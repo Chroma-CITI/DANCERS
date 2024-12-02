@@ -21,6 +21,7 @@
 #include "ns3/dsdv-module.h"
 
 #include "protobuf_msgs/network_update.pb.h"
+#include "protobuf_msgs/physics_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
@@ -578,12 +579,10 @@ public:
                 // Wait until reception of a message on the UDS socket
                 std::string received_data = gzip_decompress(socket->receive_one_message());
 
-                // Initialize empty protobuf message type [NetworkUpdate]
-                network_update_proto::NetworkUpdate NetworkUpdate_msg;
+                // Initialize empty protobuf message type [PhysicsUpdate]
+                physics_update_proto::PhysicsUpdate physics_update_msg;
                 // Transform the message received from the UDS socket [string] -> [protobuf]
-                NetworkUpdate_msg.ParseFromString(received_data);
-
-                this->targets_reached = NetworkUpdate_msg.targets_reached();
+                physics_update_msg.ParseFromString(received_data);
 
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
@@ -596,10 +595,10 @@ public:
                 //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
                 // }
 
-                if (!NetworkUpdate_msg.robots_positions().empty())
+                if (!physics_update_msg.robots_positions().empty())
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                    robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
+                    robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
@@ -666,7 +665,7 @@ public:
 
                 // Fake neighborhood
                 std::vector<std::vector<std::pair<int, double>>> graph;
-                // fill graph
+                // Create a graph object where the nodes are the agents, and the edges exist only if they received a broadcast message from the neighbor, and weighted according to a cost function 
                 for (int16_t i = 0; i < this->nodes.GetN(); i++)
                 {
                     std::vector<std::pair<int, double>> neighbors;
@@ -674,8 +673,8 @@ public:
                     {
                         if (i == j)
                             continue;
-                        // j is not a "potential neighbor" of i
-                        if (this->potential_neighbors[i].count(j) == 0)
+                        // j is not a "broadcast neighbor" of i
+                        if (this->broadcast_neighbors[i].count(j) == 0)
                             continue;
                         double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
                         double r1 = 30;
@@ -689,7 +688,7 @@ public:
                     graph.push_back(neighbors);
                 }
 
-                this->mission_flow_neighbors.clear();
+                this->mission_neighbors.clear();
                 
                 for (auto source_node_id : config["mission_flow"]["source_robot_ids"])
                 {
@@ -723,8 +722,8 @@ public:
                         path.pop();
                         int neighbor = path.top();
                         double distance = this->nodes.Get(curr)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor)->GetObject<MobilityModel>());
-                        this->mission_flow_neighbors[curr][neighbor] = std::make_pair(distance, Simulator::Now());
-                        this->mission_flow_neighbors[neighbor][curr] = std::make_pair(distance, Simulator::Now());
+                        this->mission_neighbors[curr][neighbor] = std::make_pair(distance, Simulator::Now());
+                        this->mission_neighbors[neighbor][curr] = std::make_pair(distance, Simulator::Now());
                         // std::cout << " -> " << neighbor ;
                         curr = neighbor;
                     }
@@ -735,7 +734,7 @@ public:
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
-                std::string response = gzip_compress(generate_response(NetworkUpdate_msg));
+                std::string response = gzip_compress(GenerateResponseProtobuf());
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
@@ -791,8 +790,8 @@ private:
     std::string m_ros_ws_path;
 
     std::map<uint32_t, std::map<uint32_t, double>> pathlosses;
-    std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> mission_flow_neighbors;
-    std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> potential_neighbors;
+    std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> mission_neighbors;
+    std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> broadcast_neighbors;
     std::map<Mac48Address, uint32_t> mac_to_id;
     uint8_t mission_flow_id;
     Time mission_flow_timeout;
@@ -827,7 +826,7 @@ private:
     Ptr<PacketCounterCalculator> navEffectiveTx;
 
     // co-simulation specific methods
-    std::string generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg);
+    std::string GenerateResponseProtobuf();
     std::string generate_neighbors_msg();
 
     void timeoutNeighbors();
@@ -873,7 +872,7 @@ void FakeNeighborhood::PhyTxBeginTrace(std::string context, Ptr<const Packet> pa
         {
             // We are sending a "mission" packet, link-layer destination should be our (outgoing) neighbor
             std::cout << nodeId << ": Sending a mission packet to " << destId << std::endl;
-            this->mission_flow_neighbors[nodeId][destId] = std::make_pair(rxPow, txTime);
+            this->mission_neighbors[nodeId][destId] = std::make_pair(rxPow, txTime);
         }
     }
 }
@@ -912,8 +911,8 @@ void FakeNeighborhood::PhyRxEndTrace(std::string context, Ptr<const Packet> pack
     double rxPow = this->pathlosses[nodeId][sourceId];
     Time rxTime = Simulator::Now();
 
-    // We "heard" a packet from a peer, the link-layer source is a potential neighbor
-    // this->potential_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
+    // We "heard" a packet from a peer, the link-layer source is a broadcast neighbor
+    // this->broadcast_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
 
     FlowIdTag nav_flow;
     if (packet->PeekPacketTag(nav_flow))
@@ -922,7 +921,7 @@ void FakeNeighborhood::PhyRxEndTrace(std::string context, Ptr<const Packet> pack
         {
             // We are receiving a "mission" packet, link-layer destination should be our (outgoing) neighbor
             std::cout << nodeId << ": Receiving a mission packet from " << sourceId << std::endl;
-            this->mission_flow_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
+            this->mission_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
         }
     }
 }
@@ -952,7 +951,7 @@ void FakeNeighborhood::flock_receiver_clbk(std::string context, Ptr<const Packet
 
     Time rxTime = Simulator::Now();
     double rxPow = this->pathlosses[std::stoi(context)][peer_id];
-    this->potential_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
+    this->broadcast_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
 }
 
 /**
@@ -972,32 +971,31 @@ std::string
 FakeNeighborhood::generate_neighbors_msg()
 {
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
-    std::map<uint32_t, int> flow_ids;
+    std::map<uint32_t, ordered_neighbors_proto::OrderedNeighbors_Role> agent_roles;
 
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
 
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        if (this->mission_flow_neighbors.find(i) == this->mission_flow_neighbors.end())
+        if (this->broadcast_neighbors.find(i) == this->broadcast_neighbors.end() || this->broadcast_neighbors[i].empty())
         {
-            // Use potential neighbors, we don't have any mission neighbors !
-            // std::cout << "Using potential neighbors for node " << i << std::endl;
-            neighbors[i] = this->potential_neighbors[i];
-            flow_ids[i] = 2;
+            // We don't have any broadcast neighbors, that means we are disconnected from the fleet !
+            // std::cout << "No broadcast neighbors for node " << i << std::endl;
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
         }
-        else if (this->mission_flow_neighbors[i].empty())
+        else if (this->mission_neighbors.find(i) == this->mission_neighbors.end() || this->mission_neighbors[i].empty())
         {
-            // Use potential neighbors, we don't have any mission neighbors !
-            // std::cout << "Using potential neighbors for node " << i << std::endl;
-            neighbors[i] = this->potential_neighbors[i];
-            flow_ids[i] = 2;
+            // Use broadcast neighbors, we don't have any mission neighbors !
+            // std::cout << "Using broadcast neighbors for node " << i << std::endl;
+            neighbors[i] = this->broadcast_neighbors[i];
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL;
         }
         else
         {
             // Use mission neighbors
             // std::cout << "Using mission neighbors for node " << i << std::endl;
-            neighbors[i] = this->mission_flow_neighbors[i];
-            flow_ids[i] = this->mission_flow_id;
+            neighbors[i] = this->mission_neighbors[i];
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_MISSION;
         }
     }
 
@@ -1007,7 +1005,7 @@ FakeNeighborhood::generate_neighbors_msg()
         ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         std::vector<double> ordered_pathlosses;
         neighbor_msg->set_agentid(agent.first);
-        unsigned int num_neighbors = 0;
+        neighbor_msg->set_role(agent_roles[agent.first]);
         // Sort the pathlosses to add them in the protobuf message in the right order.
         for (auto const &neigh : agent.second)
         {
@@ -1018,20 +1016,20 @@ FakeNeighborhood::generate_neighbors_msg()
         // Search on the values of the pathloss map, which is quite bad if two neighbors have exactly the same pathloss
         for (auto const &pathloss : ordered_pathlosses)
         {
-            neighbor_msg->add_neighbortype(flow_ids[agent.first]);
             for (auto const &neigh : agent.second)
             {
-                if (neigh.second.first == pathloss && pathloss != 0 && num_neighbors < this->max_neighbors) 
+                if (neigh.second.first == pathloss && pathloss != 0) 
                 {
                     neighbor_msg->add_neighborid(neigh.first);
                     neighbor_msg->add_linkquality(neigh.second.first);
-                    num_neighbors++;
+                    neighbor_msg->add_neighbortype(agent_roles[agent.first]);           //!< agent_roles[agent.first] always valid because created above for all agents
+                    neighbor_msg->add_time_val(neigh.second.second.ToInteger(Time::US));
                 }
             }
         }
-
-        // std::cout << neighbor_msg->DebugString() << std::endl;
     }
+
+    // std::cout << ordered_neighbors_msg->DebugString() << std::endl;
 
     std::string str_response;
     ordered_neighbors_msg.SerializeToString(&str_response);
@@ -1049,13 +1047,14 @@ FakeNeighborhood::generate_neighbors_msg()
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-FakeNeighborhood::generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg)
+FakeNeighborhood::GenerateResponseProtobuf()
 {
     // Change message type to "END"
-    NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    NetworkUpdate_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg()));
+    network_update_proto::NetworkUpdate network_update_msg;
+    network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
+    network_update_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg()));
     std::string str_response;
-    NetworkUpdate_msg.SerializeToString(&str_response);
+    network_update_msg.SerializeToString(&str_response);
 
     return str_response;
 }
@@ -1067,28 +1066,28 @@ FakeNeighborhood::generate_response(network_update_proto::NetworkUpdate &Network
  */
 void FakeNeighborhood::timeoutNeighbors()
 {
-    // remove timed-out neighbors from potential_neighbors  
-    for (std::pair<uint32_t, std::map<uint32_t, std::pair<double, Time>>> const &agent : this->potential_neighbors)
+    // remove timed-out neighbors from broadcast_neighbors  
+    for (std::pair<uint32_t, std::map<uint32_t, std::pair<double, Time>>> const &agent : this->broadcast_neighbors)
     {
         for (std::pair<uint32_t, std::pair<double, Time>> const &neigh : agent.second)
         {
             if (Simulator::Now() - neigh.second.second > this->broadcast_flow_timeout)
             {
-                // std::cout << "Removing potential neighbor " << neigh.first << " from agent " << agent.first << std::endl;
-                // printNeighborhood(this->potential_neighbors);
-                this->potential_neighbors[agent.first].erase(neigh.first);
+                // std::cout << "Removing broadcast neighbor " << neigh.first << " from agent " << agent.first << std::endl;
+                // printNeighborhood(this->broadcast_neighbors);
+                this->broadcast_neighbors[agent.first].erase(neigh.first);
             }
         }
     }
-    // remove timed-out neighbors from mission_flow_neighbors
-    for (std::pair<uint32_t, std::map<uint32_t, std::pair<double, Time>>> const &agent : this->mission_flow_neighbors)
+    // remove timed-out neighbors from mission_neighbors
+    for (std::pair<uint32_t, std::map<uint32_t, std::pair<double, Time>>> const &agent : this->mission_neighbors)
     {
         for (auto const &neigh : agent.second)
         {
             if (Simulator::Now() - neigh.second.second > this->mission_flow_timeout)
             {
                 // std::cout << "Removing mission neighbor " << neigh.first << " from agent " << agent.first << std::endl;
-                this->mission_flow_neighbors[agent.first].erase(neigh.first);
+                this->mission_neighbors[agent.first].erase(neigh.first);
             }
         }
     }
