@@ -1,6 +1,7 @@
 #include "rclcpp/rclcpp.hpp"
 
-#include <protobuf_msgs/physics_update.pb.h>
+#include "protobuf_msgs/physics_update.pb.h"
+#include "protobuf_msgs/network_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
@@ -94,18 +95,18 @@ std::string generate_robots_positions(RobotPose *robots, int nb_robots)
  * \param robots_positions A std::string which is a string-serialized ChannelData protobuf message.
  * \param PhysicsUpdate_msg A protobuf message of type PhysicsUpdate. Usually it is an empty message with type BEGIN, this function will fill the message and
  */
-std::string generate_response(std::string robots_positions, physics_update_proto::PhysicsUpdate PhysicsUpdate_msg, bool targets_reached)
+std::string GenerateResponseProtobuf(std::string robots_positions)
 {
     // Change message's type to END
-    PhysicsUpdate_msg.set_msg_type(physics_update_proto::PhysicsUpdate::END);
+    physics_update_proto::PhysicsUpdate physics_update_msg;
+    physics_update_msg.set_msg_type(physics_update_proto::PhysicsUpdate::END);
     // Fill the channel_data field with the compressed data from the physics simulation
-    PhysicsUpdate_msg.set_robots_positions(gzip_compress(robots_positions));
-
-    PhysicsUpdate_msg.set_targets_reached(targets_reached);
+    physics_update_msg.set_robots_positions(gzip_compress(robots_positions));
 
     // Transform the response [protobuf] --> [string]
     std::string str_response;
-    PhysicsUpdate_msg.SerializeToString(&str_response);
+    physics_update_msg.SerializeToString(&str_response);
+    str_response = gzip_compress(str_response);
 
     return str_response;
 }
@@ -325,16 +326,16 @@ public:
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
-            // Initialize empty protobuf message type [PhysicsUpdate]
-            physics_update_proto::PhysicsUpdate PhysicsUpdate_msg;
+            // Initialize empty protobuf message type [NetworkUpdate]
+            network_update_proto::NetworkUpdate network_update_msg;
             // Transform the message received from the UDS socket (string -> protobuf)
-            PhysicsUpdate_msg.ParseFromString(received_data);
+            network_update_msg.ParseFromString(received_data);
 
             // std::cout << "Received message from Coordinator" << std::endl;
 
             array_to_transmit[0] = (double)this->step_length;
 
-            if(!PhysicsUpdate_msg.ordered_neighbors().empty())
+            if(!network_update_msg.ordered_neighbors().empty())
             {
                 for (int i = 0; i < this->robots_number; i++)
                 {
@@ -344,7 +345,7 @@ public:
                     }
                 }
                 ordered_neighbors_proto::OrderedNeighborsList neighbors_list_msg;
-                neighbors_list_msg.ParseFromString(gzip_decompress(PhysicsUpdate_msg.ordered_neighbors()));
+                neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.ordered_neighbors()));
 
                 std::cout << neighbors_list_msg.DebugString() << std::endl;
 
@@ -401,7 +402,7 @@ public:
             }        
 
             // Generate the response message
-            std::string response = gzip_compress(generate_response(robots_positions, PhysicsUpdate_msg, targets_reached));
+            std::string response = GenerateResponseProtobuf(robots_positions);
 
             // Send the response in the UDS socket
             socket_coord->send_one_message(response);
