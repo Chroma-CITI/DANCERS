@@ -125,6 +125,12 @@ class VATController
          */
         std::optional<float> desired_fixed_altitude_;
 
+        /**
+         * @brief Deadband used in the altitude controller if desired_fixed_altitude is defined. The deadband is applied above and below the target. 
+         * Thus, the deadband is between "desired_fixed_altitude - altitude_deadband_" and "desired_fixed_altitude + altitude_deadband_"
+         */
+        const float altitude_deadband_ = 0.5;
+
         /* ----------- Flocking behaviors ----------- */
         /**
          * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.

@@ -141,7 +141,6 @@ class MiniDancers : public rclcpp::Node
             this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
             this->radius = 10.0;
             this->omega = 0.005;
-            this->target_altitude = config["target_altitude"].as<double>();
             for (auto goal : config["secondary_objectives"])
             {
                 this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
