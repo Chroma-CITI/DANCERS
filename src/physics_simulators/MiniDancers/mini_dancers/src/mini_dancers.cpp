@@ -688,7 +688,7 @@ void MiniDancers::GetNeighbors(physics_update_proto::PhysicsUpdate &PhysicsUpdat
         {
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
-            std::cout << neighbors_list_msg.DebugString() << std::endl;
+            // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());

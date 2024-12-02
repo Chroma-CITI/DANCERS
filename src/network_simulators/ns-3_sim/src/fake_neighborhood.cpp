@@ -1030,7 +1030,7 @@ FakeNeighborhood::generate_neighbors_msg()
             }
         }
 
-        std::cout << neighbor_msg->DebugString() << std::endl;
+        // std::cout << neighbor_msg->DebugString() << std::endl;
     }
 
     std::string str_response;
