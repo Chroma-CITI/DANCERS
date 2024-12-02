@@ -226,7 +226,7 @@ class VATControllerNode : public rclcpp::Node
                 options.id = agent_id;
 
                 // Get the flocking parameters
-                populateVATParametersFromConfig(config,"VAT_iddle_flocking_parameters", options.VAT_params_iddle);
+                populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params_idle);
                 populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params_mission);
 
                 // Get the altitude parameter

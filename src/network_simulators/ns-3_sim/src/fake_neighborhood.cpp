@@ -101,7 +101,7 @@ gzip_decompress(const std::string &data)
 class FakeNeighborhood : public rclcpp::Node
 {
 public:
-    FakeNeighborhood() : Node("adhoc_chain_flocking")
+    FakeNeighborhood() : Node("fake_neighborhood")
     {
         RCLCPP_INFO(this->get_logger(), "Adhoc Chain Flocking Node Created");
 
@@ -1030,7 +1030,7 @@ FakeNeighborhood::generate_neighbors_msg()
             }
         }
 
-        // std::cout << neighbor_msg->DebugString() << std::endl;
+        std::cout << neighbor_msg->DebugString() << std::endl;
     }
 
     std::string str_response;

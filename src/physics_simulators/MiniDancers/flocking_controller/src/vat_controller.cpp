@@ -2,7 +2,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 VATController::VATController(const VATController::ControllerOptions_t& options): id_(options.id), 
-                                                                                 VAT_params_iddle_(options.VAT_params_iddle),
+                                                                                 VAT_params_idle_(options.VAT_params_idle),
                                                                                  VAT_params_mission_(options.VAT_params_mission),
                                                                                  desired_fixed_altitude_(options.desired_fixed_altitude),
                                                                                  secondary_objective_(options.secondary_objective) {}
@@ -13,7 +13,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
     VAT_params_t *role_params;
     if (self_agent.role_type == agent_util::AgentRoleType::Idle)
     {
-        role_params = &VAT_params_iddle_;
+        role_params = &VAT_params_idle_;
     }
     else if (self_agent.role_type == agent_util::AgentRoleType::Mission)
     {
