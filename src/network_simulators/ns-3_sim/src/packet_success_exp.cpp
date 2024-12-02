@@ -423,8 +423,8 @@ public:
         bool mission_flow = config["mission_flow"]["enable"].as<bool>();
         // uint32_t source_node_id = config["mission_flow"]["source_robot_id"].as<uint32_t>();
         uint32_t sink_node_id = config["mission_flow"]["sink_robot_id"].as<uint32_t>();
-        double start_traffic_time = config["mission_flow"]["start_time"].as<double>();  // s
-        double stop_traffic_time = config["mission_flow"]["stop_time"].as<double>();    // s
+        double start_traffic_time = config["mission_flow"]["start_time"].as<double>();               // s
+        double stop_traffic_time = config["mission_flow"]["stop_time"].as<double>();                 // s
         uint32_t packet_size = config["mission_flow"]["packet_size"].as<uint32_t>();                 // bytes        
         uint64_t interval = config["mission_flow"]["interval"].as<uint64_t>();                       // us
         uint16_t mission_flow_port = config["mission_flow"]["port"].as<uint16_t>();

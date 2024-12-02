@@ -17,35 +17,35 @@ robots_number: 8
 robots_model: x500
 
 # Length of the simulation in seconds
-simulation_length: 300 # s
+simulation_length: 0 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******
-wifi_type: 'SpectrumWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
+wifi_type: 'YansWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
 propagation_loss_model: 'LogDistancePropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
 error_model_type: 'ns3::NistErrorRateModel'
 phy_mode: 'ErpOfdmRate54Mbps'
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
-  enable: false
+  enable: true
   source_robot_ids: [1]
   sink_robot_id: 0
   port: 7777
   packet_size: 64 # bytes
   interval: 500000 # us
   timeout: 500000 # us
-  start_time: 0.0 # s
-  stop_time: 300.0 # s
+  start_time: 10.0 # s
+  stop_time: 2000.0 # s
   flow_id: 1
 
 broadcast_flow:
   enable: true
   port: 4000
   packet_size: 64 # bytes
-  interval: 500000 # us
+  interval: 100000 # us
   timeout: 500000 # us
-  start_time: 0.0 # s
+  start_time: 1.0 # s
   stop_time: 2000.0 # s
   flow_id: 2
 
@@ -59,7 +59,7 @@ VAT_flocking_parameters:
   C_frict: 0.8
   v_frict: 0.63
   p_att: 0.08  # old 0.08
-  r_0_att: 20
+  r_0_att: 25
   p_rep: 0.13
   r_0_rep: 20
   a_shill: 53
@@ -86,7 +86,7 @@ secondary_objectives:
   # 1: [30, 200, 10, false]
 
   0: [0, 0, 10, true]
-  1: [50, 100, 10, false]
+  1: [0, 200, 10, false]
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
@@ -110,12 +110,12 @@ arena_center_x: 0
 arena_center_y: 100
 
 buildings:
-  - id: 1
-    x: 20
-    y: 50
-    height: 20
-    size_x: 20
-    size_y: 20
+  # - id: 1
+  #   x: 20
+  #   y: 50
+  #   height: 20
+  #   size_x: 20
+  #   size_y: 20
 
 # CORRIDOR
   # - id: 1
@@ -161,8 +161,8 @@ cmd_loop_period: 100000 # us
 
 # Simulation timings. BE CAREFUL : sync_window must be divisible by phy_step_size, phy_step_size must be divisible by net_step_size 
 # and phy_step_size must a multiple of step_length
-sync_window: 10000 # in us | the duration between two position exchange and clock synchronization between physics and network simulators
-phy_step_size: 10000 # in us | the duration of 1 physics simulator simulation loop
+sync_window: 5000 # in us | the duration between two position exchange and clock synchronization between physics and network simulators
+phy_step_size: 5000 # in us | the duration of 1 physics simulator simulation loop
 net_step_size: 5000 # in us
 
 print_debug: true

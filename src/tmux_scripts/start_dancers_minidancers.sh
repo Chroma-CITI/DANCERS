@@ -19,7 +19,7 @@ fi
 
 tmux new-session -d -s $session "ros2 run mini_dancers mini_dancers --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # Uncoment this line if you want to see the output of the modules.
-# tmux set remain-on-exit on
+tmux set remain-on-exit on
 
 # Add this between 'ros2 run' and 'package-name' to enable gdb debug on a ros2 node
 # --prefix 'gdb -ex run --args'

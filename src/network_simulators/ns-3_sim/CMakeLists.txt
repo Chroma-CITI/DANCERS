@@ -71,7 +71,8 @@ target_link_libraries(adhoc_chain_flocking
   ns3::libnetwork
   ns3::libapplications
   ns3::libcsma
-  ns3::libtap-bridge)
+  ns3::libtap-bridge
+  ns3::libbatmand)
 ament_target_dependencies(adhoc_chain_flocking
   Boost 
   protobuf_msgs
