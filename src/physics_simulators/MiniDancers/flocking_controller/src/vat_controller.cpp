@@ -27,10 +27,10 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
 
     Eigen::Vector3d summed_velocity = Eigen::Vector3d::Zero();;
 
-    summed_velocity = summed_velocity + alignmentTerm(self_agent, neighbors, role_params) +
-                    attractionTerm(self_agent, neighbors, role_params) + 
-                    repulsionTerm(self_agent, neighbors, role_params) +
-                    shillTerm(self_agent, obstacles, role_params);
+    summed_velocity = shillTerm(self_agent, obstacles, role_params)
+                    + alignmentTerm(self_agent, neighbors, role_params)
+                    + attractionTerm(self_agent, neighbors, role_params)
+                    + repulsionTerm(self_agent, neighbors, role_params);
 
     // Verify if the agent has a secondary objective.
     if (secondary_objective_.has_value())
@@ -42,11 +42,10 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
     {
         summed_velocity = role_params->v_max * summed_velocity.normalized();
     }
- 
+
     velocity_heading.velocity.x = summed_velocity[0];
     velocity_heading.velocity.y = summed_velocity[1];
-    velocity_heading.velocity.y = summed_velocity[2];
-
+    velocity_heading.velocity.z = summed_velocity[2];
     
     return velocity_heading;
 }
