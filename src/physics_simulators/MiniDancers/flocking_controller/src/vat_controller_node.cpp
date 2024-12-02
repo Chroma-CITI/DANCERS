@@ -52,6 +52,27 @@ class VATControllerNode : public rclcpp::Node
 
     private:
 
+        VATController::VAT_params_t default_vat_params_ = {
+            .v_flock = 1.5,
+            .v_max = 1.0,
+            .a_frict = 4.16,
+            .p_frict = 3.2,
+            .r_0_frict = 85.3,
+            .C_frict = 0.8,
+            .v_frict = 0.6,
+            .p_att = 0.08,
+            .r_0_att = 15,
+            .p_rep = 0.13,
+            .r_0_rep = 15,
+            .a_shill = 53,
+            .p_shill = 3.55,
+            .r_0_shill = 0.3,
+            .v_shill = 13.622
+        };
+
+        /**
+         * @brief Service server used to return agent_velocities when called. 
+         */
         rclcpp::Service<dancers_msgs::srv::GetAgentVelocities>::SharedPtr service_;
 
         /**
@@ -142,6 +163,42 @@ class VATControllerNode : public rclcpp::Node
         }
 
         /**
+         * @brief Gets VAT parameters from a a given YAML list name and populate a VAT_params_t struct.
+         * @param config YAML config to fetch the list from
+         * @param vat_params_config_list_name Variable name of the YAML list containing the VAT parameters
+         * @param vat_params Output parameter struct populated from the YAML file.
+         */
+        bool populateVATParametersFromConfig(const YAML::Node& config, 
+                                             const std::string& vat_params_config_list_name,
+                                             VATController::VAT_params_t& vat_params)
+        {
+            try
+            {
+                vat_params.v_flock = config[vat_params_config_list_name]["v_flock"].as<double>();
+                vat_params.v_max = config[vat_params_config_list_name]["v_max"].as<double>();
+                vat_params.a_frict = config[vat_params_config_list_name]["a_frict"].as<double>();
+                vat_params.p_frict = config[vat_params_config_list_name]["p_frict"].as<double>();
+                vat_params.r_0_frict = config[vat_params_config_list_name]["r_0_frict"].as<double>();
+                vat_params.C_frict = config[vat_params_config_list_name]["C_frict"].as<double>();
+                vat_params.v_frict = config[vat_params_config_list_name]["v_frict"].as<double>();
+                vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
+                vat_params.r_0_att = config[vat_params_config_list_name]["r_0_att"].as<double>();
+                vat_params.p_rep = config[vat_params_config_list_name]["p_rep"].as<double>();
+                vat_params.r_0_rep = config[vat_params_config_list_name]["r_0_rep"].as<double>();
+                vat_params.a_shill = config[vat_params_config_list_name]["a_shill"].as<double>();
+                vat_params.p_shill = config[vat_params_config_list_name]["p_shill"].as<double>();
+                vat_params.r_0_shill = config[vat_params_config_list_name]["r_0_shill"].as<double>();
+                vat_params.v_shill = config[vat_params_config_list_name]["v_shill"].as<double>();
+            }
+            catch(const std::exception& e)
+            {
+                std::cerr << e.what() << '\n';
+                RCLCPP_WARN_STREAM(this->get_logger(), "Failed to read at least one VAT flocking parameter of the list " << vat_params_config_list_name <<", using ALL default VAT params.");
+                vat_params = default_vat_params_;
+            }
+        }
+
+        /**
          * @brief Initialize the controller of each agent based on a configuration file.
          * @param config YAML configuration stucture containing the obstacles.
          */
@@ -154,22 +211,35 @@ class VATControllerNode : public rclcpp::Node
                 secondary_objectives.insert({goal.first.as<int>(), Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>())});
             }
 
+            // Get the fixed altitude option
+            std::optional<float> fixed_altitude;
+            if (YAML::Node altitude_param = config["target_altitude"]) 
+            {
+                fixed_altitude = altitude_param.as<float>();
+            }
+
             // Initialize controllers
             const int number_of_agents = config["robots_number"].as<int>();
             for (int agent_id =0; agent_id < number_of_agents; agent_id++)
             {
+                VATController::ControllerOptions_t options;
+                options.id = agent_id;
+
+                // Get the flocking parameters
+                populateVATParametersFromConfig(config,"VAT_iddle_flocking_parameters", options.VAT_params_iddle);
+                populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params_mission);
+
+                // Get the altitude parameter
+                options.desired_fixed_altitude = fixed_altitude;
+
                 // Look for a secondary objective for the agent
                 if (secondary_objectives.find(agent_id) != secondary_objectives.end())
                 {
-                    std::optional<Eigen::Vector3d> secondary_objective_opt = secondary_objectives[agent_id];
-                    controllers_.push_back(std::make_unique<VATController>(agent_id, secondary_objective_opt));
-                    
-                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);
+                    options.secondary_objective = secondary_objectives[agent_id];
+                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);  
                 }
-                else
-                {
-                    controllers_.push_back(std::make_unique<VATController>(agent_id));
-                }
+
+                controllers_.push_back(std::make_unique<VATController>(options));
             }
         }
 };

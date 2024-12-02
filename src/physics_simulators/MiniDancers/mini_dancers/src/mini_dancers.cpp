@@ -150,21 +150,21 @@ class MiniDancers : public rclcpp::Node
 
             try
             {
-                this->vat_params.v_flock = config["VAT_flocking_parameters"]["v_flock"].as<double>();
-                this->vat_params.v_max = config["VAT_flocking_parameters"]["v_max"].as<double>();
-                this->vat_params.a_frict = config["VAT_flocking_parameters"]["a_frict"].as<double>();
-                this->vat_params.p_frict = config["VAT_flocking_parameters"]["p_frict"].as<double>();
-                this->vat_params.r_0_frict = config["VAT_flocking_parameters"]["r_0_frict"].as<double>();
-                this->vat_params.C_frict = config["VAT_flocking_parameters"]["C_frict"].as<double>();
-                this->vat_params.v_frict = config["VAT_flocking_parameters"]["v_frict"].as<double>();
-                this->vat_params.p_att = config["VAT_flocking_parameters"]["p_att"].as<double>();
-                this->vat_params.r_0_att = config["VAT_flocking_parameters"]["r_0_att"].as<double>();
-                this->vat_params.p_rep = config["VAT_flocking_parameters"]["p_rep"].as<double>();
-                this->vat_params.r_0_rep = config["VAT_flocking_parameters"]["r_0_rep"].as<double>();
-                this->vat_params.a_shill = config["VAT_flocking_parameters"]["a_shill"].as<double>();
-                this->vat_params.p_shill = config["VAT_flocking_parameters"]["p_shill"].as<double>();
-                this->vat_params.r_0_shill = config["VAT_flocking_parameters"]["r_0_shill"].as<double>();
-                this->vat_params.v_shill = config["VAT_flocking_parameters"]["v_shill"].as<double>();
+                this->vat_params.v_flock = config["VAT_mission_flocking_parameters"]["v_flock"].as<double>();
+                this->vat_params.v_max = config["VAT_mission_flocking_parameters"]["v_max"].as<double>();
+                this->vat_params.a_frict = config["VAT_mission_flocking_parameters"]["a_frict"].as<double>();
+                this->vat_params.p_frict = config["VAT_mission_flocking_parameters"]["p_frict"].as<double>();
+                this->vat_params.r_0_frict = config["VAT_mission_flocking_parameters"]["r_0_frict"].as<double>();
+                this->vat_params.C_frict = config["VAT_mission_flocking_parameters"]["C_frict"].as<double>();
+                this->vat_params.v_frict = config["VAT_mission_flocking_parameters"]["v_frict"].as<double>();
+                this->vat_params.p_att = config["VAT_mission_flocking_parameters"]["p_att"].as<double>();
+                this->vat_params.r_0_att = config["VAT_mission_flocking_parameters"]["r_0_att"].as<double>();
+                this->vat_params.p_rep = config["VAT_mission_flocking_parameters"]["p_rep"].as<double>();
+                this->vat_params.r_0_rep = config["VAT_mission_flocking_parameters"]["r_0_rep"].as<double>();
+                this->vat_params.a_shill = config["VAT_mission_flocking_parameters"]["a_shill"].as<double>();
+                this->vat_params.p_shill = config["VAT_mission_flocking_parameters"]["p_shill"].as<double>();
+                this->vat_params.r_0_shill = config["VAT_mission_flocking_parameters"]["r_0_shill"].as<double>();
+                this->vat_params.v_shill = config["VAT_mission_flocking_parameters"]["v_shill"].as<double>();
             }
             catch(const std::exception& e)
             {

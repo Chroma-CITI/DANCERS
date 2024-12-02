@@ -1,42 +1,11 @@
 #include "vat_controller.hpp"
 #include "rclcpp/rclcpp.hpp"
 
-VATController::VATController(const int id, std::optional<Eigen::Vector3d> secondary_objective): id_(id), secondary_objective_(secondary_objective)
-{
-    // Iddle role parameter initialization
-    VAT_params_iddle_.v_flock = 1.5;
-    VAT_params_iddle_.v_max = 1;
-    VAT_params_iddle_.a_frict = 4.16;
-    VAT_params_iddle_.p_frict = 3.2;
-    VAT_params_iddle_.r_0_frict = 85.3;
-    VAT_params_iddle_.C_frict = 0.8;
-    VAT_params_iddle_.v_frict = 0.63;
-    VAT_params_iddle_.p_att = 0.08;
-    VAT_params_iddle_.r_0_att = 15;
-    VAT_params_iddle_.p_rep = 0.13;
-    VAT_params_iddle_.r_0_rep = 15;
-    VAT_params_iddle_.a_shill = 53;
-    VAT_params_iddle_.p_shill = 3.55;
-    VAT_params_iddle_.r_0_shill = 0.3;
-    VAT_params_iddle_.v_shill = 13.622;
-
-    // Mission role parameter initialization
-    VAT_params_mission_.v_flock = 1.5;
-    VAT_params_mission_.v_max = 1;
-    VAT_params_mission_.a_frict = 4.16;
-    VAT_params_mission_.p_frict = 3.2;
-    VAT_params_mission_.r_0_frict = 85.3;
-    VAT_params_mission_.C_frict = 0.8;
-    VAT_params_mission_.v_frict = 0.63;
-    VAT_params_mission_.p_att = 0.08;
-    VAT_params_mission_.r_0_att = 15;
-    VAT_params_mission_.p_rep = 0.13;
-    VAT_params_mission_.r_0_rep = 15;
-    VAT_params_mission_.a_shill = 53;
-    VAT_params_mission_.p_shill = 3.55;
-    VAT_params_mission_.r_0_shill = 0.3;
-    VAT_params_mission_.v_shill = 13.622;
-}
+VATController::VATController(const VATController::ControllerOptions_t& options): id_(options.id), 
+                                                                                 VAT_params_iddle_(options.VAT_params_iddle),
+                                                                                 VAT_params_mission_(options.VAT_params_mission),
+                                                                                 desired_fixed_altitude_(options.desired_fixed_altitude),
+                                                                                 secondary_objective_(options.secondary_objective) {}
 
 dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles)
 {

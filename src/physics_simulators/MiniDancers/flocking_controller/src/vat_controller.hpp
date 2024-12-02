@@ -22,7 +22,6 @@
 class VATController
 {
     public:
-       
         /**
          * @brief Parameters of the VAT described in https://hal.science/hal-03365129.
          */
@@ -46,6 +45,40 @@ class VATController
         };
 
         /**
+         * @struct ControllerOptions_t
+         * @brief Options passed in the VATController constructor to initialized it.
+         */
+        struct ControllerOptions_t
+        {
+            /**
+             * @brief Id of the agent
+             */
+            int id;
+
+            /**
+             * @brief VAT parameters of the iddle role.
+             */
+            VAT_params_t VAT_params_iddle;
+
+            /**
+             * @brief VAT parameters of the mission role.
+             */
+            VAT_params_t VAT_params_mission;
+
+            /**
+             * @brief Optional fixed altitude that, if set, will overide the flocking behavior to control the altitude of the drones within a 1m deadband of the set altitude.
+             * Default value is std::nullopt.
+             */
+            std::optional<float> desired_fixed_altitude = std::nullopt;
+
+            /**
+             * @brief Objective point in space that attracts the agent, if defined.
+             * Default value is std::nullopt.
+             */
+            std::optional<Eigen::Vector3d> secondary_objective = std::nullopt;
+        };
+
+        /**
          * @brief Computes the velocity command of the agent based on the VAT controller.
          * @param self_agent Agent containinig its position, velocities and neighbors information.
          * @param neighbors List of all neighbors.
@@ -56,21 +89,15 @@ class VATController
     
         /**
          * @brief Constructor of the VAT controller that initialize the internal states of the controller.
-         * @param id The id of the agent among the swarm.
-         * @param secondary_objective Potential secondary goal that attracts the robot. Default: std::nullopt (No secondary objective).
+         * @param options Struct containing all the options used in the initialization.
          */
-        VATController(const int id, std::optional<Eigen::Vector3d> secondary_objective = std::nullopt);
+        VATController(const VATController::ControllerOptions_t& options);
 
     private:
         /**
          * @brief Id of the agent among the swarm. 
          */
         int id_;
-
-        /**
-         * @brief Objective point in space that attracts the agent, if defined.
-         */
-        std::optional<Eigen::Vector3d> secondary_objective_;
 
         /**
          * @brief VAT parameters for the iddle role.
@@ -86,6 +113,17 @@ class VATController
          * @brief VAT parameters for the iddle neighbors.
          */
         VAT_params_t iddle_params_;
+
+        /**
+         * @brief Objective point in space that attracts the agent, if defined.
+         */
+        std::optional<Eigen::Vector3d> secondary_objective_;
+
+        /**
+         * @brief Optional fixed altitude that, if set, will overide the flocking behavior to control the altitude of the drones within a 1m deadband of the set altitude.
+         * It's mainly used to constrained the flocking in 2D.
+         */
+        std::optional<float> desired_fixed_altitude_;
 
         /* ----------- Flocking behaviors ----------- */
         /**
