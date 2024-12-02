@@ -21,7 +21,8 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent
     }
     else
     {
-        // Should not happen, add error logging
+        // Should not happen
+        std::cout<<"Tried to access the parameters of a role that doesn't exist."<<std::endl;
         return velocity_heading;
     }
 
