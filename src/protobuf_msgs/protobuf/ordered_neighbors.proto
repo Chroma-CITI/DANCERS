@@ -1,11 +1,11 @@
 syntax = "proto3";
-
 package ordered_neighbors_proto;
 
 message OrderedNeighborsList {
     repeated OrderedNeighbors ordered_neighbors = 1;
 }
 
+/* This message assumes that the role known by agent X about its neighbor Y, is coherent with the real role of Y. */
 message OrderedNeighbors {
     enum Role{
         UNDEFINED = 0;
