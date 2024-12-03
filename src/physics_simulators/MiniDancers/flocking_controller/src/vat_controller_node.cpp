@@ -99,7 +99,7 @@ class VATControllerNode : public rclcpp::Node
            }
            else
            {
-                std::vector<std::shared_ptr<agent_util::AgentState_t>> agent_states;
+                std::vector<std::shared_ptr<const agent_util::AgentState_t>> agent_states;
 
                 // Create a vector list of all the agent states.
                 for(const auto& agent_struct: request->agent_structs)
@@ -107,23 +107,10 @@ class VATControllerNode : public rclcpp::Node
                     agent_util::AgentState_t self_agent_state = agent_util::create_agent_state_from_ROS_message(agent_struct);
                     agent_states.push_back(std::make_shared<agent_util::AgentState_t>(std::move(self_agent_state)));
                 }
-
                 
                 for(const auto& agent_struct: request->agent_structs)
                 {
-                    // Create the list of neighbors
-                    std::vector<std::shared_ptr<const agent_util::AgentState_t>> neighbors;
-
-                    // Create an array of neighbors
-                    for(auto neighbor_id: agent_struct.neighbor_array.neighbors)
-                    {
-                        if (neighbor_id != agent_struct.agent_id)
-                        {
-                            neighbors.push_back(agent_states[neighbor_id]);
-                        }
-                    }
-
-                    dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(*agent_states[agent_struct.agent_id], neighbors, *obstacles_);
+                    dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(agent_states, *obstacles_);
                     response->velocity_headings.velocity_heading_array.push_back(std::move(agent_command));
                 }
            }
@@ -226,8 +213,10 @@ class VATControllerNode : public rclcpp::Node
                 options.id = agent_id;
 
                 // Get the flocking parameters
-                populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params_idle);
-                populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params_mission);
+                populateVATParametersFromConfig(config,"VAT_undefined_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Undefined]);
+                populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Mission]);
+                populateVATParametersFromConfig(config,"VAT_potential_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Potential]);
+                populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
 
                 // Get the altitude parameter
                 options.desired_fixed_altitude = fixed_altitude;
