@@ -18,13 +18,3 @@ double SigmoidLin(const double r, const double a, const double p)
         return std::sqrt(2 * a * r - std::pow(a, 2) / std::pow(p, 2));
     }
 }
-
-
-/**
- * @enum Indicates the role of an agent
- */
-enum AgentRoleType
-{
-    Idle=0,
-    Mission
-};

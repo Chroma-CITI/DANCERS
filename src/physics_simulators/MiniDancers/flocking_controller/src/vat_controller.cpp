@@ -33,14 +33,26 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             else if (neighbor->role_type == agent_util::AgentRoleType::Mission)
             {
                 mission_neighbors.push_back(neighbor);
+                if (id_ == 7)
+                {
+                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Mission"<<std::endl;
+                }
             }
             else if (neighbor->role_type == agent_util::AgentRoleType::Potential)
             {
                 potential_neighbors.push_back(neighbor);
+                if (id_ == 7)
+                {
+                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Potential"<<std::endl;
+                }
             }
             else if (neighbor->role_type == agent_util::AgentRoleType::Idle)
             {
                 idle_neighbors.push_back(neighbor);
+                if (id_ == 7)
+                {
+                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Idle"<<std::endl;
+                }
             }
         }
     }
@@ -48,9 +60,17 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     if (self_agent.role_type == agent_util::AgentRoleType::Undefined)
     {
         // TODO: Find behavior for undefined roles
+        if (id_ == 7)
+        {
+            std::cout<<"Self role: Undefined"<<std::endl;
+        }
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Mission)
     {     
+        if (id_ == 7)
+        {
+            std::cout<<"Self role: Mission"<<std::endl;
+        }
         // Only interacts with mission neihbors
         summed_velocity += alignmentTerm(self_agent, mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission])
                         + attractionTerm(self_agent, mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission])
@@ -58,16 +78,29 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Potential)
     {
-        // Attracted to at most the two best (based on linked quality) mission neighbor
+        if (id_ == 7)
+        {
+            std::cout<<"Self role: Potential"<<std::endl;
+        }
+        // Attracted to at most the two best (based on linked quality) mission neighbor and repulsed by other mission
         std::vector<std::shared_ptr<const agent_util::AgentState_t>> two_best_mission_neighbors;
+        std::vector<std::shared_ptr<const agent_util::AgentState_t>> other_mission_neighbors;
         if (mission_neighbors.size()==1)
         {
             two_best_mission_neighbors.push_back(mission_neighbors[0]);
+            std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
         }
-        else if (mission_neighbors.size() <= 2)
+        else if (mission_neighbors.size() >= 2)
         {
             two_best_mission_neighbors.push_back(mission_neighbors[0]);
             two_best_mission_neighbors.push_back(mission_neighbors[1]);
+            std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
+            std::cout<<"Has neighbor "<< mission_neighbors[1]->id <<" as " <<" best Mission"<<std::endl;
+
+            for (int index = 2; index < mission_neighbors.size(); index++)
+            {
+                other_mission_neighbors.push_back(mission_neighbors[index]);
+            }
         }
         else
         {
@@ -82,6 +115,10 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else if (self_agent.role_type == agent_util::AgentRoleType::Idle)
     {
+        if (id_ == 7)
+        {
+            std::cout<<"Self role: Idle"<<std::endl;
+        }
         // Interacts normally with idle neighbors.
         summed_velocity += alignmentTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle])
                          + attractionTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle])
