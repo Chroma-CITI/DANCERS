@@ -89,7 +89,6 @@ VAT_mission_flocking_parameters:
   auto_propulsion_flag: false
   secondary_objective_flag: true
 
-
 VAT_potential_flocking_parameters:
   v_flock: 0.5
   v_max: 3
