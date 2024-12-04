@@ -45,38 +45,38 @@ find_package(yaml-cpp REQUIRED)
 #   protobuf_msgs
 #   rclcpp)
 
-# add_executable(adhoc_chain_flocking src/adhoc_chain_flocking.cpp 
-#   include/${PROJECT_NAME}/wifi-application.cpp 
-#   include/${PROJECT_NAME}/wifi-application.h
-#   include/${PROJECT_NAME}/chain-flocking-application.cpp
-#   include/${PROJECT_NAME}/chain-flocking-application.h
-#   include/${PROJECT_NAME}/pick-neighbors-header.cpp
-#   include/${PROJECT_NAME}/pick-neighbors-header.h
-#   include/${PROJECT_NAME}/flocking-application.cpp
-#   include/${PROJECT_NAME}/flocking-application.h
-#   )
-# target_link_libraries(adhoc_chain_flocking
-#   yaml-cpp
-#   ns3::libcore
-#   ns3::libwifi
-#   ns3::libmobility
-#   ns3::libolsr
-#   ns3::libaodv
-#   ns3::libdsdv
-#   ns3::libdsr
-#   ns3::libinternet
-#   ns3::libbuildings
-#   ns3::libpropagation
-#   ns3::libspectrum
-#   ns3::libnetwork
-#   ns3::libapplications
-#   ns3::libcsma
-#   ns3::libtap-bridge
-#   ns3::libbatmand)
-# ament_target_dependencies(adhoc_chain_flocking
-#   Boost 
-#   protobuf_msgs
-#   rclcpp)
+add_executable(adhoc_chain_flocking src/adhoc_chain_flocking.cpp 
+  include/${PROJECT_NAME}/wifi-application.cpp 
+  include/${PROJECT_NAME}/wifi-application.h
+  include/${PROJECT_NAME}/chain-flocking-application.cpp
+  include/${PROJECT_NAME}/chain-flocking-application.h
+  include/${PROJECT_NAME}/pick-neighbors-header.cpp
+  include/${PROJECT_NAME}/pick-neighbors-header.h
+  include/${PROJECT_NAME}/flocking-application.cpp
+  include/${PROJECT_NAME}/flocking-application.h
+  )
+target_link_libraries(adhoc_chain_flocking
+  yaml-cpp
+  ns3::libcore
+  ns3::libwifi
+  ns3::libmobility
+  ns3::libolsr
+  ns3::libaodv
+  ns3::libdsdv
+  ns3::libdsr
+  ns3::libinternet
+  ns3::libbuildings
+  ns3::libpropagation
+  ns3::libspectrum
+  ns3::libnetwork
+  ns3::libapplications
+  ns3::libcsma
+  ns3::libtap-bridge
+  ns3::libbatmand)
+ament_target_dependencies(adhoc_chain_flocking
+  Boost 
+  protobuf_msgs
+  rclcpp)
 
 add_executable(fake_neighborhood src/fake_neighborhood.cpp
   include/${PROJECT_NAME}/wifi-application.cpp 
@@ -198,7 +198,7 @@ INSTALL(
   # ns-3_only_ap
   # ns-3_only_csma
   # ns-3_sim_wifi_adhoc
-  # adhoc_chain_flocking
+  adhoc_chain_flocking
   fake_neighborhood
   # packet_success_exp
   # carousel-use-case
