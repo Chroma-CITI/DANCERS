@@ -191,6 +191,7 @@ public:
         std::string phyMode(config["phy_mode"].as<std::string>()); // Define a "Phy mode" that will be given to the WifiRemoteStationManager
         double frequency = 5.2e9;                                  // operating frequency in Hz
         this->max_neighbors = config["max_neighbors"].as<uint32_t>();
+        std::string routingAlgorithm = config["routing_algorithm"].as<std::string>();
 
         // Create the nodes
         this->nodes.Create(numNodes);
@@ -342,38 +343,54 @@ public:
         /* **************** IP / ROUTING MODULE **************** */
         InternetStackHelper internet;
 
-        // Add AODV routing
-        // Ipv4ListRoutingHelper ipv4List;
-        // AodvHelper aodv;
-        // ipv4List.Add(aodv, 100);
-        // internet.SetRoutingHelper(ipv4List);
-
-        // Add OLSR routing
-        Ipv4ListRoutingHelper ipv4List;
-        OlsrHelper olsr;
-        olsr.Set("HelloInterval", TimeValue(Seconds(0.1)));
-        ipv4List.Add(olsr, 100);
-        internet.SetRoutingHelper(ipv4List);
-        
-        // Add DSR routing (must be done after internet stack installation)
-        // DsrHelper dsr;
-        // DsrMainHelper dsrMain;
-        // dsrMain.Install(dsr, this->nodes);
-
-        // Add DSDV routing
-        // DsdvHelper dsdv;
-        // dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
-        // dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
-        // internet.SetRoutingHelper(dsdv);
-
-        // Add Batman routing
-        // Ipv4ListRoutingHelper ipv4List;
-        // BatmandHelper batmand;
-        // batmand.Set("OGMInterval", TimeValue(Seconds(0.1)));
-        // Ipv4StaticRoutingHelper staticRouting;
-        // ipv4List.Add (staticRouting, 0);
-        // ipv4List.Add (batmand, 100);
-        // internet.SetRoutingHelper(ipv4List);
+        if (routingAlgorithm == "BATMAN")
+        {
+            // Add Batman routing
+            Ipv4ListRoutingHelper ipv4List;
+            BatmandHelper batmand;
+            batmand.Set("OGMInterval", TimeValue(Seconds(0.1)));
+            Ipv4StaticRoutingHelper staticRouting;
+            ipv4List.Add (staticRouting, 0);
+            ipv4List.Add (batmand, 100);
+            internet.SetRoutingHelper(ipv4List);
+        }
+        else if (routingAlgorithm == "OLSR")
+        {
+            // Add OLSR routing
+            Ipv4ListRoutingHelper ipv4List;
+            OlsrHelper olsr;
+            olsr.Set("HelloInterval", TimeValue(Seconds(0.1)));
+            ipv4List.Add(olsr, 100);
+            internet.SetRoutingHelper(ipv4List);
+        }
+        else if (routingAlgorithm == "AODV")
+        {
+            // Add AODV routing
+            Ipv4ListRoutingHelper ipv4List;
+            AodvHelper aodv;
+            ipv4List.Add(aodv, 100);
+            internet.SetRoutingHelper(ipv4List);
+        }
+        else if (routingAlgorithm == "DSDV")
+        {
+            // Add DSDV routing
+            DsdvHelper dsdv;
+            dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
+            dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
+            internet.SetRoutingHelper(dsdv);
+        }
+        else if (routingAlgorithm == "DSR")
+        {
+            // Add DSR routing (must be done after internet stack installation)
+            DsrHelper dsr;
+            DsrMainHelper dsrMain;
+            dsrMain.Install(dsr, this->nodes);
+        }
+        else 
+        {
+            RCLCPP_FATAL(this->get_logger(), "Unsupported routing algorithm %s", routingAlgorithm.c_str());
+            exit(EXIT_FAILURE);
+        }
 
         // Actually install the internet stack on all nodes
         internet.Install(this->nodes);

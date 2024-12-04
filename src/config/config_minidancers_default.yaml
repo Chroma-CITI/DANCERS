@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 8
+robots_number: 6
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -25,6 +25,7 @@ wifi_type: 'YansWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
 propagation_loss_model: 'LogDistancePropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
 error_model_type: 'ns3::NistErrorRateModel'
 phy_mode: 'ErpOfdmRate54Mbps'
+routing_algorithm: 'BATMAN' # [AODV, DSDV, OLSR, BATMAN, DSR]
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
@@ -35,7 +36,7 @@ mission_flow:
   packet_size: 64 # bytes
   interval: 500000 # us
   timeout: 500000 # us
-  start_time: 10.0 # s
+  start_time: 3.0 # s
   stop_time: 2000.0 # s
   flow_id: 1
 
@@ -109,7 +110,7 @@ secondary_objectives:
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
-#target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
+# target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
 
 neighbor_timeout_value: 2000000 # Value after which the robot will be considered as lost (microseconds)
 
