@@ -2,6 +2,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include <utility>
 
+#define DEBUG_ID_TO_LOG 100
+
 VATController::VATController(const VATController::ControllerOptions_t& options): id_(options.id), 
                                                                                  VAT_params_(std::move(options.VAT_params)),
                                                                                  desired_fixed_altitude_(options.desired_fixed_altitude),
@@ -21,37 +23,42 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> mission_neighbors;
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> potential_neighbors;
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> idle_neighbors;
-    for (auto neighbor : agent_list)
+
+    std::cout<<"Current agent ID: " << id_ << std::endl;
+    for (auto neighbor : self_agent.neighbors)
     {
-        if (neighbor->id != id_)
+        if (neighbor.id != id_)
         {
-            if(neighbor->role_type == agent_util::AgentRoleType::Undefined)
+            const agent_util::AgentState_t& neighbor_agent = *agent_list[neighbor.id];
+
+            std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality <<std::endl;
+            if( neighbor_agent.role_type == agent_util::AgentRoleType::Undefined)
             {
                 //Should not happen by definition of the Undefined role
-                std::cout << "Agent of id " << id_ << " has an neighbor of id" << neighbor->id << " that has an undefined role. It shouldn't happen."<<std::endl;
+                std::cout << "Agent of id " << id_ << " has an neighbor of id" << neighbor.id << " that has an undefined role. It shouldn't happen."<<std::endl;
             }
-            else if (neighbor->role_type == agent_util::AgentRoleType::Mission)
+            else if (neighbor_agent.role_type == agent_util::AgentRoleType::Mission)
             {
-                mission_neighbors.push_back(neighbor);
-                if (id_ == 7)
+                mission_neighbors.push_back(agent_list[neighbor.id]);
+                if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Mission"<<std::endl;
+                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Mission"<<std::endl;
                 }
             }
-            else if (neighbor->role_type == agent_util::AgentRoleType::Potential)
+            else if (neighbor_agent.role_type == agent_util::AgentRoleType::Potential)
             {
-                potential_neighbors.push_back(neighbor);
-                if (id_ == 7)
+                potential_neighbors.push_back(agent_list[neighbor.id]);
+                if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Potential"<<std::endl;
+                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Potential"<<std::endl;
                 }
             }
-            else if (neighbor->role_type == agent_util::AgentRoleType::Idle)
+            else if (neighbor_agent.role_type == agent_util::AgentRoleType::Idle)
             {
-                idle_neighbors.push_back(neighbor);
-                if (id_ == 7)
+                idle_neighbors.push_back(agent_list[neighbor.id]);
+                if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor->id <<" as " <<" Idle"<<std::endl;
+                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Idle"<<std::endl;
                 }
             }
         }
@@ -60,14 +67,14 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     if (self_agent.role_type == agent_util::AgentRoleType::Undefined)
     {
         // TODO: Find behavior for undefined roles
-        if (id_ == 7)
+        if (id_ == DEBUG_ID_TO_LOG)
         {
             std::cout<<"Self role: Undefined"<<std::endl;
         }
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Mission)
     {     
-        if (id_ == 7)
+        if (id_ == DEBUG_ID_TO_LOG)
         {
             std::cout<<"Self role: Mission"<<std::endl;
         }
@@ -78,7 +85,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Potential)
     {
-        if (id_ == 7)
+        if (id_ == DEBUG_ID_TO_LOG)
         {
             std::cout<<"Self role: Potential"<<std::endl;
         }
@@ -115,7 +122,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else if (self_agent.role_type == agent_util::AgentRoleType::Idle)
     {
-        if (id_ == 7)
+        if (id_ == DEBUG_ID_TO_LOG)
         {
             std::cout<<"Self role: Idle"<<std::endl;
         }
