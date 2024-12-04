@@ -31,7 +31,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
         {
             const agent_util::AgentState_t& neighbor_agent = *agent_list[neighbor.id];
 
-            std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality <<std::endl;
+            std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality;
             if( neighbor_agent.role_type == agent_util::AgentRoleType::Undefined)
             {
                 //Should not happen by definition of the Undefined role
@@ -40,6 +40,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Mission)
             {
                 mission_neighbors.push_back(agent_list[neighbor.id]);
+                std::cout<<" Role: Mission"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
                     std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Mission"<<std::endl;
@@ -48,6 +49,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Potential)
             {
                 potential_neighbors.push_back(agent_list[neighbor.id]);
+                std::cout<<" Role: Potential"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
                     std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Potential"<<std::endl;
@@ -55,6 +57,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Idle)
             {
+                std::cout<<" Role: Idle"<<std::endl;
                 idle_neighbors.push_back(agent_list[neighbor.id]);
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
@@ -79,9 +82,9 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             std::cout<<"Self role: Mission"<<std::endl;
         }
         // Only interacts with mission neihbors
-        summed_velocity += alignmentTerm(self_agent, mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission])
-                        + attractionTerm(self_agent, mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission])
-                        + repulsionTerm(self_agent, mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission]);
+        summed_velocity += alignmentTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
+                        + attractionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
+                        + repulsionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type]);
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Potential)
     {
@@ -114,11 +117,13 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             //Should not happen by definition.
         }
 
-        summed_velocity += attractionTerm(self_agent, two_best_mission_neighbors, VAT_params_[agent_util::AgentRoleType::Mission]);
+        summed_velocity += attractionTerm(self_agent, two_best_mission_neighbors, VAT_params_[self_agent.role_type])
+                        += alignmentTerm(self_agent, two_best_mission_neighbors, VAT_params_[self_agent.role_type]);
         
         // Repulsed by potential and idle neighbors.
-        summed_velocity += repulsionTerm(self_agent, potential_neighbors, VAT_params_[agent_util::AgentRoleType::Potential])
-                         + repulsionTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle]);
+        summed_velocity += repulsionTerm(self_agent, potential_neighbors, VAT_params_[self_agent.role_type])
+                         + repulsionTerm(self_agent, idle_neighbors, VAT_params_[self_agent.role_type])
+                         + repulsionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type]);
     }
     else if (self_agent.role_type == agent_util::AgentRoleType::Idle)
     {
@@ -127,14 +132,14 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             std::cout<<"Self role: Idle"<<std::endl;
         }
         // Interacts normally with idle neighbors.
-        summed_velocity += alignmentTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle])
-                         + attractionTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle])
-                         + repulsionTerm(self_agent, idle_neighbors, VAT_params_[agent_util::AgentRoleType::Idle]);
+        summed_velocity += alignmentTerm(self_agent, idle_neighbors, VAT_params_[self_agent.role_type])
+                         + attractionTerm(self_agent, idle_neighbors, VAT_params_[self_agent.role_type])
+                         + repulsionTerm(self_agent, idle_neighbors, VAT_params_[self_agent.role_type]);
 
         // Interacts normally with potential neighbors.
-        summed_velocity += alignmentTerm(self_agent, potential_neighbors, VAT_params_[agent_util::AgentRoleType::Potential])
-                         + attractionTerm(self_agent, potential_neighbors, VAT_params_[agent_util::AgentRoleType::Potential])
-                         + repulsionTerm(self_agent, potential_neighbors, VAT_params_[agent_util::AgentRoleType::Potential]);
+        summed_velocity += alignmentTerm(self_agent, potential_neighbors, VAT_params_[self_agent.role_type])
+                         + attractionTerm(self_agent, potential_neighbors, VAT_params_[self_agent.role_type])
+                         + repulsionTerm(self_agent, potential_neighbors, VAT_params_[self_agent.role_type]);
     }
     else
     {
