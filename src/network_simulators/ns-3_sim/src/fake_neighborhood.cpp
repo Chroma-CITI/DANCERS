@@ -334,7 +334,10 @@ public:
         Config::Set(
             "/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported",
             BooleanValue(true));
-
+        // Fix non-unicast data rate to be the same as that of unicast
+        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
+            StringValue (phyMode));
+            
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of WIFI module");
 
         /* **************** IP / ROUTING MODULE **************** */
