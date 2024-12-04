@@ -55,6 +55,7 @@ class VATControllerNode : public rclcpp::Node
         VATController::VAT_params_t default_vat_params_ = {
             .v_flock = 1.5,
             .v_max = 1.0,
+            .v_sec_max = 1.0,
             .a_frict = 4.16,
             .p_frict = 3.2,
             .r_0_frict = 85.3,
@@ -163,12 +164,12 @@ class VATControllerNode : public rclcpp::Node
             {
                 vat_params.v_flock = config[vat_params_config_list_name]["v_flock"].as<double>();
                 vat_params.v_max = config[vat_params_config_list_name]["v_max"].as<double>();
+                vat_params.v_sec_max = config[vat_params_config_list_name]["v_sec_max"].as<double>();
                 vat_params.a_frict = config[vat_params_config_list_name]["a_frict"].as<double>();
                 vat_params.p_frict = config[vat_params_config_list_name]["p_frict"].as<double>();
                 vat_params.r_0_frict = config[vat_params_config_list_name]["r_0_frict"].as<double>();
                 vat_params.C_frict = config[vat_params_config_list_name]["C_frict"].as<double>();
                 vat_params.v_frict = config[vat_params_config_list_name]["v_frict"].as<double>();
-                vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
                 vat_params.r_0_att = config[vat_params_config_list_name]["r_0_att"].as<double>();
                 vat_params.p_rep = config[vat_params_config_list_name]["p_rep"].as<double>();
                 vat_params.r_0_rep = config[vat_params_config_list_name]["r_0_rep"].as<double>();
@@ -176,6 +177,25 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.p_shill = config[vat_params_config_list_name]["p_shill"].as<double>();
                 vat_params.r_0_shill = config[vat_params_config_list_name]["r_0_shill"].as<double>();
                 vat_params.v_shill = config[vat_params_config_list_name]["v_shill"].as<double>();
+                vat_params.use_deconnexion_distance_instead_of_p_att = config[vat_params_config_list_name]["use_deconnexion_distance_instead_of_p_att"].as<bool>();
+                if (vat_params.use_deconnexion_distance_instead_of_p_att)
+                {
+                    vat_params.expected_deconnexion_distance = config["expected_deconnexion_distance"].as<double>();
+                    const double relative_distance = vat_params.expected_deconnexion_distance - vat_params.r_0_att;
+                    if (relative_distance > 0.0)
+                    {
+                        vat_params.p_att = vat_params.v_sec_max/(relative_distance);
+                    }
+                    else
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Can't compute p_att based on expected_deconnexion_distance if expected_deconnexion_distance is smaller than r_0_att");
+                        vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
+                    }
+                }
+                else
+                {
+                    vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
+                }
             }
             catch(const std::exception& e)
             {

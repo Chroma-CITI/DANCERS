@@ -24,44 +24,44 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> potential_neighbors;
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> idle_neighbors;
 
-    std::cout<<"Current agent ID: " << id_ << std::endl;
+    //std::cout<<"Current agent ID: " << id_ << std::endl;
     for (auto neighbor : self_agent.neighbors)
     {
         if (neighbor.id != id_)
         {
             const agent_util::AgentState_t& neighbor_agent = *agent_list[neighbor.id];
 
-            std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality;
+            //std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality;
             if( neighbor_agent.role_type == agent_util::AgentRoleType::Undefined)
             {
                 //Should not happen by definition of the Undefined role
-                std::cout << "Agent of id " << id_ << " has an neighbor of id" << neighbor.id << " that has an undefined role. It shouldn't happen."<<std::endl;
+                //std::cout << "Agent of id " << id_ << " has an neighbor of id" << neighbor.id << " that has an undefined role. It shouldn't happen."<<std::endl;
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Mission)
             {
                 mission_neighbors.push_back(agent_list[neighbor.id]);
-                std::cout<<" Role: Mission"<<std::endl;
+                //std::cout<<" Role: Mission"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Mission"<<std::endl;
+                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Mission"<<std::endl;
                 }
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Potential)
             {
                 potential_neighbors.push_back(agent_list[neighbor.id]);
-                std::cout<<" Role: Potential"<<std::endl;
+                //std::cout<<" Role: Potential"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Potential"<<std::endl;
+                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Potential"<<std::endl;
                 }
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Idle)
             {
-                std::cout<<" Role: Idle"<<std::endl;
+                //std::cout<<" Role: Idle"<<std::endl;
                 idle_neighbors.push_back(agent_list[neighbor.id]);
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
-                    std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Idle"<<std::endl;
+                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Idle"<<std::endl;
                 }
             }
         }
@@ -72,14 +72,14 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
         // TODO: Find behavior for undefined roles
         if (id_ == DEBUG_ID_TO_LOG)
         {
-            std::cout<<"Self role: Undefined"<<std::endl;
+            //std::cout<<"Self role: Undefined"<<std::endl;
         }
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Mission)
     {     
         if (id_ == DEBUG_ID_TO_LOG)
         {
-            std::cout<<"Self role: Mission"<<std::endl;
+            //std::cout<<"Self role: Mission"<<std::endl;
         }
         // Only interacts with mission neihbors
         summed_velocity += alignmentTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
@@ -90,7 +90,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     {
         if (id_ == DEBUG_ID_TO_LOG)
         {
-            std::cout<<"Self role: Potential"<<std::endl;
+            //std::cout<<"Self role: Potential"<<std::endl;
         }
         // Attracted to at most the two best (based on linked quality) mission neighbor and repulsed by other mission
         std::vector<std::shared_ptr<const agent_util::AgentState_t>> two_best_mission_neighbors;
@@ -98,14 +98,14 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
         if (mission_neighbors.size()==1)
         {
             two_best_mission_neighbors.push_back(mission_neighbors[0]);
-            std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
+            //std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
         }
         else if (mission_neighbors.size() >= 2)
         {
             two_best_mission_neighbors.push_back(mission_neighbors[0]);
             two_best_mission_neighbors.push_back(mission_neighbors[1]);
-            std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
-            std::cout<<"Has neighbor "<< mission_neighbors[1]->id <<" as " <<" best Mission"<<std::endl;
+            //std::cout<<"Has neighbor "<< mission_neighbors[0]->id <<" as " <<" best Mission"<<std::endl;
+            //std::cout<<"Has neighbor "<< mission_neighbors[1]->id <<" as " <<" best Mission"<<std::endl;
 
             for (int index = 2; index < mission_neighbors.size(); index++)
             {
@@ -129,7 +129,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     {
         if (id_ == DEBUG_ID_TO_LOG)
         {
-            std::cout<<"Self role: Idle"<<std::endl;
+            //std::cout<<"Self role: Idle"<<std::endl;
         }
         // Interacts normally with idle neighbors.
         summed_velocity += alignmentTerm(self_agent, idle_neighbors, VAT_params_[self_agent.role_type])
@@ -143,7 +143,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else
     {
-        std::cout<<"Error: Agent has an undefined role. The role as a casted int value of "<< self_agent.role_type << ". Returning a velocity of 0."<<std::endl;
+        //std::cout<<"Error: Agent has an undefined role. The role as a casted int value of "<< self_agent.role_type << ". Returning a velocity of 0."<<std::endl;
         return velocity_heading;
     }
 
@@ -270,9 +270,9 @@ Eigen::Vector3d VATController::secondaryObjective(const agent_util::AgentState_t
 
     result += role_params.v_flock * -(relative_position);
 
-    if (result.norm() > role_params.v_max)
+    if (result.norm() > role_params.v_sec_max)
     {
-        result = role_params.v_max * result.normalized();
+        result = role_params.v_sec_max * result.normalized();
     }
 
     return result;

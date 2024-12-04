@@ -29,6 +29,7 @@ class VATController
         {
             float v_flock;
             float v_max;
+            float v_sec_max;
             float a_frict;
             float p_frict;
             float r_0_frict;
@@ -42,6 +43,9 @@ class VATController
             float p_shill;
             float r_0_shill;
             float v_shill;
+
+            float expected_deconnexion_distance;
+            bool use_deconnexion_distance_instead_of_p_att = false;
         };
 
         /**
