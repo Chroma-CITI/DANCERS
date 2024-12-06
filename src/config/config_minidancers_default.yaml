@@ -21,11 +21,11 @@ simulation_length: 0 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******
-wifi_type: 'YansWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
+wifi_type: 'SpectrumWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
 propagation_loss_model: 'LogDistancePropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
 error_model_type: 'ns3::NistErrorRateModel'
 phy_mode: 'ErpOfdmRate54Mbps'
-routing_algorithm: 'BATMAN' # [AODV, DSDV, OLSR, BATMAN, DSR]
+routing_algorithm: 'OLSR' # [AODV, DSDV, OLSR, BATMAN, DSR]
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
@@ -52,15 +52,15 @@ broadcast_flow:
 
 # ******* FLOCKING *******
 VAT_idle_flocking_parameters:
-  v_flock: 0.5
-  v_max: 3
+  v_flock: 1.0
+  v_max: 30
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
   C_frict: 0.8
   v_frict: 0.63
   p_att: 0.08  # old 0.08
-  r_0_att: 20
+  r_0_att: 60
   p_rep: 0.13
   r_0_rep: 20
   a_shill: 53
@@ -71,15 +71,15 @@ VAT_idle_flocking_parameters:
   secondary_objective_flag: true
 
 VAT_mission_flocking_parameters:
-  v_flock: 0.5
-  v_max: 3
+  v_flock: 1.0
+  v_max: 30
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
   C_frict: 0.8
   v_frict: 0.63
   p_att: 0.08  # old 0.08
-  r_0_att: 25
+  r_0_att: 60
   p_rep: 0.13
   r_0_rep: 20
   a_shill: 53
@@ -106,7 +106,7 @@ secondary_objectives:
   # 1: [30, 200, 10, false]
 
   0: [0, 0, 10, true]
-  1: [0, 200, 10, false]
+  1: [0, 250, 10, false]
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
