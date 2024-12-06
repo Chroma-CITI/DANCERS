@@ -50,6 +50,9 @@ broadcast_flow:
   flow_id: 2
 
 # ******* FLOCKING *******
+# Indicates if the ROS flocking_controller should publish on a topic the command its sends.
+controller_publish_cmd: true
+
 # **** Constraints ****
 expected_deconnexion_distance: 50.0
 

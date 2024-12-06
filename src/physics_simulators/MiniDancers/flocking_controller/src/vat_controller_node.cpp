@@ -12,6 +12,7 @@
 #include <flocking_controller/cuboid_obstacle_util.hpp>
 
 #include "rclcpp/rclcpp.hpp"
+#include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 
 using namespace std::placeholders;
@@ -44,6 +45,13 @@ class VATControllerNode : public rclcpp::Node
             // Initialize the controllers
             agentControllerInitialization(config);
 
+            should_controller_publish_cmd_ = config["controller_publish_cmd"].as<bool>();
+
+            if(should_controller_publish_cmd_)
+            {
+                cmd_publisher_ = this->create_publisher<dancers_msgs::msg::VelocityHeadingArray>("velocity_cmd", 10);
+            }
+
             // Create the service
             service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities", 
                                                                                   std::bind(&VATControllerNode::commandCallback,this, _1, _2));
@@ -51,6 +59,11 @@ class VATControllerNode : public rclcpp::Node
         }
 
     private:
+        /**
+         * @brief Flag that indicates if the controller should publish its service respons on a topic.
+         * Mainly used for debugging. 
+         */
+        bool should_controller_publish_cmd_ = false;
 
         VATController::VAT_params_t default_vat_params_ = {
             .v_flock = 1.5,
@@ -75,6 +88,11 @@ class VATControllerNode : public rclcpp::Node
          * @brief Service server used to return agent_velocities when called. 
          */
         rclcpp::Service<dancers_msgs::srv::GetAgentVelocities>::SharedPtr service_;
+
+        /**
+         * @brief Publisher that publishes the response of the its service computing the velocities command.
+         */
+        rclcpp::Publisher<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr cmd_publisher_;
 
         /**
          * @brief Map containing the controllers for each agent. The key is the agent's id. 
@@ -113,6 +131,10 @@ class VATControllerNode : public rclcpp::Node
                 {
                     dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(agent_states, *obstacles_);
                     response->velocity_headings.velocity_heading_array.push_back(std::move(agent_command));
+                }
+                if(should_controller_publish_cmd_)
+                {
+                    cmd_publisher_->publish(response->velocity_headings);
                 }
            }
         }
