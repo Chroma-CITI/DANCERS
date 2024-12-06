@@ -12,7 +12,6 @@
   <depend>rclcpp</depend>
   <depend>dancers_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>mini_dancers</depend>
   
   <exec_depend>rosidl_default_runtime</exec_depend>
 

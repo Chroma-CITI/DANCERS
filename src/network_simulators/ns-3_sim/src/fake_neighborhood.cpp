@@ -334,7 +334,10 @@ public:
         Config::Set(
             "/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported",
             BooleanValue(true));
-
+        // Fix non-unicast data rate to be the same as that of unicast
+        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
+            StringValue (phyMode));
+            
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of WIFI module");
 
         /* **************** IP / ROUTING MODULE **************** */
@@ -722,8 +725,9 @@ public:
                         path.pop();
                         int neighbor = path.top();
                         double distance = this->nodes.Get(curr)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor)->GetObject<MobilityModel>());
-                        this->mission_neighbors[curr][neighbor] = std::make_pair(distance, Simulator::Now());
-                        this->mission_neighbors[neighbor][curr] = std::make_pair(distance, Simulator::Now());
+                        
+                        this->mission_neighbors[curr][neighbor] = std::make_pair(this->pathlosses[curr][neighbor], Simulator::Now());
+                        this->mission_neighbors[neighbor][curr] = std::make_pair(this->pathlosses[neighbor][curr], Simulator::Now());
                         // std::cout << " -> " << neighbor ;
                         curr = neighbor;
                     }
@@ -1029,7 +1033,7 @@ FakeNeighborhood::generate_neighbors_msg()
         }
     }
 
-    // std::cout << ordered_neighbors_msg->DebugString() << std::endl;
+    std::cout << ordered_neighbors_msg.DebugString() << std::endl;
 
     std::string str_response;
     ordered_neighbors_msg.SerializeToString(&str_response);

@@ -345,7 +345,7 @@ void MiniDancers::InitUavs()
         agent_t agent;
         agent.id = i;
         agent.uav_system = uav_system;
-        agent.neighbors = std::vector<int>();
+        agent.neighbors = std::vector<NeighborInfo_t>();
         agent.neighbors_mission = std::vector<int>();
         agent.neighbors_potential = std::vector<int>();
         agent.neighbors_routing = std::vector<int>();
@@ -605,7 +605,6 @@ void MiniDancers::UpdateCmds()
         agent_t& self_agent = this->uavs[i];
 
         agent_struct.agent_id = self_agent.id;
-        //agent_struct.agent_role = self_agent.id;
         agent_struct.state.position.x = self_agent.uav_system.getState().x[0];
         agent_struct.state.position.y = self_agent.uav_system.getState().x[1];
         agent_struct.state.position.z = self_agent.uav_system.getState().x[2];
@@ -613,28 +612,36 @@ void MiniDancers::UpdateCmds()
         agent_struct.state.velocity_heading.velocity.x = self_agent.uav_system.getState().v[0];
         agent_struct.state.velocity_heading.velocity.y = self_agent.uav_system.getState().v[1];
         agent_struct.state.velocity_heading.velocity.z = self_agent.uav_system.getState().v[2];
-        
-        agent_struct.neighbor_array.neighbors = self_agent.neighbors;
 
-        // TODO: Removre this default idle value.
-        agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
-
-        // Ajouter l'identification de rôle
-        /* if()
+        // Role conversion
+        if (self_agent.role == AgentRoleType::Undefined)
         {
-            agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_UNDEFINED;
         }
-        else if()
+        else if (self_agent.role == AgentRoleType::Mission)
         {
             agent_struct.agent_role = agent_struct.AGENT_ROLE_MISSION;
         }
-        else
+        else if (self_agent.role == AgentRoleType::Potential)
+        {
+            agent_struct.agent_role = agent_struct.AGENT_ROLE_POTENTIAL;
+        }
+        else if (self_agent.role == AgentRoleType::Idle)
         {
             agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
-            RCLCPP_ERROR(node->get_logger(), "The agent "<< agent_struct.agent_id<< " has an invalid role. Only Idle and Mission are surpported. Assuming Idle.");
-         }*/
+        }
 
-        request->agent_structs.push_back(std::move(agent_struct));
+
+        for (NeighborInfo_t& neighbor: self_agent.neighbors)
+        {
+            dancers_msgs::msg::Neighbor neighbor_msg;
+            neighbor_msg.agent_id = neighbor.id;
+            neighbor_msg.link_quality = neighbor.link_quality;
+            
+            agent_struct.neighbor_array.neighbors.emplace_back(std::move(neighbor_msg));
+        }
+
+        request->agent_structs.emplace_back(std::move(agent_struct));
     }
     
     auto result = command_client_->async_send_request(request);
@@ -698,8 +705,26 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
         {
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
+            // Select the right role
+            if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::UNDEFINED)
+            {
+                this->uavs[i].role = AgentRoleType::Undefined;
+            }
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::MISSION)
+            {
+                this->uavs[i].role = AgentRoleType::Mission;
+            }
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::POTENTIAL)
+            {
+                this->uavs[i].role = AgentRoleType::Potential;
+            }
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::IDLE)
+            {
+                this->uavs[i].role = AgentRoleType::Idle;
+            }
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
+            
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());
             for (int j=0; j < my_neighbors.neighborid_size(); j++)
             {
@@ -722,8 +747,13 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
                     {
                         this->uavs[agent_id].neighbors_routing.push_back(my_neighbors.neighborid(j));
                     }
-                    this->uavs[agent_id].neighbors.push_back(my_neighbors.neighborid(j));
                     this->uavs[agent_id].link_qualities.push_back(my_neighbors.linkquality(j));
+
+                    NeighborInfo_t neighbor_info;
+                    neighbor_info.id = my_neighbors.neighborid(j);
+                    neighbor_info.link_quality = my_neighbors.linkquality(j);
+                    
+                    this->uavs[agent_id].neighbors.push_back(neighbor_info);
                 }
             }
         }

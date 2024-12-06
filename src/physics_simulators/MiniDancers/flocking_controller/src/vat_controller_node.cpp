@@ -12,6 +12,7 @@
 #include <flocking_controller/cuboid_obstacle_util.hpp>
 
 #include "rclcpp/rclcpp.hpp"
+#include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 
 using namespace std::placeholders;
@@ -44,6 +45,13 @@ class VATControllerNode : public rclcpp::Node
             // Initialize the controllers
             agentControllerInitialization(config);
 
+            should_controller_publish_cmd_ = config["controller_publish_cmd"].as<bool>();
+
+            if(should_controller_publish_cmd_)
+            {
+                cmd_publisher_ = this->create_publisher<dancers_msgs::msg::VelocityHeadingArray>("velocity_cmd", 10);
+            }
+
             // Create the service
             service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities", 
                                                                                   std::bind(&VATControllerNode::commandCallback,this, _1, _2));
@@ -51,10 +59,16 @@ class VATControllerNode : public rclcpp::Node
         }
 
     private:
+        /**
+         * @brief Flag that indicates if the controller should publish its service respons on a topic.
+         * Mainly used for debugging. 
+         */
+        bool should_controller_publish_cmd_ = false;
 
         VATController::VAT_params_t default_vat_params_ = {
             .v_flock = 1.5,
             .v_max = 1.0,
+            .v_sec_max = 1.0,
             .a_frict = 4.16,
             .p_frict = 3.2,
             .r_0_frict = 85.3,
@@ -74,6 +88,11 @@ class VATControllerNode : public rclcpp::Node
          * @brief Service server used to return agent_velocities when called. 
          */
         rclcpp::Service<dancers_msgs::srv::GetAgentVelocities>::SharedPtr service_;
+
+        /**
+         * @brief Publisher that publishes the response of the its service computing the velocities command.
+         */
+        rclcpp::Publisher<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr cmd_publisher_;
 
         /**
          * @brief Map containing the controllers for each agent. The key is the agent's id. 
@@ -99,7 +118,7 @@ class VATControllerNode : public rclcpp::Node
            }
            else
            {
-                std::vector<std::shared_ptr<agent_util::AgentState_t>> agent_states;
+                std::vector<std::shared_ptr<const agent_util::AgentState_t>> agent_states;
 
                 // Create a vector list of all the agent states.
                 for(const auto& agent_struct: request->agent_structs)
@@ -107,24 +126,15 @@ class VATControllerNode : public rclcpp::Node
                     agent_util::AgentState_t self_agent_state = agent_util::create_agent_state_from_ROS_message(agent_struct);
                     agent_states.push_back(std::make_shared<agent_util::AgentState_t>(std::move(self_agent_state)));
                 }
-
                 
                 for(const auto& agent_struct: request->agent_structs)
                 {
-                    // Create the list of neighbors
-                    std::vector<std::shared_ptr<const agent_util::AgentState_t>> neighbors;
-
-                    // Create an array of neighbors
-                    for(auto neighbor_id: agent_struct.neighbor_array.neighbors)
-                    {
-                        if (neighbor_id != agent_struct.agent_id)
-                        {
-                            neighbors.push_back(agent_states[neighbor_id]);
-                        }
-                    }
-
-                    dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(*agent_states[agent_struct.agent_id], neighbors, *obstacles_);
+                    dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(agent_states, *obstacles_);
                     response->velocity_headings.velocity_heading_array.push_back(std::move(agent_command));
+                }
+                if(should_controller_publish_cmd_)
+                {
+                    cmd_publisher_->publish(response->velocity_headings);
                 }
            }
         }
@@ -176,12 +186,12 @@ class VATControllerNode : public rclcpp::Node
             {
                 vat_params.v_flock = config[vat_params_config_list_name]["v_flock"].as<double>();
                 vat_params.v_max = config[vat_params_config_list_name]["v_max"].as<double>();
+                vat_params.v_sec_max = config[vat_params_config_list_name]["v_sec_max"].as<double>();
                 vat_params.a_frict = config[vat_params_config_list_name]["a_frict"].as<double>();
                 vat_params.p_frict = config[vat_params_config_list_name]["p_frict"].as<double>();
                 vat_params.r_0_frict = config[vat_params_config_list_name]["r_0_frict"].as<double>();
                 vat_params.C_frict = config[vat_params_config_list_name]["C_frict"].as<double>();
                 vat_params.v_frict = config[vat_params_config_list_name]["v_frict"].as<double>();
-                vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
                 vat_params.r_0_att = config[vat_params_config_list_name]["r_0_att"].as<double>();
                 vat_params.p_rep = config[vat_params_config_list_name]["p_rep"].as<double>();
                 vat_params.r_0_rep = config[vat_params_config_list_name]["r_0_rep"].as<double>();
@@ -189,6 +199,25 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.p_shill = config[vat_params_config_list_name]["p_shill"].as<double>();
                 vat_params.r_0_shill = config[vat_params_config_list_name]["r_0_shill"].as<double>();
                 vat_params.v_shill = config[vat_params_config_list_name]["v_shill"].as<double>();
+                vat_params.use_deconnexion_distance_instead_of_p_att = config[vat_params_config_list_name]["use_deconnexion_distance_instead_of_p_att"].as<bool>();
+                if (vat_params.use_deconnexion_distance_instead_of_p_att)
+                {
+                    vat_params.expected_deconnexion_distance = config["expected_deconnexion_distance"].as<double>();
+                    const double relative_distance = vat_params.expected_deconnexion_distance - vat_params.r_0_att;
+                    if (relative_distance > 0.0)
+                    {
+                        vat_params.p_att = vat_params.v_sec_max/(relative_distance);
+                    }
+                    else
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Can't compute p_att based on expected_deconnexion_distance if expected_deconnexion_distance is smaller than r_0_att");
+                        vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
+                    }
+                }
+                else
+                {
+                    vat_params.p_att = config[vat_params_config_list_name]["p_att"].as<double>();
+                }
             }
             catch(const std::exception& e)
             {
@@ -226,8 +255,10 @@ class VATControllerNode : public rclcpp::Node
                 options.id = agent_id;
 
                 // Get the flocking parameters
-                populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params_idle);
-                populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params_mission);
+                populateVATParametersFromConfig(config,"VAT_undefined_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Undefined]);
+                populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Mission]);
+                populateVATParametersFromConfig(config,"VAT_potential_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Potential]);
+                populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
 
                 // Get the altitude parameter
                 options.desired_fixed_altitude = fixed_altitude;

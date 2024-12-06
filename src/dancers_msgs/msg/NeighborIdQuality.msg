@@ -1,2 +1,0 @@
-uint32 id
-float64 link_quality
