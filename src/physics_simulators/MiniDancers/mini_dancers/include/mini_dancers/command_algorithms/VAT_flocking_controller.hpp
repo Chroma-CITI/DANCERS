@@ -27,8 +27,9 @@ Eigen::Vector3d alignment_term(std::vector<agent_t *> uavs, int which_agent, VAT
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
     MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+    for (NeighborInfo_t& neighbor: uavs[which_agent]->neighbors)
     {
+        int neighbor_id = neighbor.id;
         if (neighbor_id != which_agent)
         {
             MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
@@ -49,8 +50,9 @@ Eigen::Vector3d attraction_term(std::vector<agent_t *> uavs, int which_agent, VA
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
     MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+    for (NeighborInfo_t& neighbor: uavs[which_agent]->neighbors)
     {
+        int neighbor_id = neighbor.id;
         if (neighbor_id != which_agent)
         {
             MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();
@@ -69,8 +71,9 @@ Eigen::Vector3d repulsion_term(std::vector<agent_t *> uavs, int which_agent, VAT
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
     MultirotorModel::State agent_state = uavs[which_agent]->uav_system.getState();
-    for (int neighbor_id : uavs[which_agent]->neighbors)
+    for (NeighborInfo_t& neighbor: uavs[which_agent]->neighbors)
     {
+        int neighbor_id = neighbor.id;
         if (neighbor_id != which_agent)
         {
             MultirotorModel::State neighbor_state = uavs[neighbor_id]->uav_system.getState();

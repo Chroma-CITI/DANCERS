@@ -29,6 +29,7 @@ class VATController
         {
             float v_flock;
             float v_max;
+            float v_sec_max;
             float a_frict;
             float p_frict;
             float r_0_frict;
@@ -42,6 +43,9 @@ class VATController
             float p_shill;
             float r_0_shill;
             float v_shill;
+
+            float expected_deconnexion_distance;
+            bool use_deconnexion_distance_instead_of_p_att = false;
         };
 
         /**
@@ -56,14 +60,14 @@ class VATController
             int id;
 
             /**
-             * @brief VAT parameters of the idle role.
+             * @brief VAT parameters for all roles.
              */
-            VAT_params_t VAT_params_idle;
-
-            /**
-             * @brief VAT parameters of the mission role.
-             */
-            VAT_params_t VAT_params_mission;
+            std::map<agent_util::AgentRoleType, VAT_params_t> VAT_params = {
+                {agent_util::AgentRoleType::Undefined, {}},
+                {agent_util::AgentRoleType::Mission, {}},
+                {agent_util::AgentRoleType::Potential, {}},
+                {agent_util::AgentRoleType::Idle, {}}
+            };
 
             /**
              * @brief Optional fixed altitude that, if set, will overide the flocking behavior to control the altitude of the drones within a 1m deadband of the set altitude.
@@ -80,12 +84,11 @@ class VATController
 
         /**
          * @brief Computes the velocity command of the agent based on the VAT controller.
-         * @param self_agent Agent containinig its position, velocities and neighbors information.
-         * @param neighbors List of all neighbors.
+         * @param agent_list List of all agents states and their neighbors.
          * @param obstacles Array of 3D obstacles in the environement.
          * @return Return the computed velocity command as a ROS message. 
          */
-        dancers_msgs::msg::VelocityHeading getVelocityHeading(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles);
+        dancers_msgs::msg::VelocityHeading getVelocityHeading(std::vector<std::shared_ptr<const agent_util::AgentState_t>>& agent_list, const std::vector<cuboid::obstacle_t>& obstacles);
     
         /**
          * @brief Constructor of the VAT controller that initialize the internal states of the controller.
@@ -100,19 +103,14 @@ class VATController
         int id_;
 
         /**
-         * @brief VAT parameters for the idle role.
+         * @brief VAT parameter dictionnaries that contains the parameter for each role of neighbors.
          */
-        VAT_params_t VAT_params_idle_;
-
-        /**
-         * @brief VAT parameters for the mission role.
-         */
-        VAT_params_t VAT_params_mission_;
-        
-        /**
-         * @brief VAT parameters for the idle neighbors.
-         */
-        VAT_params_t idle_params_;
+        std::map<agent_util::AgentRoleType, VAT_params_t> VAT_params_ = {
+            {agent_util::AgentRoleType::Undefined, {}},
+            {agent_util::AgentRoleType::Mission, {}},
+            {agent_util::AgentRoleType::Potential, {}},
+            {agent_util::AgentRoleType::Idle, {}}
+        };
 
         /**
          * @brief Objective point in space that attracts the agent, if defined.
@@ -139,7 +137,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
+        Eigen::Vector3d alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that attracts the agent towards its neighbors of a given neighbor type.
@@ -148,7 +146,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
+        Eigen::Vector3d attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that repulse the agent from its neighbors of a given neighbor type.
@@ -157,7 +155,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t* role_params);
+        Eigen::Vector3d repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that pushes the heading of the agent perpendicaly from the nearest obstacle surfaces.
@@ -166,7 +164,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d shillTerm(const agent_util::AgentState_t& self_agent, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t* role_params);
+        Eigen::Vector3d shillTerm(const agent_util::AgentState_t& self_agent, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t& role_params);
         
         /**
          * @brief Flocking behavior that attracts the agent towards a goal position.
@@ -175,7 +173,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t* role_params);
+        Eigen::Vector3d secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params);
 
 
         /**

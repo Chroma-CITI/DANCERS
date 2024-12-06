@@ -4,7 +4,7 @@ uint8 AGENT_ROLE_POTENTIAL=2
 uint8 AGENT_ROLE_IDLE=3
 
 uint8 agent_role
-uint8 agent_id
+uint32 agent_id
 dancers_msgs/AgentState state
 
 dancers_msgs/NeighborArray neighbor_array

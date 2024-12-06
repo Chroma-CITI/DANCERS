@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 6
+robots_number: 10
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -51,28 +51,17 @@ broadcast_flow:
   flow_id: 2
 
 # ******* FLOCKING *******
-VAT_idle_flocking_parameters:
-  v_flock: 0.5
-  v_max: 3
-  a_frict: 4.16
-  p_frict: 3.2
-  r_0_frict: 85.3
-  C_frict: 0.8
-  v_frict: 0.63
-  p_att: 0.08  # old 0.08
-  r_0_att: 20
-  p_rep: 0.13
-  r_0_rep: 20
-  a_shill: 53
-  p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
-  v_shill: 13.622
-  auto_propulsion_flag: false
-  secondary_objective_flag: true
+# Indicates if the ROS flocking_controller should publish on a topic the command its sends.
+controller_publish_cmd: true
 
-VAT_mission_flocking_parameters:
+# **** Constraints ****
+expected_deconnexion_distance: 50.0
+
+# **** Parameters ****
+VAT_undefined_flocking_parameters:
   v_flock: 0.5
   v_max: 3
+  v_sec_max: 3
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
@@ -88,6 +77,73 @@ VAT_mission_flocking_parameters:
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
+  # If use_deconnexion_distance_instead_of_p_att is true, p_att will be overriden so that the 
+  # attraction speed can counter the v_sec_max at the expected_deconnexion_distance.
+  use_deconnexion_distance_instead_of_p_att: false 
+
+
+VAT_mission_flocking_parameters:
+  v_flock: 1.0
+  v_max: 30
+  v_sec_max: 30
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08  # old 0.08
+  r_0_att: 40
+  p_rep: 0.13
+  r_0_rep: 30
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: true
+
+VAT_potential_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  v_sec_max: 3
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.16  # old 0.08
+  r_0_att: 30
+  p_rep: 0.13
+  r_0_rep: 20
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: false
+
+VAT_idle_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  v_sec_max: 3
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08  # old 0.08
+  r_0_att: 20
+  p_rep: 0.13
+  r_0_rep: 20
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 0.3 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: false
 
 # ******* PRE-PLANNED FLIGHT *******
 circle_parameters:
