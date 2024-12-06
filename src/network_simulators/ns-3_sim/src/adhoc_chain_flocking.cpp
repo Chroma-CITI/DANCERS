@@ -19,7 +19,7 @@
 #include "ns3/olsr-module.h"
 #include "ns3/dsr-module.h"
 #include "ns3/dsdv-module.h"
-#include "ns3/batmand-module.h"
+// #include "ns3/batmand-module.h"
 
 #include "protobuf_msgs/network_update.pb.h"
 #include "protobuf_msgs/physics_update.pb.h"
@@ -193,6 +193,10 @@ public:
         this->max_neighbors = config["max_neighbors"].as<uint32_t>();
         std::string routingAlgorithm = config["routing_algorithm"].as<std::string>();
 
+        // Fix non-unicast data rate to be the same as that of unicast
+        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
+            StringValue (phyMode));
+
         // Create the nodes
         this->nodes.Create(numNodes);
 
@@ -265,6 +269,7 @@ public:
             }
             else if (propagation_loss_model == "HybridBuildingsPropagationLossModel")
             {
+                // We define the propagation model twice, as YansWifiChannelHelper already create the propagation object, but does not provide "GetPropagationLossModel" 
                 this->m_propagationLossModel = CreateObject<HybridBuildingsPropagationLossModel>();
                 this->m_propagationLossModel->SetAttribute("Frequency", DoubleValue(frequency));     // Default 2.4e9
                 this->m_propagationLossModel->SetAttribute("ShadowSigmaExtWalls", DoubleValue(5.0)); // Standard deviation of the normal distribution used to calculate the shadowing due to ext walls
@@ -334,34 +339,42 @@ public:
         Config::Set(
             "/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported",
             BooleanValue(true));
-        // Fix non-unicast data rate to be the same as that of unicast
-        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
-            StringValue (phyMode));
 
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of WIFI module");
 
         /* **************** IP / ROUTING MODULE **************** */
         InternetStackHelper internet;
 
-        if (routingAlgorithm == "BATMAN")
-        {
-            // Add Batman routing
-            Ipv4ListRoutingHelper ipv4List;
-            BatmandHelper batmand;
-            batmand.Set("OGMInterval", TimeValue(Seconds(0.1)));
-            Ipv4StaticRoutingHelper staticRouting;
-            ipv4List.Add (staticRouting, 0);
-            ipv4List.Add (batmand, 100);
-            internet.SetRoutingHelper(ipv4List);
-        }
-        else if (routingAlgorithm == "OLSR")
+        // if (routingAlgorithm == "BATMAN")
+        // {
+        //     // Add Batman routing
+        //     Ipv4ListRoutingHelper ipv4List;
+        //     BatmandHelper batmand;
+        //     batmand.Set("OGMInterval", TimeValue(Seconds(0.1)));
+        //     Ipv4StaticRoutingHelper staticRouting;
+        //     ipv4List.Add (staticRouting, 0);
+        //     ipv4List.Add (batmand, 100);
+        //     internet.SetRoutingHelper(ipv4List);
+
+        //     // Print routing table every 5 seconds
+        //     Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+        //     batmand.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+        // }
+        // else 
+        if (routingAlgorithm == "OLSR")
         {
             // Add OLSR routing
             Ipv4ListRoutingHelper ipv4List;
             OlsrHelper olsr;
-            olsr.Set("HelloInterval", TimeValue(Seconds(0.1)));
+            olsr.Set("HelloInterval", TimeValue(Seconds(0.5)));
+            olsr.Set("TcInterval", TimeValue(Seconds(1)));
             ipv4List.Add(olsr, 100);
             internet.SetRoutingHelper(ipv4List);
+
+
+            // Print routing table every 5 seconds
+            Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+            olsr.PrintRoutingTableAllEvery(Seconds(5), routingStream);
         }
         else if (routingAlgorithm == "AODV")
         {
@@ -370,6 +383,10 @@ public:
             AodvHelper aodv;
             ipv4List.Add(aodv, 100);
             internet.SetRoutingHelper(ipv4List);
+    
+            // Print routing table every 5 seconds
+            Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+            aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
         }
         else if (routingAlgorithm == "DSDV")
         {
@@ -394,6 +411,11 @@ public:
 
         // Actually install the internet stack on all nodes
         internet.Install(this->nodes);
+
+        for (int i=0; i < numNodes; i++)
+        {
+            this->nodes.Get(i)->GetObject<olsr::RoutingProtocol>()->TraceConnect("RoutingTableChanged", std::to_string(i), MakeCallback(&AdhocChainFlocking::olsrRoutingTableChanged_clbk, this));
+        }
 
         // Assign IP addresses to the net devices
         Ipv4AddressHelper addressAdhoc;
@@ -769,6 +791,7 @@ private:
     void mission_flow_sender_clbk(Ptr<const Packet> packet);
     void flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id);
     void flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet);
+    void olsrRoutingTableChanged_clbk(std::string context, uint32_t size);
 
     // save compute time (optional)
     bool save_compute_time;
@@ -817,7 +840,7 @@ void AdhocChainFlocking::PhyTxBeginTrace(std::string context, Ptr<const Packet> 
         if (nav_flow.GetFlowId() == this->mission_flow_id)
         {
             // We are sending a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            std::cout << nodeId << ": Sending a mission packet to " << destId << std::endl;
+            // std::cout << nodeId << ": Sending a mission packet to " << destId << std::endl;
             this->mission_neighbors[nodeId][destId] = std::make_pair(rxPow, txTime);
         }
     }
@@ -856,7 +879,7 @@ void AdhocChainFlocking::PhyRxEndTrace(std::string context, Ptr<const Packet> pa
         if (nav_flow.GetFlowId() == this->mission_flow_id && nodeId == destId)
         {
             // We are receiving a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            std::cout << nodeId << ": Receiving a mission packet from " << sourceId << std::endl;
+            // std::cout << nodeId << ": Receiving a mission packet from " << sourceId << std::endl;
             this->mission_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
         }
     }
@@ -875,17 +898,23 @@ void AdhocChainFlocking::mission_flow_sender_clbk(Ptr<const Packet> packet)
 
 void AdhocChainFlocking::flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id)
 {
-    RCLCPP_DEBUG(this->get_logger(), "Flock packet received");
 
     Time rxTime = Simulator::Now();
     double rxPow = this->pathlosses[std::stoi(context)][peer_id];
     this->broadcast_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
+    RCLCPP_DEBUG(this->get_logger(), "Flock packet received (node %d received from %d)", std::stoi(context), peer_id);
 }
 
 void AdhocChainFlocking::flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet)
 {
     RCLCPP_DEBUG(this->get_logger(), "Flocking broadcast packet sent");
 }
+
+void AdhocChainFlocking::olsrRoutingTableChanged_clbk(std::string context, uint32_t size)
+{
+    // RCLCPP_WARN(this->get_logger(), "[node %i] OLSR routing table changed, size: %u", std::stoi(context), size);
+}
+
 
 /**
  * @brief Generates an ordered_neighbors_msg containing the neighbors of each node, sorted by pathloss, and serializes it
@@ -902,25 +931,28 @@ AdhocChainFlocking::generate_neighbors_msg()
 
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        if (this->broadcast_neighbors.find(i) == this->broadcast_neighbors.end() || this->broadcast_neighbors[i].empty())
+        bool has_broadcast_neighbor = this->broadcast_neighbors.find(i) != this->broadcast_neighbors.end() && !this->broadcast_neighbors[i].empty();
+        bool has_mission_neighbor = this->mission_neighbors.find(i) != this->mission_neighbors.end() && !this->mission_neighbors[i].empty();
+        
+        if (has_mission_neighbor)
         {
-            // We don't have any broadcast neighbors, that means we are disconnected from the fleet !
-            // std::cout << "No broadcast neighbors for node " << i << std::endl;
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
+            // Use mission neighbors
+            // std::cout << "Using mission neighbors for node " << i << std::endl;
+            neighbors[i] = this->mission_neighbors[i];
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_MISSION;
         }
-        else if (this->mission_neighbors.find(i) == this->mission_neighbors.end() || this->mission_neighbors[i].empty())
+        else if (has_broadcast_neighbor)
         {
             // Use broadcast neighbors, we don't have any mission neighbors !
             // std::cout << "Using broadcast neighbors for node " << i << std::endl;
             neighbors[i] = this->broadcast_neighbors[i];
             agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL;
         }
-        else
+        else if (!has_broadcast_neighbor)
         {
-            // Use mission neighbors
-            // std::cout << "Using mission neighbors for node " << i << std::endl;
-            neighbors[i] = this->mission_neighbors[i];
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_MISSION;
+            // We don't have any neighbors !
+            // std::cout << "No neighbors for node " << i << std::endl;
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_UNDEFINED;
         }
     }
 

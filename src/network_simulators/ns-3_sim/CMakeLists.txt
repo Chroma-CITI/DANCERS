@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.8)
 project(ns-3_sim)
 
-# set(CMAKE_CXX_STANDARD 20)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# set(CMAKE_CXX_EXTENSIONS OFF)  # Optional: Ensures standard compliance without compiler-specific extensions
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)  # Optional: Ensures standard compliance without compiler-specific extensions
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -72,7 +72,7 @@ target_link_libraries(adhoc_chain_flocking
   ns3::libapplications
   ns3::libcsma
   ns3::libtap-bridge
-  ns3::libbatmand)
+  )
 ament_target_dependencies(adhoc_chain_flocking
   Boost 
   protobuf_msgs
