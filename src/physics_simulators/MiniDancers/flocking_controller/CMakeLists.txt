@@ -13,10 +13,14 @@ find_package(yaml-cpp REQUIRED)
 find_package(dancers_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
+add_library(occupancy_grid 
+            src/occupancy_grid.cpp)
 
 add_executable(flocking_controller_vat 
                src/vat_controller_node.cpp 
                src/vat_controller.cpp)
+
+
 ament_target_dependencies(flocking_controller_vat 
   rclcpp 
   dancers_msgs 
@@ -26,6 +30,10 @@ ament_target_dependencies(flocking_controller_vat
 target_link_libraries(flocking_controller_vat 
   Eigen3::Eigen
   yaml-cpp
+)
+
+target_link_libraries(occupancy_grid 
+  Eigen3::Eigen
 )
 
 install(TARGETS
