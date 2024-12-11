@@ -148,6 +148,21 @@ VAT_idle_flocking_parameters:
 circle_parameters:
   gain: 10
   omega: 0.1
+
+# **** Occupancy grid for the planner ****
+# Heigh of the grid in the global frame. 
+grid_altitude: 10.0
+
+# The size of the map is based on the smallest x and y position to the 
+# largest x and y positions from obstalces and secondary objectives.
+# The map inflation is a padding in meter to add around those dimensions.
+map_inflation: 20.0
+
+# Extra size to add on each size of obstacles for safe navigation. 
+obstacle_inflation: 1.0
+
+# Resolution in meter/cell of the occupancy grid.
+map_resolution: 0.5
  
 # secondary objectives of the drones, with the form robot_ID: [x, y, z, target(true)|sink(false)] 
 # Be careful, there is no check that on the robot_ID in this list, if add a secondary objective for robot 10 and robot 10 does not exist, it will be ignored
@@ -193,36 +208,36 @@ buildings:
   #   size_y: 20
 
 # CORRIDOR
-  # - id: 1
-  #   x: -50
-  #   y: 0
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 300
-  # - id: 2
-  #   x: 50
-  #   y: -45
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 210
-  # - id: 3
-  #   x: 5
-  #   y: 125
-  #   height: 20
-  #   size_x: 60
-  #   size_y: 50
-  # - id: 4
-  #   x: 10
-  #   y: 200
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 100
-  # - id: 5
-  #   x: 100
-  #   y: 150
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 200
+#- id: 1
+#  x: -50
+#  y: 0
+#  height: 20
+#  size_x: 50
+#  size_y: 300
+#- id: 2
+#  x: 50
+#  y: -45
+#  height: 20
+#  size_x: 50
+#  size_y: 210
+#- id: 3
+#  x: 5
+#  y: 125
+#  height: 20
+#  size_x: 60
+#  size_y: 50
+#- id: 4
+#  x: 10
+#  y: 200
+#  height: 20
+#  size_x: 50
+#  size_y: 100
+#- id: 5
+#  x: 100
+#  y: 150
+#  height: 20
+#  size_x: 50
+#  size_y: 200
 
 # ******* GAZEBO *******
 

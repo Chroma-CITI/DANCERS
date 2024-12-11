@@ -50,7 +50,7 @@ class VATControllerNode : public rclcpp::Node
             std::map<int, Eigen::Vector3d> secondary_objectives = getAgentSecondaryObjective(config);
 
             // Initialize the 
-            occupancyGridInitialization(obstacles_, secondary_objectives);
+            occupancyGridInitialization(config, obstacles_, secondary_objectives);
 
             // Initialize the controllers
             agentControllerInitialization(config, secondary_objectives);
@@ -203,7 +203,8 @@ class VATControllerNode : public rclcpp::Node
          * @param obstacles List of obstacles to put in the occupancy grid.
          * @param secondary_objectives List of all the secondary objectives
          */
-        void occupancyGridInitialization(std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles,
+        void occupancyGridInitialization(const YAML::Node& config,
+                                         std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles,
                                          std::map<int, Eigen::Vector3d>& secondary_objectives)
         {
             if (obstacles)
@@ -280,12 +281,49 @@ class VATControllerNode : public rclcpp::Node
 
                 // TODO get from params
                 float grid_altitude = 10.0f;
+                if(YAML::Node altitude_param = config["grid_altitude"])
+                {
+                    grid_altitude = static_cast<float>(altitude_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param grid_altitude is not set. The default value of "<<grid_altitude << " is used.");
+                }
+
+                float obstacle_inflation = 0.0f;
+                if(YAML::Node obstacle_inflation_param = config["obstacle_inflation"])
+                {
+                    obstacle_inflation = static_cast<float>(obstacle_inflation_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param obstacle_inflation is not set. The default value of "<<obstacle_inflation << " is used.");
+                }
+
                 float map_inflation = 20.0f;
+                if(YAML::Node map_inflation_param = config["map_inflation"])
+                {
+                    map_inflation = static_cast<float>(map_inflation_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param map_inflation is not set. The default value of "<< map_inflation << " is used.");
+                }
+
+                float map_resolution = 0.5f;
+                if(YAML::Node map_resolution_param = config["map_resolution"])
+                {
+                    float map_resolution = static_cast<float>(map_resolution_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param map_resolution is not set. The default value of "<< map_resolution << " is used.");
+                }
 
                 Eigen::Vector3d origin = {min_relevant_x -map_inflation, min_relevant_y - map_inflation, grid_altitude};
                 Eigen::Vector3d opposite_corner = {max_relevant_x + map_inflation, max_relevant_y + map_inflation, grid_altitude};
 
-                occupancy_grid_ptr_ = std::make_shared<OccupancyGrid2D>(origin, opposite_corner, 0.5f, 1.0f, OccupancyGrid2D::CellStatus::Free);
+                occupancy_grid_ptr_ = std::make_shared<OccupancyGrid2D>(origin, opposite_corner, map_resolution, obstacle_inflation, OccupancyGrid2D::CellStatus::Free);
                 occupancy_grid_ptr_->populateGridFromObstacles(obstacles);
                 
                 occupancy_grid_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("flocking_controller_occupancy_grid", 10);
