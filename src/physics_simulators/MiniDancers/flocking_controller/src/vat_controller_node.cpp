@@ -279,7 +279,6 @@ class VATControllerNode : public rclcpp::Node
                     }
                 }
 
-                // TODO get from params
                 float grid_altitude = 10.0f;
                 if(YAML::Node altitude_param = config["grid_altitude"])
                 {
