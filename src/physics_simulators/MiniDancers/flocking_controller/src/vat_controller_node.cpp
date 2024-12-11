@@ -15,7 +15,12 @@
 #include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 
+#include <nav_msgs/msg/occupancy_grid.hpp>
+
+#include "occupancy_grid.hpp"
+
 using namespace std::placeholders;
+using namespace std::chrono_literals;
 
 class VATControllerNode : public rclcpp::Node
 {
@@ -42,8 +47,13 @@ class VATControllerNode : public rclcpp::Node
             // Initialize obstacles
             obstaclesInitialization(config);
 
+            std::map<int, Eigen::Vector3d> secondary_objectives = getAgentSecondaryObjective(config);
+
+            // Initialize the 
+            occupancyGridInitialization(obstacles_, secondary_objectives);
+
             // Initialize the controllers
-            agentControllerInitialization(config);
+            agentControllerInitialization(config, secondary_objectives);
 
             should_controller_publish_cmd_ = config["controller_publish_cmd"].as<bool>();
 
@@ -95,6 +105,11 @@ class VATControllerNode : public rclcpp::Node
         rclcpp::Publisher<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr cmd_publisher_;
 
         /**
+         * @brief Publisher that publishes the occupancy grid of the obstacles.
+         */
+        rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_grid_publisher_;
+
+        /**
          * @brief Map containing the controllers for each agent. The key is the agent's id. 
          */
         std::vector<std::unique_ptr<VATController>> controllers_;
@@ -103,6 +118,16 @@ class VATControllerNode : public rclcpp::Node
          * @brief Obstacle list to avoid. Used in the shillTerm().
          */
         std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles_;
+
+        /**
+         * @brief 2D Occupancy grid of the obstacles.
+         */
+        std::shared_ptr<OccupancyGrid2D> occupancy_grid_ptr_;
+
+        /**
+         * @brief Timer used to periodically call the publisher of the occupancy grid.
+         */
+        rclcpp::TimerBase::SharedPtr occupancy_grid_pub_timer_;
 
         /**
          * @brief Callback that computes all the desired velocities of a group of agent given their self states, neighbor states and obstacles.
@@ -173,6 +198,112 @@ class VATControllerNode : public rclcpp::Node
         }
 
         /**
+         * @brief Initialize the 2D occupancy grid with obstacles where its size is 
+         * determined by the obstacles and secondary objectives position plus a buffer.
+         * @param obstacles List of obstacles to put in the occupancy grid.
+         * @param secondary_objectives List of all the secondary objectives
+         */
+        void occupancyGridInitialization(std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles,
+                                         std::map<int, Eigen::Vector3d>& secondary_objectives)
+        {
+            if (obstacles)
+            {
+                float min_relevant_x = 0.0f;
+                float max_relevant_x = 0.0f;
+
+                float min_relevant_y = 0.0f;
+                float max_relevant_y = 0.0f;
+
+                if (obstacles->size() != 0)
+                {
+                    min_relevant_x = (*obstacles)[0].center[0] - (*obstacles)[0].size_x/2;
+                    max_relevant_x = (*obstacles)[0].center[0] + (*obstacles)[0].size_x/2;
+
+                    min_relevant_y = (*obstacles)[0].center[1] - (*obstacles)[0].size_y/2;
+                    max_relevant_y = (*obstacles)[0].center[1] + (*obstacles)[0].size_y/2; 
+                }
+
+                for(auto secondary_objective = secondary_objectives.begin(); secondary_objective != secondary_objectives.end();  secondary_objective++)
+                {
+                    Eigen::Vector3d &objective_position = secondary_objective->second;
+
+                    if ((obstacles->size() == 0) && secondary_objective == secondary_objectives.begin())
+                    {
+                        min_relevant_x = objective_position[0];
+                        max_relevant_x = objective_position[0];
+
+                        min_relevant_y = objective_position[1];
+                        max_relevant_y = objective_position[1]; 
+                    }
+                    else
+                    {
+                        if (objective_position[0] < min_relevant_x)
+                        {
+                            min_relevant_x = objective_position[0];
+                        }
+                        if (max_relevant_x < objective_position[0])
+                        {
+                            max_relevant_x = objective_position[0];
+                        }
+                        if (objective_position[1] < min_relevant_y)
+                        {
+                            min_relevant_y = objective_position[1];
+                        }
+                        if (max_relevant_y < objective_position[1])
+                        {
+                            max_relevant_y = objective_position[1];
+                        }
+                    }
+                }
+
+                for (int obstacle_index = 1; obstacle_index < (*obstacles).size(); obstacle_index++)
+                {
+                    const cuboid::obstacle_t &obstacle = (*obstacles)[obstacle_index];
+
+                    if ((obstacle.center[0] - obstacle.size_x/2) < min_relevant_x)
+                    {
+                        min_relevant_x = obstacle.center[0] - obstacle.size_x/2;
+                    }
+                    if (max_relevant_x < (obstacle.center[0] + obstacle.size_x/2))
+                    {
+                        max_relevant_x = obstacle.center[0] + obstacle.size_x/2;
+                    }
+                    if ((obstacle.center[1] - obstacle.size_y/2) < min_relevant_y)
+                    {
+                        min_relevant_y = obstacle.center[1] - obstacle.size_y/2;
+                    }
+                    if (max_relevant_y < (obstacle.center[1] + obstacle.size_y/2))
+                    {
+                        max_relevant_y = obstacle.center[1] + obstacle.size_y/2;
+                    }
+                }
+
+                // TODO get from params
+                float grid_altitude = 10.0f;
+                float map_inflation = 20.0f;
+
+                Eigen::Vector3d origin = {min_relevant_x -map_inflation, min_relevant_y - map_inflation, grid_altitude};
+                Eigen::Vector3d opposite_corner = {max_relevant_x + map_inflation, max_relevant_y + map_inflation, grid_altitude};
+
+                occupancy_grid_ptr_ = std::make_shared<OccupancyGrid2D>(origin, opposite_corner, 0.5f, 1.0f, OccupancyGrid2D::CellStatus::Free);
+                occupancy_grid_ptr_->populateGridFromObstacles(obstacles);
+                
+                occupancy_grid_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("flocking_controller_occupancy_grid", 10);
+                occupancy_grid_pub_timer_ = this->create_wall_timer(5s, std::bind(&VATControllerNode::occupancy_grid_time_callback, this));
+            }
+        }
+
+        void occupancy_grid_time_callback()
+        {
+            nav_msgs::msg::OccupancyGrid grid_msg = this->occupancy_grid_ptr_->getOccupancyGridMsg();
+            // Add missing time in the message
+            grid_msg.header.stamp = this->now();
+            grid_msg.info.map_load_time = this->now();
+
+            occupancy_grid_publisher_->publish(grid_msg);
+        }
+
+        /**
          * @brief Gets VAT parameters from a a given YAML list name and populate a VAT_params_t struct.
          * @param config YAML config to fetch the list from
          * @param vat_params_config_list_name Variable name of the YAML list containing the VAT parameters
@@ -228,18 +359,29 @@ class VATControllerNode : public rclcpp::Node
         }
 
         /**
-         * @brief Initialize the controller of each agent based on a configuration file.
-         * @param config YAML configuration stucture containing the obstacles.
+         * @brief Get the secondary objectives serving as end goal for specified agents from the config file.
+         * @param config YAML configuration stucture containing the secondary objectives.
+         * @return A map containing the secondary objectives where the key is the agent id and the value the cuboid obstacle.
          */
-        void agentControllerInitialization(YAML::Node& config)
+        std::map<int, Eigen::Vector3d> getAgentSecondaryObjective(YAML::Node& config)
         {
             // Get secondary objectives from config files
             std::map<int, Eigen::Vector3d> secondary_objectives;
             for (auto goal : config["secondary_objectives"])
             {
-                secondary_objectives.insert({goal.first.as<int>(), Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>())});
+                Eigen::Vector3d objective = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
+                secondary_objectives.insert({goal.first.as<int>(), objective});
             }
+            return  secondary_objectives;
+        }
 
+        /**
+         * @brief Initialize the controller of each agent based on a configuration file.
+         * @param config YAML configuration stucture containing the obstacles.
+         * @param secondary_objectives Map of secondary objective positions for agent specified through their id in the keys of the map.
+         */
+        void agentControllerInitialization(YAML::Node& config, std::map<int, Eigen::Vector3d>& secondary_objectives)
+        {
             // Get the fixed altitude option
             std::optional<float> fixed_altitude;
             if (YAML::Node altitude_param = config["target_altitude"]) 
