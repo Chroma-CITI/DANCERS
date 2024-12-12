@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 10
+robots_number: 4
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -21,11 +21,11 @@ simulation_length: 0 # s
 
 
 # ******* NETWORK PARAMETERS (ns-3) *******
-wifi_type: 'YansWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
-propagation_loss_model: 'LogDistancePropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
+wifi_type: 'SpectrumWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
+propagation_loss_model: 'HybridBuildingsPropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
 error_model_type: 'ns3::NistErrorRateModel'
 phy_mode: 'ErpOfdmRate54Mbps'
-routing_algorithm: 'BATMAN' # [AODV, DSDV, OLSR, BATMAN, DSR]
+routing_algorithm: 'OLSR' # [AODV, DSDV, OLSR, BATMAN, DSR]
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
@@ -50,12 +50,16 @@ broadcast_flow:
   stop_time: 2000.0 # s
   flow_id: 2
 
+# ******* NEIGHBORHOOD *******
+pseudo_routing_algorithm: 'shortest_dist' # [shortest_dist, capacity_bottleneck] 
+
+
 # ******* FLOCKING *******
 # Indicates if the ROS flocking_controller should publish on a topic the command its sends.
 controller_publish_cmd: true
 
 # **** Constraints ****
-expected_deconnexion_distance: 50.0
+expected_deconnexion_distance: 180.0
 
 # **** Parameters ****
 VAT_undefined_flocking_parameters:
@@ -84,8 +88,8 @@ VAT_undefined_flocking_parameters:
 
 VAT_mission_flocking_parameters:
   v_flock: 1.0
-  v_max: 30
-  v_sec_max: 30
+  v_max: 15
+  v_sec_max: 15
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3

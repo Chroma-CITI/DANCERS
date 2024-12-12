@@ -192,6 +192,7 @@ public:
         Time simEndTime = Seconds(config["simulation_length"].as<uint32_t>()); // simulation time (s)
         Time neighbor_timeout_value = MicroSeconds(config["neighbor_timeout_value"].as<uint32_t>());
         int numNodes = config["robots_number"].as<int>();
+        std::string pseudoRoutingAlgo = config["pseudo_routing_algorithm"].as<std::string>();
 
         std::string wifiType = config["wifi_type"].as<std::string>();
         std::string errorModelType = config["error_model_type"].as<std::string>();
@@ -307,7 +308,7 @@ public:
             // create the propagation loss model and add it to the channel condition
             this->m_propagationLossModel = CreateObject<ThreeGppV2vUrbanPropagationLossModel>();
             m_propagationLossModel->SetAttribute("Frequency", DoubleValue(frequency));
-            m_propagationLossModel->SetAttribute("ShadowingEnabled", BooleanValue(true));
+            m_propagationLossModel->SetAttribute("ShadowingEnabled", BooleanValue(false));
             m_propagationLossModel->SetAttribute("ChannelConditionModel", PointerValue(m_condModel));
             spectrumChannel->AddPropagationLossModel(m_propagationLossModel);
 
@@ -363,10 +364,10 @@ public:
         // dsrMain.Install(dsr, this->nodes);
 
         // Add DSDV routing
-        DsdvHelper dsdv;
-        dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
-        dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
-        internet.SetRoutingHelper(dsdv);
+        // DsdvHelper dsdv;
+        // dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
+        // dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
+        // internet.SetRoutingHelper(dsdv);
 
         // Actually install the internet stack on all nodes
         internet.Install(this->nodes);
@@ -386,6 +387,8 @@ public:
             this->mac_to_id[wifi_mac->GetAddress()] = i;
             wifi_phy->TraceConnect("PhyTxBegin", std::to_string(i), MakeCallback(&FakeNeighborhood::PhyTxBeginTrace, this));
             wifi_phy->TraceConnect("PhyRxEnd", std::to_string(i), MakeCallback(&FakeNeighborhood::PhyRxEndTrace, this));
+
+            wifi_phy->TraceConnect("MonitorSnifferRx", std::to_string(i), MakeCallback(&FakeNeighborhood::MonitorSnifferRxTrace, this));
         }
 
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of IP/ROUTING module");
@@ -665,6 +668,7 @@ public:
 
                 this->timeoutNeighbors();
 
+                double bandwidth = DynamicCast<WifiNetDevice>(devices.Get(0))->GetPhy()->GetChannelWidth() * 1e6;
 
                 // Fake neighborhood
                 std::vector<std::vector<std::pair<int, double>>> graph;
@@ -679,14 +683,27 @@ public:
                         // j is not a "broadcast neighbor" of i
                         if (this->broadcast_neighbors[i].count(j) == 0)
                             continue;
-                        double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
-                        double r1 = 30;
-                        double c1 = 10;
-                        double rMax = 100;
-                        if (distance < rMax)
+                        if (pseudoRoutingAlgo == "shortest_dist")
                         {
-                            neighbors.push_back(std::make_pair(j, costFunction(distance, r1, c1)));
+                            double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
+                            double r1 = 30;
+                            double c1 = 10;
+                            double cost = costFunction(distance, r1, c1);
+                            neighbors.push_back(std::make_pair(j, cost));
+                            RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with cost %f", i, j, cost);  
                         }
+                        else if (pseudoRoutingAlgo == "capacity_bottleneck")
+                        {
+                            double capacity = bandwidth * std::log2(1 + this->snrs[i][j]);
+                            neighbors.push_back(std::make_pair(j, capacity));
+                            RCLCPP_INFO(this->get_logger(), "Adding edge from %d to %d with capacity %f", i, j, capacity);  
+                        }
+                        else
+                        {
+                            RCLCPP_FATAL(this->get_logger(), "Pseudo routing algorithm %s not supported", pseudoRoutingAlgo);
+                            exit(EXIT_FAILURE);
+                        }
+
                     }
                     graph.push_back(neighbors);
                 }
@@ -697,9 +714,22 @@ public:
                 {
                     int source = source_node_id.as<int>();
                     std::vector<double> dist;
+                    std::vector<int> dist_hop;
                     std::vector<int> parent;
 
-                    this->dijkstra(source, graph, dist, parent);
+                    if (pseudoRoutingAlgo == "shortest_dist")
+                    {
+                        this->dijkstra(source, graph, dist, parent);
+                    }
+                    else if (pseudoRoutingAlgo == "capacity_bottleneck")
+                    {
+                        this->dijkstra_bottleneck(source, graph, dist, parent);
+                    }
+                    else 
+                    {
+                        RCLCPP_FATAL(this->get_logger(), "Pseudo routing algorithm %s not supported", pseudoRoutingAlgo);
+                        exit(EXIT_FAILURE);
+                    }
 
                     std::stack<int> path;
                     int current = sink_node_id;
@@ -714,7 +744,7 @@ public:
                     // No path to source
                     if (path.top() != source)
                     {
-                        // std::cout << "No path to source !!!!!!" << std::endl;
+                        RCLCPP_WARN(this->get_logger(), "No path to source !!");
                         continue;
                     }
 
@@ -794,6 +824,7 @@ private:
     std::string m_ros_ws_path;
 
     std::map<uint32_t, std::map<uint32_t, double>> pathlosses;
+    std::map<uint32_t, std::map<uint32_t, double>> snrs;
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> mission_neighbors;
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> broadcast_neighbors;
     std::map<Mac48Address, uint32_t> mac_to_id;
@@ -815,6 +846,7 @@ private:
     void mission_flow_sender_clbk(Ptr<const Packet> packet);
     void flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id);
     void flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet);
+    void MonitorSnifferRxTrace(std::string context, Ptr< const Packet > packet, uint16_t channelFreqMhz, WifiTxVector txVector, MpduInfo aMpdu, SignalNoiseDbm signalNoise, uint16_t staId);
 
     // save compute time (optional)
     bool save_compute_time;
@@ -835,6 +867,7 @@ private:
 
     void timeoutNeighbors();
     void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent);
+    void dijkstra_bottleneck(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent);
     void updateNeighborsPathloss();
     double costFunction(double dist, double r1, double c1);
 
@@ -966,6 +999,18 @@ void FakeNeighborhood::flocking_broadcaster_clbk(std::string context, Ptr<const 
     RCLCPP_DEBUG(this->get_logger(), "Flocking broadcast packet sent");
 }
 
+void FakeNeighborhood::MonitorSnifferRxTrace (std::string context, Ptr< const Packet > packet, uint16_t channelFreqMhz, WifiTxVector txVector, MpduInfo aMpdu, SignalNoiseDbm signalNoise, uint16_t staId)
+{
+    uint32_t nodeId = std::stoi(context);
+    WifiMacHeader hdr;
+    packet->PeekHeader(hdr);
+    uint32_t sourceId = this->mac_to_id.find(hdr.GetAddr2())->second;
+
+    this->snrs[nodeId][sourceId] = signalNoise.signal - signalNoise.noise;
+
+    RCLCPP_DEBUG(this->get_logger(), "[%d] Packet heard from %d, SNR = %f", nodeId, sourceId, this->snrs[nodeId][sourceId]);
+}
+
 /**
  * @brief Generates an ordered_neighbors_msg containing the neighbors of each node, sorted by pathloss, and serializes it
  * 
@@ -1033,7 +1078,7 @@ FakeNeighborhood::generate_neighbors_msg()
         }
     }
 
-    std::cout << ordered_neighbors_msg.DebugString() << std::endl;
+    // std::cout << ordered_neighbors_msg.DebugString() << std::endl;
 
     std::string str_response;
     ordered_neighbors_msg.SerializeToString(&str_response);
@@ -1145,7 +1190,7 @@ void FakeNeighborhood::dijkstra(int source, std::vector<std::vector<std::pair<in
     while (!pq.empty()) 
     {
         int u = pq.top().second;  // Get vertex with smallest distance
-        int d = pq.top().first;   // Get the smallest distance
+        double d = pq.top().first;   // Get the smallest distance
         pq.pop();
 
         if (d > dist[u])
@@ -1157,12 +1202,70 @@ void FakeNeighborhood::dijkstra(int source, std::vector<std::vector<std::pair<in
         for (auto &edge : graph[u]) 
         {
             int v = edge.first;  // Neighbor vertex
-            int weight = edge.second; // Edge weight
+            double weight = edge.second; // Edge weight
 
             // Relax the edge if we find a shorter path
             if (dist[u] + weight < dist[v]) 
             {
+                RCLCPP_DEBUG(this->get_logger(), "Node %d -> Node %d : %f\n(Better than %f)", u, v, dist[u]+weight, dist[v]);
                 dist[v] = dist[u] + weight;
+                parent[v] = u;  // Update parent of v to be u
+                pq.push({dist[v], v});
+            }
+        }
+    }
+    // Print result with ROS2 log
+    for (int i = 0; i < n; ++i)
+    {
+        RCLCPP_DEBUG(this->get_logger(), "Node %d -> Node %d : %f", source, i, dist[i]);
+    }
+}
+
+/**
+ * @brief Modified version of the Dijkstra algorithm to find the path with the widest bottleneck
+ *
+ * \param source The source node
+ * \param graph The graph
+ * \param dist The distance vector (here, capacity)
+ * \param parent The parent vector
+ */
+void FakeNeighborhood::dijkstra_bottleneck(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent)
+{
+    // double inf = std::numeric_limits<double>::infinity();
+    int n = graph.size(); // Number of vertices in the graph
+    dist.assign(n, INT_MIN);   // Initialize distances with infinity
+    parent.assign(n, -1);  // Initialize parent array with -1
+    dist[source] = INT_MAX;      // Distance to source is 0
+
+    // Priority queue to store (distance, vertex)
+    std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> pq;
+    pq.push({0, source}); // Push source node with distance 0
+
+    while (!pq.empty()) 
+    {
+        int u = pq.top().second;  // Get vertex with smallest distance
+        double d = pq.top().first;   // Get the smallest distance
+        pq.pop();
+
+        if (d > dist[u])
+        {
+            RCLCPP_INFO(this->get_logger(), "Discard node %d because we already found a shorter path.", u);
+            continue; // Ignore if we already found a shorter path
+        }
+
+        // Explore neighbors
+        for (auto &edge : graph[u]) 
+        {
+            int v = edge.first;  // Neighbor vertex
+            double weight = edge.second; // Edge weight
+
+            double bottleneck = std::max(dist[v], std::min(dist[u], weight));
+
+            // Relax the edge if we find a shorter path
+            if (bottleneck > dist[v]) 
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Node %d -> Node %d : %f\n(Better than %f)", u, v, bottleneck, dist[v]);
+                dist[v] = bottleneck;
                 parent[v] = u;  // Update parent of v to be u
                 pq.push({dist[v], v});
             }
