@@ -696,7 +696,7 @@ public:
                         {
                             double capacity = bandwidth * std::log2(1 + this->snrs[i][j]);
                             neighbors.push_back(std::make_pair(j, capacity));
-                            RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with capacity %f", i, j, capacity);  
+                            RCLCPP_INFO(this->get_logger(), "Adding edge from %d to %d with capacity %f", i, j, capacity);  
                         }
                         else
                         {
@@ -1190,7 +1190,7 @@ void FakeNeighborhood::dijkstra(int source, std::vector<std::vector<std::pair<in
     while (!pq.empty()) 
     {
         int u = pq.top().second;  // Get vertex with smallest distance
-        int d = pq.top().first;   // Get the smallest distance
+        double d = pq.top().first;   // Get the smallest distance
         pq.pop();
 
         if (d > dist[u])
@@ -1202,16 +1202,22 @@ void FakeNeighborhood::dijkstra(int source, std::vector<std::vector<std::pair<in
         for (auto &edge : graph[u]) 
         {
             int v = edge.first;  // Neighbor vertex
-            int weight = edge.second; // Edge weight
+            double weight = edge.second; // Edge weight
 
             // Relax the edge if we find a shorter path
             if (dist[u] + weight < dist[v]) 
             {
+                RCLCPP_DEBUG(this->get_logger(), "Node %d -> Node %d : %f\n(Better than %f)", u, v, dist[u]+weight, dist[v]);
                 dist[v] = dist[u] + weight;
                 parent[v] = u;  // Update parent of v to be u
                 pq.push({dist[v], v});
             }
         }
+    }
+    // Print result with ROS2 log
+    for (int i = 0; i < n; ++i)
+    {
+        RCLCPP_DEBUG(this->get_logger(), "Node %d -> Node %d : %f", source, i, dist[i]);
     }
 }
 
