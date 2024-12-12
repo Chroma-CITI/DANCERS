@@ -346,10 +346,10 @@ void MiniDancers::InitUavs()
         agent.id = i;
         agent.uav_system = uav_system;
         agent.neighbors = std::vector<NeighborInfo_t>();
-        agent.neighbors_mission = std::vector<int>();
-        agent.neighbors_potential = std::vector<int>();
-        agent.neighbors_routing = std::vector<int>();
-        agent.link_qualities = std::vector<double>();
+        // agent.neighbors_mission = std::vector<int>();
+        // agent.neighbors_potential = std::vector<int>();
+        // agent.neighbors_routing = std::vector<int>();
+        // agent.link_qualities = std::vector<double>();
         if (this->secondary_objectives.find(i) != this->secondary_objectives.end())
         {
             agent.secondary_objective = this->secondary_objectives[i];
@@ -480,29 +480,6 @@ void MiniDancers::DisplayRviz()
     network_marker_mission.color.b = 0.0;
     network_marker_mission.color.a = 1.0;  // Fully opaque
     network_marker_mission.lifetime = rclcpp::Duration::from_seconds(0.1);
-    for (int i=0; i < this->n_uavs; i++)
-    {
-        Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-        for (size_t j=0; j < this->uavs[i].neighbors_mission.size(); j++)
-        {
-            int neighbor_id = this->uavs[i].neighbors_mission[j];
-            if (i == neighbor_id)
-                continue; // (should never happen as we check this in GetNeighbors) 
-            Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
-
-            geometry_msgs::msg::Point p1{};
-            p1.x = agent_pose.x();
-            p1.y = agent_pose.y();
-            p1.z = agent_pose.z();
-            network_marker_mission.points.push_back(p1);
-            geometry_msgs::msg::Point p2{};
-            p2.x = other_agent_pose.x();
-            p2.y = other_agent_pose.y();
-            p2.z = other_agent_pose.z();
-            network_marker_mission.points.push_back(p2);
-        }
-    }
-    this->network_mission_pub_->publish(network_marker_mission);
 
     // potential neighbors
     visualization_msgs::msg::Marker network_marker_potential{};
@@ -516,12 +493,13 @@ void MiniDancers::DisplayRviz()
     network_marker_potential.color.b = 1.0;  // Blue color
     network_marker_potential.color.a = 1.0;  // Fully opaque
     network_marker_potential.lifetime = rclcpp::Duration::from_seconds(0.1);
+
     for (int i=0; i < this->n_uavs; i++)
     {
         Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-        for (size_t j=0; j < this->uavs[i].neighbors_potential.size(); j++)
+        for (size_t j=0; j < this->uavs[i].neighbors.size(); j++)
         {
-            int neighbor_id = this->uavs[i].neighbors_potential[j];
+            int neighbor_id = this->uavs[i].neighbors[j].id;
             if (i == neighbor_id)
                 continue; // (should never happen as we check this in GetNeighbors) 
             Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
@@ -530,51 +508,63 @@ void MiniDancers::DisplayRviz()
             p1.x = agent_pose.x();
             p1.y = agent_pose.y();
             p1.z = agent_pose.z();
-            network_marker_potential.points.push_back(p1);
             geometry_msgs::msg::Point p2{};
             p2.x = other_agent_pose.x();
             p2.y = other_agent_pose.y();
             p2.z = other_agent_pose.z();
-            network_marker_potential.points.push_back(p2);
+
+            switch (this->uavs[i].role)
+            {
+                case (AgentRoleType::Mission):
+                    network_marker_mission.points.push_back(p1);
+                    network_marker_mission.points.push_back(p2);
+                    break;
+                case (AgentRoleType::Potential):
+                    network_marker_potential.points.push_back(p1);
+                    network_marker_potential.points.push_back(p2);
+                    break;
+            }
         }
     }
+
+    this->network_mission_pub_->publish(network_marker_mission);
     this->network_potential_pub_->publish(network_marker_potential); 
 
-    // routing neighbors
-    visualization_msgs::msg::Marker network_marker_routing{};
-    network_marker_routing.header.frame_id = "map";
-    network_marker_routing.id = 1003;
-    network_marker_routing.type = visualization_msgs::msg::Marker::LINE_LIST;
-    network_marker_routing.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_routing.scale.x = 0.3;
-    network_marker_routing.color.r = 0.0;  
-    network_marker_routing.color.g = 1.0;   // green color
-    network_marker_routing.color.b = 0.0;
-    network_marker_routing.color.a = 1.0;   // Fully opaque
-    network_marker_routing.lifetime = rclcpp::Duration::from_seconds(0.1);
-    for (int i=0; i < this->n_uavs; i++)
-    {
-        Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-        for (size_t j=0; j < this->uavs[i].neighbors_routing.size(); j++)
-        {
-            int neighbor_id = this->uavs[i].neighbors_routing[j];
-            if (i == neighbor_id)
-                continue; // (should never happen as we check this in GetNeighbors) 
-            Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
+    // // routing neighbors
+    // visualization_msgs::msg::Marker network_marker_routing{};
+    // network_marker_routing.header.frame_id = "map";
+    // network_marker_routing.id = 1003;
+    // network_marker_routing.type = visualization_msgs::msg::Marker::LINE_LIST;
+    // network_marker_routing.action = visualization_msgs::msg::Marker::ADD;
+    // network_marker_routing.scale.x = 0.3;
+    // network_marker_routing.color.r = 0.0;  
+    // network_marker_routing.color.g = 1.0;   // green color
+    // network_marker_routing.color.b = 0.0;
+    // network_marker_routing.color.a = 1.0;   // Fully opaque
+    // network_marker_routing.lifetime = rclcpp::Duration::from_seconds(0.1);
+    // for (int i=0; i < this->n_uavs; i++)
+    // {
+    //     Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
+    //     for (size_t j=0; j < this->uavs[i].neighbors_routing.size(); j++)
+    //     {
+    //         int neighbor_id = this->uavs[i].neighbors_routing[j];
+    //         if (i == neighbor_id)
+    //             continue; // (should never happen as we check this in GetNeighbors) 
+    //         Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
 
-            geometry_msgs::msg::Point p1{};
-            p1.x = agent_pose.x();
-            p1.y = agent_pose.y();
-            p1.z = agent_pose.z();
-            network_marker_routing.points.push_back(p1);
-            geometry_msgs::msg::Point p2{};
-            p2.x = other_agent_pose.x();
-            p2.y = other_agent_pose.y();
-            p2.z = other_agent_pose.z();
-            network_marker_routing.points.push_back(p2);
-        }
-    }
-    this->network_routing_pub_->publish(network_marker_routing);
+    //         geometry_msgs::msg::Point p1{};
+    //         p1.x = agent_pose.x();
+    //         p1.y = agent_pose.y();
+    //         p1.z = agent_pose.z();
+    //         network_marker_routing.points.push_back(p1);
+    //         geometry_msgs::msg::Point p2{};
+    //         p2.x = other_agent_pose.x();
+    //         p2.y = other_agent_pose.y();
+    //         p2.z = other_agent_pose.z();
+    //         network_marker_routing.points.push_back(p2);
+    //     }
+    // }
+    // this->network_routing_pub_->publish(network_marker_routing);
 
 }
 
@@ -695,10 +685,10 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
         for (int i=0; i < this->n_uavs; i++)
         {
             this->uavs[i].neighbors.clear();
-            this->uavs[i].neighbors_mission.clear();
-            this->uavs[i].neighbors_potential.clear();
-            this->uavs[i].neighbors_routing.clear();
-            this->uavs[i].link_qualities.clear();
+            // this->uavs[i].neighbors_mission.clear();
+            // this->uavs[i].neighbors_potential.clear();
+            // this->uavs[i].neighbors_routing.clear();
+            // this->uavs[i].link_qualities.clear();
         }
         
         for (int i=0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
@@ -735,23 +725,27 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
                 }
                 else
                 {
-                    if(my_neighbors.neighbortype(j) == this->mission_flow_id)
-                    {
-                        this->uavs[agent_id].neighbors_mission.push_back(my_neighbors.neighborid(j));
-                    }
-                    else if (my_neighbors.neighbortype(j) == this->potential_flow_id)
-                    {
-                        this->uavs[agent_id].neighbors_potential.push_back(my_neighbors.neighborid(j));
-                    }
-                    else
-                    {
-                        this->uavs[agent_id].neighbors_routing.push_back(my_neighbors.neighborid(j));
-                    }
-                    this->uavs[agent_id].link_qualities.push_back(my_neighbors.linkquality(j));
-
                     NeighborInfo_t neighbor_info;
                     neighbor_info.id = my_neighbors.neighborid(j);
                     neighbor_info.link_quality = my_neighbors.linkquality(j);
+                    switch (my_neighbors.neighbortype(j))
+                    {
+                        case ordered_neighbors_proto::OrderedNeighbors::UNDEFINED:
+                            neighbor_info.role = AgentRoleType::Undefined;
+                            break;
+                        case ordered_neighbors_proto::OrderedNeighbors::MISSION:
+                            neighbor_info.role = AgentRoleType::Mission;
+                            break;
+                        case ordered_neighbors_proto::OrderedNeighbors::POTENTIAL:
+                            neighbor_info.role = AgentRoleType::Potential;
+                            break;
+                        case ordered_neighbors_proto::OrderedNeighbors::IDLE:
+                            neighbor_info.role = AgentRoleType::Idle;
+                            break;
+                        default:
+                            neighbor_info.role = AgentRoleType::Undefined;
+                            break;
+                    } 
                     
                     this->uavs[agent_id].neighbors.push_back(neighbor_info);
                 }
