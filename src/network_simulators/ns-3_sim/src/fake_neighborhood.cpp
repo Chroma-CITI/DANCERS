@@ -768,7 +768,7 @@ public:
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
-                std::string response = gzip_compress(GenerateResponseProtobuf());
+                std::string response = gzip_compress(generateResponseProtobuf());
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
@@ -862,8 +862,8 @@ private:
     Ptr<PacketCounterCalculator> navEffectiveTx;
 
     // co-simulation specific methods
-    std::string GenerateResponseProtobuf();
-    std::string generate_neighbors_msg();
+    std::string generateResponseProtobuf();
+    std::string generateNeighborsMsg();
 
     void timeoutNeighbors();
     void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent);
@@ -1017,64 +1017,82 @@ void FakeNeighborhood::MonitorSnifferRxTrace (std::string context, Ptr< const Pa
  * @returns A string-serialized version of the "ordered_neighbors" protobuf message
  */
 std::string
-FakeNeighborhood::generate_neighbors_msg()
+FakeNeighborhood::generateNeighborsMsg()
 {
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
     std::map<uint32_t, ordered_neighbors_proto::OrderedNeighbors_Role> agent_roles;
 
     ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
 
+    // Assign roles based on their neighborhood type
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        if (this->broadcast_neighbors.find(i) == this->broadcast_neighbors.end() || this->broadcast_neighbors[i].empty())
-        {
-            // We don't have any broadcast neighbors, that means we are disconnected from the fleet !
-            // std::cout << "No broadcast neighbors for node " << i << std::endl;
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
-        }
-        else if (this->mission_neighbors.find(i) == this->mission_neighbors.end() || this->mission_neighbors[i].empty())
-        {
-            // Use broadcast neighbors, we don't have any mission neighbors !
-            // std::cout << "Using broadcast neighbors for node " << i << std::endl;
-            neighbors[i] = this->broadcast_neighbors[i];
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL;
-        }
-        else
+        bool has_broadcast_neighbor = this->broadcast_neighbors.find(i) != this->broadcast_neighbors.end() && !this->broadcast_neighbors[i].empty();
+        bool has_mission_neighbor = this->mission_neighbors.find(i) != this->mission_neighbors.end() && !this->mission_neighbors[i].empty();
+        
+        if (has_mission_neighbor)
         {
             // Use mission neighbors
             // std::cout << "Using mission neighbors for node " << i << std::endl;
             neighbors[i] = this->mission_neighbors[i];
             agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_MISSION;
         }
+        else if (has_broadcast_neighbor)
+        {
+            // Use broadcast neighbors, we don't have any mission neighbors !
+            // std::cout << "Using broadcast neighbors for node " << i << std::endl;
+            neighbors[i] = this->broadcast_neighbors[i];
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL;
+        }
+        else if (!has_broadcast_neighbor)
+        {
+            // We don't have any neighbors !
+            // std::cout << "No neighbors for node " << i << std::endl;
+            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_UNDEFINED;
+        }
+    }
+
+    // Separate "Idle" agents (no neighbor with the role "Mission") from the "Potential" pool
+    for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+    {
+        if (agent_roles[i] == ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL)
+        {
+            bool has_neighbors_with_role_mission = false;
+            for (auto const &agent : neighbors[i])
+            {
+                if (agent_roles[agent.first] == ordered_neighbors_proto::OrderedNeighbors_Role_MISSION)
+                {
+                    has_neighbors_with_role_mission = true;
+                    break;
+                }
+            }
+            if (!has_neighbors_with_role_mission)
+            {
+                agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
+            }
+        }
     }
 
     // Create and add the ordered_neighbors protobuf message
     for (auto const &agent : neighbors)
     {
+        // Sort the agents by descending pathloss
+        std::vector<std::pair<uint32_t, std::pair<double, Time>>> ordered_neighbors(agent.second.begin(), agent.second.end());
+        std::sort(ordered_neighbors.begin(), ordered_neighbors.end(), [](const auto& a, const auto& b) {
+            return a.second.first > b.second.first;
+        });
+
         ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
-        std::vector<double> ordered_pathlosses;
         neighbor_msg->set_agentid(agent.first);
         neighbor_msg->set_role(agent_roles[agent.first]);
         // Sort the pathlosses to add them in the protobuf message in the right order.
-        for (auto const &neigh : agent.second)
+        for (auto const &neighbor : ordered_neighbors)
         {
-            ordered_pathlosses.push_back(neigh.second.first);
-        }
-        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
-
-        // Search on the values of the pathloss map, which is quite bad if two neighbors have exactly the same pathloss
-        for (auto const &pathloss : ordered_pathlosses)
-        {
-            for (auto const &neigh : agent.second)
-            {
-                if (neigh.second.first == pathloss && pathloss != 0) 
-                {
-                    neighbor_msg->add_neighborid(neigh.first);
-                    neighbor_msg->add_linkquality(neigh.second.first);
-                    neighbor_msg->add_neighbortype(agent_roles[agent.first]);           //!< agent_roles[agent.first] always valid because created above for all agents
-                    neighbor_msg->add_time_val(neigh.second.second.ToInteger(Time::US));
-                }
-            }
+            uint32_t neighbor_id = neighbor.first;
+            neighbor_msg->add_neighborid(neighbor_id);
+            neighbor_msg->add_linkquality(neighbor.second.first);
+            neighbor_msg->add_neighbortype(agent_roles[neighbor_id]);
+            neighbor_msg->add_time_val(neighbor.second.second.ToInteger(Time::US));
         }
     }
 
@@ -1096,12 +1114,12 @@ FakeNeighborhood::generate_neighbors_msg()
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-FakeNeighborhood::GenerateResponseProtobuf()
+FakeNeighborhood::generateResponseProtobuf()
 {
     // Change message type to "END"
     network_update_proto::NetworkUpdate network_update_msg;
     network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    network_update_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg()));
+    network_update_msg.set_ordered_neighbors(gzip_compress(generateNeighborsMsg()));
     std::string str_response;
     network_update_msg.SerializeToString(&str_response);
 
@@ -1164,7 +1182,6 @@ void FakeNeighborhood::updateNeighborsPathloss()
             }
         }
     }
-
 }
 
 /**

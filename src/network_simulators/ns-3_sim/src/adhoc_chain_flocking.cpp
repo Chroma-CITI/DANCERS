@@ -956,37 +956,50 @@ AdhocChainFlocking::generate_neighbors_msg()
         }
     }
 
+    // Separate "Idle" agents (no neighbor with the role "Mission") from the "Potential" pool
+    for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+    {
+        if (agent_roles[i] == ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL)
+        {
+            bool has_neighbors_with_role_mission = false;
+            for (auto const &agent : neighbors[i])
+            {
+                if (agent_roles[agent.first] == ordered_neighbors_proto::OrderedNeighbors_Role_MISSION)
+                {
+                    has_neighbors_with_role_mission = true;
+                    break;
+                }
+            }
+            if (!has_neighbors_with_role_mission)
+            {
+                agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
+            }
+        }
+    }
+
     // Create and add the ordered_neighbors protobuf message
     for (auto const &agent : neighbors)
     {
+        // Sort the agents by descending pathloss
+        std::vector<std::pair<uint32_t, std::pair<double, Time>>> ordered_neighbors(agent.second.begin(), agent.second.end());
+        std::sort(ordered_neighbors.begin(), ordered_neighbors.end(), [](const auto& a, const auto& b) {
+            return a.second.first > b.second.first;
+        });
+
         ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
-        std::vector<double> ordered_pathlosses;
         neighbor_msg->set_agentid(agent.first);
         neighbor_msg->set_role(agent_roles[agent.first]);
         // Sort the pathlosses to add them in the protobuf message in the right order.
-        for (auto const &neigh : agent.second)
+        for (auto const &neighbor : ordered_neighbors)
         {
-            ordered_pathlosses.push_back(neigh.second.first);
+            uint32_t neighbor_id = neighbor.first;
+            neighbor_msg->add_neighborid(neighbor_id);
+            neighbor_msg->add_linkquality(neighbor.second.first);
+            neighbor_msg->add_neighbortype(agent_roles[neighbor_id]);
+            neighbor_msg->add_time_val(neighbor.second.second.ToInteger(Time::US));
         }
-        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
-
-        // Search on the values of the pathloss map, which is quite bad if two neighbors have exactly the same pathloss
-        for (auto const &pathloss : ordered_pathlosses)
-        {
-            for (auto const &neigh : agent.second)
-            {
-                if (neigh.second.first == pathloss && pathloss != 0) 
-                {
-                    neighbor_msg->add_neighborid(neigh.first);
-                    neighbor_msg->add_linkquality(neigh.second.first);
-                    neighbor_msg->add_neighbortype(agent_roles[agent.first]);           //!< agent_roles[agent.first] always valid because created above for all agents
-                    neighbor_msg->add_time_val(neigh.second.second.ToInteger(Time::US));
-                }
-            }
-        }
-
     }
-
+    
     // std::cout << ordered_neighbors_msg.DebugString() << std::endl;
     
     std::string str_response;
