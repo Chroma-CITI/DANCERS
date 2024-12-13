@@ -144,12 +144,22 @@ VAT_idle_flocking_parameters:
   secondary_objective_flag: true
   use_deconnexion_distance_instead_of_p_att: false
 
-# ******* PRE-PLANNED FLIGHT *******
-circle_parameters:
-  gain: 10
-  omega: 0.1
+# ******* LEADER PATH PLANNER *******
+# When true, the secondary_objectives will be reached trough a A* start path planning
+# When false, the agent will be attract by a direct force towards the goal.
+use_planner: true
+
+# Distance at which the planner will stop looking for closer grid cells.
+goal_radius_tolerance: 1.0
+
+# If the distance between the agent and its path is greater than distance_to_path_tolerance, the agent will replan a path.
+distance_to_path_tolerance: 2.0
+
+# Distance ahead of the closest point on the path that agent will be attract to. Similar to the carrot on a stick.
+lookup_ahead_pursuit_distance: 2.0
 
 # **** Occupancy grid for the planner ****
+
 # Heigh of the grid in the global frame. 
 grid_altitude: 10.0
 
@@ -163,6 +173,12 @@ obstacle_inflation: 1.0
 
 # Resolution in meter/cell of the occupancy grid.
 map_resolution: 0.5
+
+
+# ******* PRE-PLANNED FLIGHT *******
+circle_parameters:
+  gain: 10
+  omega: 0.1
  
 # secondary objectives of the drones, with the form robot_ID: [x, y, z, target(true)|sink(false)] 
 # Be careful, there is no check that on the robot_ID in this list, if add a secondary objective for robot 10 and robot 10 does not exist, it will be ignored

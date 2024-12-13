@@ -15,7 +15,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 
 add_library(occupancy_grid 
-            src/occupancy_grid.cpp)
+            src/occupancy_grid.cpp
+            src/grid_path_planner.cpp)
 
 add_executable(flocking_controller_vat 
                src/vat_controller_node.cpp 
@@ -31,6 +32,7 @@ ament_target_dependencies(flocking_controller_vat
 
 ament_target_dependencies(occupancy_grid 
   nav_msgs
+  geometry_msgs
 )
 
 target_link_libraries(occupancy_grid 

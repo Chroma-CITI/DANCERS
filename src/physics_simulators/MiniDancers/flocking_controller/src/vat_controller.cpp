@@ -7,7 +7,8 @@
 VATController::VATController(const VATController::ControllerOptions_t& options): id_(options.id), 
                                                                                  VAT_params_(std::move(options.VAT_params)),
                                                                                  desired_fixed_altitude_(options.desired_fixed_altitude),
-                                                                                 secondary_objective_(options.secondary_objective) {}
+                                                                                 secondary_objective_(options.secondary_objective),
+                                                                                 path_planner_params_(options.path_planner_params_) {}
 
 dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector<std::shared_ptr<const agent_util::AgentState_t>>& agent_list, const std::vector<cuboid::obstacle_t>& obstacles)
 {
@@ -266,7 +267,18 @@ Eigen::Vector3d VATController::secondaryObjective(const agent_util::AgentState_t
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
     
-    Eigen::Vector3d relative_position = self_agent.position - goal;
+    Eigen::Vector3d waypoint = goal;
+
+    //Change goal for next point on the trajectory if using a planner.
+    if(path_planner_params_.use_planner_ && (path_planner_params_.path_planner_ != nullptr))
+    {
+        waypoint = path_planner_params_.path_planner_->getNextWaypoint(self_agent.position, goal, 
+                                                                       path_planner_params_.goal_radius_tolerance_, 
+                                                                       path_planner_params_.distance_to_path_tolerance_, 
+                                                                       path_planner_params_.lookup_ahead_pursuit_distance_).position;
+    }
+
+    Eigen::Vector3d relative_position = self_agent.position - waypoint;
 
     result += role_params.v_flock * -(relative_position);
 

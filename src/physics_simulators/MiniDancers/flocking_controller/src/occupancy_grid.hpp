@@ -35,6 +35,12 @@ class OccupancyGrid2D
             CellStatus status = CellStatus::Unknown;
         };
 
+        struct CellCoordinates
+        {
+            int x=0;
+            int y =0;
+        };
+
         /**
          * @brief Constructor that builds an occupancy grid at the origin expanding to the opposite_corner where all cells are Unknown.
          * @param origin Position in the global frame corresponding to the (0,0) of the occupancy grid. 
@@ -46,6 +52,12 @@ class OccupancyGrid2D
          * @param cell_side_size Is used to specified the size of the cells. Is related to the resolution.
          */
         OccupancyGrid2D(const Eigen::Vector3d& origin, const Eigen::Vector3d& opposite_corner, const float cell_side_size, const float obstacle_inflation = 0.0f, CellStatus init_cell_status=CellStatus::Unknown);
+
+        /**
+         * @brief Returns the maximum x and y coordinatees of the occupancy grid.
+         * @return Coordinates.
+         */
+        CellCoordinates getMaxCoordinates();
 
         /**
          * @brief Returns a copy of the internal occupancy grid
@@ -65,6 +77,33 @@ class OccupancyGrid2D
          * @param obstacles List of obstacles with their position in the global frame.  
          */
         void populateGridFromObstacles(std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles);
+
+        /**
+         * @brief Return the occupancy grid coordinates of a given projeted point on the occupancy grid plane if possible.
+         * @param point The point in the global frame.
+         * @return The corresponding coordinates of the point in the occupancy grid. 
+         * Return an std::nullopt if the point porjected on the grid's plan is out of the occupancy grid.
+         */
+        std::optional<CellCoordinates> getCellCoordinatesFromPosition(const Eigen::Vector3d& point);
+
+        /**getCellStatus
+         * @brief Return the center of the cell in the global frame in meters.
+         * @param coordinates The coordinates in the occupancy grid.
+         * @return The corresponding euclidean position of the coordinates on the grid plane in the global frame.
+         */
+        Eigen::Vector3d getCenterOfCellFromCoordinates(const CellCoordinates& coordinates);
+
+        /**
+         * @brief Return the status of the cell at the specified coordinates.
+         * @param coordinates The coordinates in the occupancy grid.
+         * @return Return the status of the cell or an std::nullopt if the cell doesn't exist
+         */
+        std::optional<CellStatus> getCellStatus(const CellCoordinates& coordinates);
+
+        /**
+         * @brief Mutex that can be used by external processes to protect access to the whole object.  
+         */
+        std::mutex external_access_mutex_;
 
     private:
 

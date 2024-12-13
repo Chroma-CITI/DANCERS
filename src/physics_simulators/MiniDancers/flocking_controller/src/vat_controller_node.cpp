@@ -16,8 +16,10 @@
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <nav_msgs/msg/path.hpp>
 
 #include "occupancy_grid.hpp"
+#include "grid_path_planner.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono_literals;
@@ -50,7 +52,7 @@ class VATControllerNode : public rclcpp::Node
             std::map<int, Eigen::Vector3d> secondary_objectives = getAgentSecondaryObjective(config);
 
             // Initialize the 
-            occupancyGridInitialization(config, obstacles_, secondary_objectives);
+            occupancyGridAndPlannerInitialization(config, obstacles_, secondary_objectives);
 
             // Initialize the controllers
             agentControllerInitialization(config, secondary_objectives);
@@ -69,6 +71,15 @@ class VATControllerNode : public rclcpp::Node
         }
 
     private:
+        /**
+         * @brief Structure combining the a path planner to its ROS publisher.
+         */
+        struct PlannerAndPublisher
+        {
+            std::shared_ptr<GridPathPlanner> path_planner_;
+            rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr publisher_;
+        };
+
         /**
          * @brief Flag that indicates if the controller should publish its service respons on a topic.
          * Mainly used for debugging. 
@@ -110,6 +121,11 @@ class VATControllerNode : public rclcpp::Node
         rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_grid_publisher_;
 
         /**
+         * @brief List of all the planners and their corresponding publisher.
+         */
+        std::vector<PlannerAndPublisher> path_planners_and_pub_;
+
+        /**
          * @brief Map containing the controllers for each agent. The key is the agent's id. 
          */
         std::vector<std::unique_ptr<VATController>> controllers_;
@@ -123,6 +139,11 @@ class VATControllerNode : public rclcpp::Node
          * @brief 2D Occupancy grid of the obstacles.
          */
         std::shared_ptr<OccupancyGrid2D> occupancy_grid_ptr_;
+
+        /**
+         * @brief Path planner in the associated occupancy grid.
+         */
+        std::shared_ptr<GridPathPlanner> path_planner_;
 
         /**
          * @brief Timer used to periodically call the publisher of the occupancy grid.
@@ -200,10 +221,11 @@ class VATControllerNode : public rclcpp::Node
         /**
          * @brief Initialize the 2D occupancy grid with obstacles where its size is 
          * determined by the obstacles and secondary objectives position plus a buffer.
+         * Also initialize a global plath planner using the occupancy grid. 
          * @param obstacles List of obstacles to put in the occupancy grid.
          * @param secondary_objectives List of all the secondary objectives
          */
-        void occupancyGridInitialization(const YAML::Node& config,
+        void occupancyGridAndPlannerInitialization(const YAML::Node& config,
                                          std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles,
                                          std::map<int, Eigen::Vector3d>& secondary_objectives)
         {
@@ -325,6 +347,8 @@ class VATControllerNode : public rclcpp::Node
                 occupancy_grid_ptr_ = std::make_shared<OccupancyGrid2D>(origin, opposite_corner, map_resolution, obstacle_inflation, OccupancyGrid2D::CellStatus::Free);
                 occupancy_grid_ptr_->populateGridFromObstacles(obstacles);
                 
+                path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
+
                 occupancy_grid_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("flocking_controller_occupancy_grid", 10);
                 occupancy_grid_pub_timer_ = this->create_wall_timer(5s, std::bind(&VATControllerNode::occupancy_grid_time_callback, this));
             }
@@ -439,6 +463,15 @@ class VATControllerNode : public rclcpp::Node
                 populateVATParametersFromConfig(config,"VAT_potential_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Potential]);
                 populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
 
+                // Planner configuration
+                options.path_planner_params_.use_planner_ = config["use_planner"].as<bool>();
+                if (options.path_planner_params_.use_planner_)
+                {
+                    options.path_planner_params_.goal_radius_tolerance_ = static_cast<float>(config["goal_radius_tolerance"].as<double>());
+                    options.path_planner_params_.distance_to_path_tolerance_ = static_cast<float>(config["distance_to_path_tolerance"].as<double>());
+                    options.path_planner_params_.lookup_ahead_pursuit_distance_ = static_cast<float>(config["lookup_ahead_pursuit_distance"].as<double>());
+                }
+
                 // Get the altitude parameter
                 options.desired_fixed_altitude = fixed_altitude;
 
@@ -446,7 +479,18 @@ class VATControllerNode : public rclcpp::Node
                 if (secondary_objectives.find(agent_id) != secondary_objectives.end())
                 {
                     options.secondary_objective = secondary_objectives[agent_id];
-                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);  
+                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);
+
+                    if (options.path_planner_params_.use_planner_)
+                    {
+                        PlannerAndPublisher planner_and_publisher;
+                        planner_and_publisher.path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
+                        std::string topic_prefix = "agent_path" + std::to_string(agent_id);
+                        planner_and_publisher.publisher_ = this->create_publisher<nav_msgs::msg::Path>(topic_prefix, 4);
+                        
+                        options.path_planner_params_.path_planner_ = planner_and_publisher.path_planner_;
+                        path_planners_and_pub_.push_back(planner_and_publisher);
+                    }
                 }
 
                 controllers_.push_back(std::make_unique<VATController>(options));

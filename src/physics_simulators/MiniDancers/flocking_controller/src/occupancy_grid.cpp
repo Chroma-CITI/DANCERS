@@ -101,6 +101,22 @@ int OccupancyGrid2D::getClosestIndexFromDistance(const float distance, Axis axis
    return index_opt.value();
 }
 
+std::optional<OccupancyGrid2D::CellCoordinates> OccupancyGrid2D::getCellCoordinatesFromPosition(const Eigen::Vector3d& point)
+{
+    Eigen::Vector3d point_in_grid_frame = point - map_origin_;
+
+    std::optional<int> x_index_opt = getIndexFromDistance(point[0], Axis::X);
+    std::optional<int> y_index_opt = getIndexFromDistance(point[1], Axis::Y);
+
+    // Is the point wihtin the existing x and y limits of the grid.
+    if (x_index_opt.has_value() && y_index_opt.has_value())
+    {
+        CellCoordinates coordinates = {.x = x_index_opt.value(), .y = y_index_opt.value()};
+        return coordinates;
+    }
+    return std::nullopt;
+}
+
 void OccupancyGrid2D::populateGridFromObstacles(std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles)
 {
     if (obstacles)
@@ -132,6 +148,17 @@ void OccupancyGrid2D::populateGridFromObstacles(std::shared_ptr<std::vector<cubo
             }
         }
     }
+}
+
+Eigen::Vector3d OccupancyGrid2D::getCenterOfCellFromCoordinates(const CellCoordinates& coordinates)
+{
+    Eigen::Vector3d center_of_cell;
+    // Compute the euclidean position in the grid frame.
+    center_of_cell[0] = coordinates.x*cell_side_size_+ cell_side_size_/2;
+    center_of_cell[1] = coordinates.y*cell_side_size_+ cell_side_size_/2;
+
+    // Add the map origin to get the position in the global frame.
+    return center_of_cell + map_origin_;
 }
 
 bool OccupancyGrid2D::doObstacleCrossGridPlane(const cuboid::obstacle_t& obstacle)
@@ -222,4 +249,34 @@ nav_msgs::msg::OccupancyGrid OccupancyGrid2D::getOccupancyGridMsg()
         }
     }
     return grid_msg;
+}
+
+OccupancyGrid2D::CellCoordinates OccupancyGrid2D::getMaxCoordinates()
+{
+    CellCoordinates coordinates;
+    coordinates.x = grid_.size()-1;
+
+    if (grid_.size() == 0)
+    {
+        coordinates.y = 0;
+    }
+    else
+    {
+        coordinates.y = grid_[0].size()-1;
+    }
+    return coordinates;
+}
+
+std::optional<OccupancyGrid2D::CellStatus> OccupancyGrid2D::getCellStatus(const CellCoordinates& coordinates)
+{
+    if((coordinates.x < 0) || ( grid_.size()-1 < coordinates.x) ||
+       (coordinates.y < 0) || ( grid_[0].size()-1 < coordinates.y))
+    {
+        return std::nullopt;
+    }
+    else
+    {
+        return grid_[coordinates.x][coordinates.y].status;
+    }
+       
 }
