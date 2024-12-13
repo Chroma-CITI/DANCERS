@@ -104,10 +104,10 @@ int OccupancyGrid2D::getClosestIndexFromDistance(const float distance, Axis axis
 std::optional<OccupancyGrid2D::CellCoordinates> OccupancyGrid2D::getCellCoordinatesFromPosition(const Eigen::Vector3d& point)
 {
     Eigen::Vector3d point_in_grid_frame = point - map_origin_;
-
-    std::optional<int> x_index_opt = getIndexFromDistance(point[0], Axis::X);
-    std::optional<int> y_index_opt = getIndexFromDistance(point[1], Axis::Y);
-
+    
+    std::optional<int> x_index_opt = getIndexFromDistance(point_in_grid_frame[0], Axis::X);
+    std::optional<int> y_index_opt = getIndexFromDistance(point_in_grid_frame[1], Axis::Y);
+    
     // Is the point wihtin the existing x and y limits of the grid.
     if (x_index_opt.has_value() && y_index_opt.has_value())
     {

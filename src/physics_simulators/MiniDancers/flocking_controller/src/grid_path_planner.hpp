@@ -61,14 +61,15 @@ class GridPathPlanner: public PathPlanner
             // First path
             if(isPathEmpty())
             {
+                std::cout<<"First path planning"<<std::endl;
                 path_is_valid = createNewPath(agent_position, goal_point, goal_radius_tolerance);
-                std::cout<<"Fisrt path planning"<<std::endl;
+                std::cout<<"Post First path planning pruning:"<< pruning_index_<<std::endl;
             }
 
             if(path_is_valid)
             {
-                /* Look at 5 trajectory point above to find if the agent progressed on the path and pruned the path based on
-                * the closest point. */
+                // Look at 5 trajectory point above to find if the agent progressed on the path and pruned the path based on
+                // the closest point. 
                 prunePath(agent_position, 5);
                 std::cout<<"Purninig index: " <<pruning_index_<<" Path length: "<< current_path_.poses.size() <<std::endl;
                 // Do the path needs to be recomputed because the agent is to far from the path.
@@ -77,18 +78,18 @@ class GridPathPlanner: public PathPlanner
 
                 if(distance_to_path_tolerance < current_distance_to_pruned_path)
                 {
-                    //path_is_valid = createNewPath(agent_position, goal_point, goal_radius_tolerance);
+                    path_is_valid = createNewPath(agent_position, goal_point, goal_radius_tolerance);
                 }
-
-                position_of_pruning_node = poseToVector(current_path_.poses[pruning_index_].pose);
-                current_distance_to_pruned_path = (agent_position - position_of_pruning_node).norm();
 
                 // Compute the waypoint
                 if(path_is_valid)
                 {
+                    position_of_pruning_node = poseToVector(current_path_.poses[pruning_index_].pose);
+                    current_distance_to_pruned_path = (agent_position - position_of_pruning_node).norm();
+                    
+                    
                     int index = pruning_index_;
                     lookup_ahead_pursuit_distance -= current_distance_to_pruned_path;
-
                     while((0.0f < lookup_ahead_pursuit_distance) || (0 < index) )
                     {
                         lookup_ahead_pursuit_distance -= (poseToVector(current_path_.poses[index].pose) - poseToVector(current_path_.poses[index-1].pose)).norm();
@@ -105,7 +106,6 @@ class GridPathPlanner: public PathPlanner
                 // TODO add a mechanism to indicate the planner caller that the plan failed.
                 waypoint.position = agent_position;
             }
-
             return waypoint;
         }
 
@@ -264,8 +264,8 @@ class GridPathPlanner: public PathPlanner
                         smallest_distance_index = index;
                     }
                 }
-            }
-            
+                return smallest_distance_index;
+            } 
         }
 
         void prunePath(const Eigen::Vector3d& agent_position, int pruning_horizon)
@@ -276,10 +276,14 @@ class GridPathPlanner: public PathPlanner
         bool createNewPath(Eigen::Vector3d starting_point, Eigen::Vector3d goal_point, float goal_radius_tolerance)
         {
             std::optional<nav_msgs::msg::Path> new_path = computePath(starting_point, goal_point, goal_radius_tolerance);
+            
             if (new_path.has_value())
             {
-                std::cout<<"Hello valid path"<<std::endl;
                 current_path_ = new_path.value();
+                if(isPathEmpty())
+                {
+                    return false;
+                }
                 pruning_index_ = current_path_.poses.size()-1;
                 return true;
             }
@@ -298,28 +302,36 @@ class GridPathPlanner: public PathPlanner
 
                 std::lock_guard<std::mutex> grid_lock(occupancy_grid_ptr_->external_access_mutex_);
 
-                std::optional<OccupancyGrid2D::CellCoordinates> starting_coordinates = 
+                std::cout<<"Starting point"<<std::endl;
+                std::optional<OccupancyGrid2D::CellCoordinates> starting_coordinates_opt = 
                                 occupancy_grid_ptr_->getCellCoordinatesFromPosition(starting_point);
-                std::optional<OccupancyGrid2D::CellCoordinates> goal_coordinates = 
+                
+                std::cout<<"Goal point"<<std::endl;
+                std::optional<OccupancyGrid2D::CellCoordinates> goal_coordinates_opt = 
                                 occupancy_grid_ptr_->getCellCoordinatesFromPosition(goal_point);
                 
                 std::shared_ptr<SearchNode> last_node = nullptr;
 
-                if(!starting_coordinates.has_value())
+                if(!starting_coordinates_opt.has_value())
                 {
                     std::cout<<"Error: The starting point is not in the occupancy grid. Can't perform planning."<<std::endl;
+                    OccupancyGrid2D::CellCoordinates max_cells = occupancy_grid_ptr_->getMaxCoordinates();
+                    std::cout<<"Size of occupancy grid x:"<<max_cells.x<<  "y: " << max_cells.y<<std::endl;
                     search_failed = true;
                 }
-                if(!goal_coordinates.has_value())
+                if(!goal_coordinates_opt.has_value())
                 {
                     std::cout<<"Error: The goal point is not in the occupancy grid. Can't perform planning."<<std::endl;
                     search_failed = true;
                 }
-
+                
                 if (!search_failed)
                 {
-                    std::shared_ptr<SearchNode> starting_node = std::make_shared<SearchNode>(starting_coordinates.value(), 
-                                                                occupancy_grid_ptr_->getCenterOfCellFromCoordinates(starting_coordinates.value()));
+                    OccupancyGrid2D::CellCoordinates starting_coordinates = starting_coordinates_opt.value();
+                    OccupancyGrid2D::CellCoordinates goal_coordinates = goal_coordinates_opt.value();
+
+                    std::shared_ptr<SearchNode> starting_node = std::make_shared<SearchNode>(starting_coordinates, 
+                                                                occupancy_grid_ptr_->getCenterOfCellFromCoordinates(starting_coordinates));
                     starting_node->cost_ =0.0f;
                     starting_node->is_start_node_ = true;
 
@@ -327,8 +339,8 @@ class GridPathPlanner: public PathPlanner
                     processing_node_queue_.push(starting_node);
                     existing_nodes_map_.insert({getUniqueIdOfCoordinates(starting_node->coordinates_), starting_node});
                     
-                    const Eigen::Vector3d projected_goal_position = occupancy_grid_ptr_->getCenterOfCellFromCoordinates(goal_coordinates.value());
-
+                    const Eigen::Vector3d projected_goal_position = occupancy_grid_ptr_->getCenterOfCellFromCoordinates(goal_coordinates);
+                    
                     while(processing_node_queue_.size()!=0)
                     {
                         std::shared_ptr<SearchNode> current_node = processing_node_queue_.top();
@@ -348,7 +360,7 @@ class GridPathPlanner: public PathPlanner
                         // Using getCenterOfCellFromCoordinates() to get the goal position to get its project position on the occupancy grid.
                         addChildrenNodesToQueue(current_node, projected_goal_position);
                     }
-                
+
                 }
 
                 if (!search_failed && (last_node != nullptr))
@@ -357,21 +369,28 @@ class GridPathPlanner: public PathPlanner
                     std::shared_ptr<SearchNode> path_node = last_node;
 
                     nav_msgs::msg::Path path;
-                    while(true)
+                    if (!path_node->is_start_node_)
                     {
-                        geometry_msgs::msg::PoseStamped pose_stamped;
-                        pose_stamped.pose = vectorToPose(path_node->center_of_cell_pos_);
-                        path.poses.push_back(pose_stamped);
-                        
-                        path_node = path_node->parent_;
-                        if(path_node->is_start_node_)
+                        while(true)
                         {
-                            break;
+                            geometry_msgs::msg::PoseStamped pose_stamped;
+                            pose_stamped.pose = vectorToPose(path_node->center_of_cell_pos_);
+                            path.poses.push_back(pose_stamped);
+                            
+                            path_node = path_node->parent_;
+                            
+                            if(path_node->is_start_node_)
+                            {
+                                
+                                break;
+                            }
+                            
                         }
                     }
 
                     return path;
                 }
+                
             }
             return std::nullopt;
         }
