@@ -39,7 +39,7 @@ class GridPathPlanner: public PathPlanner
         {
             bool operator()(const std::shared_ptr<SearchNode>& lhs, const std::shared_ptr<SearchNode>& rhs)
             {
-                return lhs->cost_ < rhs->cost_;
+                return lhs->cost_ > rhs->cost_;
             }
         };
 
