@@ -348,7 +348,7 @@ class GridPathPlanner: public PathPlanner
                         
                         // Verify if current node is at goal
                         float euclidean_distance_to_goal = (projected_goal_position - current_node->center_of_cell_pos_).norm();
-                        if (euclidean_distance_to_goal > goal_radius_tolerance)
+                        if (euclidean_distance_to_goal < goal_radius_tolerance)
                         {
                             // Goal found
                             //std::cout<<"A* found a path"<<std::endl;

@@ -350,18 +350,32 @@ class VATControllerNode : public rclcpp::Node
                 path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
 
                 occupancy_grid_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("flocking_controller_occupancy_grid", 10);
-                occupancy_grid_pub_timer_ = this->create_wall_timer(5s, std::bind(&VATControllerNode::occupancy_grid_time_callback, this));
+                occupancy_grid_pub_timer_ = this->create_wall_timer(100ms, std::bind(&VATControllerNode::occupancy_grid_and_path_time_callback, this));
             }
         }
 
-        void occupancy_grid_time_callback()
+        void occupancy_grid_and_path_time_callback()
         {
             nav_msgs::msg::OccupancyGrid grid_msg = this->occupancy_grid_ptr_->getOccupancyGridMsg();
             // Add missing time in the message
             grid_msg.header.stamp = this->now();
             grid_msg.info.map_load_time = this->now();
 
+            for (PlannerAndPublisher& planner_and_pub: path_planners_and_pub_)
+            {
+                nav_msgs::msg::Path path = planner_and_pub.path_planner_->getPath();
+                path.header.stamp = this->now();
+                path.header.frame_id = "map";
+                for(geometry_msgs::msg::PoseStamped& pose: path.poses)
+                {
+                    pose.header.stamp =this->now();
+                    pose.header.frame_id = "map";
+                }
+                planner_and_pub.publisher_->publish(path);
+            }
+
             occupancy_grid_publisher_->publish(grid_msg);
+            
         }
 
         /**
