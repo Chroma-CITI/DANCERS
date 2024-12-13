@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 4
+robots_number: 6
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -51,15 +51,17 @@ broadcast_flow:
   flow_id: 2
 
 # ******* NEIGHBORHOOD *******
-pseudo_routing_algorithm: 'shortest_dist' # [shortest_dist, capacity_bottleneck] 
+pseudo_routing_algorithm: 'minimize_error_rate' # [shortest_dist, capacity_bottleneck, minimize_error_rate] 
 
+minimize_error_rate:
+  broadcast_window_size: 0.5  # s
 
 # ******* FLOCKING *******
 # Indicates if the ROS flocking_controller should publish on a topic the command its sends.
 controller_publish_cmd: true
 
 # **** Constraints ****
-expected_deconnexion_distance: 180.0
+expected_deconnexion_distance: 150.0
 
 # **** Parameters ****
 VAT_undefined_flocking_parameters:
