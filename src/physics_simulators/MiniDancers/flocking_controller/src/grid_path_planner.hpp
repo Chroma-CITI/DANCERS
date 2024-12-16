@@ -14,438 +14,198 @@
 
 #include <Eigen/Core>
 
+/**
+ * @brief Path planner that uses an occupancy grid as a configuration space and A* to compute a path.
+ */
 class GridPathPlanner: public PathPlanner
 {
     public:
 
+        /**
+         * @brief Searchable node for a path planning algorithm that points towards a 
+         * corresponding cell in a given occupancy grid through coordinates.
+         */
         class SearchNode
         {
             public:
-                SearchNode(const OccupancyGrid2D::CellCoordinates& coordinates,const Eigen::Vector3d& center_of_cell_pos): 
+                /**
+                 * @brief Construct a node that points towards an occupancy grid cell through coordinates.
+                 * @param coordinates The coordinates in the occupancy grid.
+                 * @param center_of_cell_pos Center in meter of the cell in the occupancy grid. Used by cost functions of the search algorith.
+                 */
+                inline SearchNode(const OccupancyGrid2D::CellCoordinates& coordinates,const Eigen::Vector3d& center_of_cell_pos): 
                           coordinates_(coordinates), center_of_cell_pos_(center_of_cell_pos) {}
-                
+
+
+                /**
+                 * @brief Coordinates of a cell in an occupancy grid that this class represents for the search algorithm.
+                 */
                 OccupancyGrid2D::CellCoordinates coordinates_;
                 
+                /**
+                 * @brief Position in meters in the global frame of the center of the grid cell that this class represents.
+                 * It's used to compute the distance between nodes to be used as costs.
+                 */
                 Eigen::Vector3d center_of_cell_pos_;
 
+                /**
+                 * @brief Nieghbor nodes that represent the direction to go to find a path between a goal and starting point. 
+                 */
                 std::shared_ptr<SearchNode> parent_;
                 
+                /**
+                 * @brief Cost of getting to this node computed by a search algorithm.
+                 */
                 float cost_ = 0.0f;
 
+                /**
+                 * @brief Indicates if this node is the start node of the search algorithm. 
+                 * By definition, it doesn't have a parent.
+                 */
                 bool is_start_node_ = false; 
         };
 
+        /**
+         * @brief Compare functor used for the priority queue to get the behavior 
+         * where the lowest cost node will be processed first.
+         */
         struct LesserCostEvaluator
         {
-            bool operator()(const std::shared_ptr<SearchNode>& lhs, const std::shared_ptr<SearchNode>& rhs)
+            inline bool operator()(const std::shared_ptr<SearchNode>& lhs, const std::shared_ptr<SearchNode>& rhs)
             {
                 return lhs->cost_ > rhs->cost_;
             }
         };
 
+        /**
+         * @brief The grid path planner that takes a pointer to an occupancy grid in which the planning will be done.
+         */
         GridPathPlanner(std::shared_ptr<OccupancyGrid2D> grid): occupancy_grid_ptr_(grid) {}
 
+        /**
+         * @brief Computes the next waypoint that a agent should take based on a global A* planner in the given occupancy grid.
+         * @param agent_position Current position of the agent from which the path will be made and
+         *  to find out where on the trajectory the agent is to compute the nex waypoint.
+         * @param goal_position Position of the goal that the path needs to finish to.
+         * @param goal_radius_tolerance Radius around the goal in which cells will be considered as
+         *  a valid end point for the path planning algorithm.
+         * @param distance_to_path_tolerance Maximum distance that an agent can be from the path before 
+         * retriggering a planning since the path might be invalid.
+         * @param lookup_ahead_pursuit_distance Distance on the path towards the goal from the agent's 
+         * closest point on the trajectory to determine the next waypoint. It's the length of the stick 
+         * in the analogy of a carrot on a stick.
+         * @return The next waypoint on the trajectory that the agent should follow to follow the path.
+         */
         virtual Waypoint getNextWaypoint(Eigen::Vector3d agent_position, 
                                          Eigen::Vector3d goal_position,  
                                          const float goal_radius_tolerance,
                                          const float distance_to_path_tolerance,
-                                         float lookup_ahead_pursuit_distance) override
-        {
-            
-            std::lock_guard<std::mutex> paht_lock(path_manipulation_mutex_);
-            
-            Waypoint waypoint;
+                                         float lookup_ahead_pursuit_distance) override;
 
-            bool path_is_valid = true;
-
-            // Verify the starting point and goal are in the occupancy grid plane.
-            std::optional<OccupancyGrid2D::CellCoordinates> starting_coordinates_opt = 
-                                occupancy_grid_ptr_->getCellCoordinatesFromPosition(agent_position);
-            std::optional<OccupancyGrid2D::CellCoordinates> goal_coordinates_opt = 
-                                occupancy_grid_ptr_->getCellCoordinatesFromPosition(goal_position);
-            if (!starting_coordinates_opt.has_value())
-            {
-                std::cout<<"Planning failed: Starting point is outside of occupancy grid"<<std::endl;
-                path_is_valid = false;
-            }
-            if (!goal_coordinates_opt.has_value())
-            {
-                std::cout<<"Planning failed: Goal point is outside of occupancy grid"<<std::endl;
-                path_is_valid = false;
-            }
-
-            // Verify if the starting point and goal points are not in obstacles.
-            if(starting_coordinates_opt.has_value() && goal_coordinates_opt.has_value())
-            {
-                std::optional<OccupancyGrid2D::CellStatus> stating_point_status = occupancy_grid_ptr_->getCellStatus(starting_coordinates_opt.value());
-                std::optional<OccupancyGrid2D::CellStatus> goal_position_status = occupancy_grid_ptr_->getCellStatus(goal_coordinates_opt.value());
-                
-                if(stating_point_status.has_value() && (stating_point_status.value() != OccupancyGrid2D::CellStatus::Free))
-                {
-                    std::cout<<"Planning failed: Starting point is not in a free cell"<<std::endl;
-                    path_is_valid = false;
-                }
-                if(goal_position_status.has_value() && (goal_position_status.value() != OccupancyGrid2D::CellStatus::Free))
-                {
-                    std::cout<<"Planning failed: Goal point is not in a free cell"<<std::endl;
-                    path_is_valid = false;
-                }
-            }
-
-            // Projected agent and goal position
-            const Eigen::Vector3d  projected_starting_position = occupancy_grid_ptr_->getProjectedVectorOnGridPlan(agent_position);
-            const Eigen::Vector3d  projected_goal_position = occupancy_grid_ptr_->getProjectedVectorOnGridPlan(goal_position);
-
-            // First path
-            if(isPathEmpty() && path_is_valid)
-            {
-                std::cout<<"Planning because no plan exist"<<std::endl;
-                path_is_valid = createNewPath(projected_starting_position, projected_goal_position, goal_radius_tolerance);
-            }
-
-            if(path_is_valid)
-            {
-                // Look at 5 trajectory point above to find if the agent progressed on the path and pruned the path based on
-                // the closest point. 
-                prunePath(projected_starting_position, 5);
-
-                // Do the path needs to be recomputed because the agent is to far from the path.
-                Eigen::Vector3d  position_of_pruning_node = poseToVector(current_path_.poses[pruning_index_].pose);
-                float current_distance_to_pruned_path = (projected_starting_position - position_of_pruning_node).norm();
-
-                if(distance_to_path_tolerance < current_distance_to_pruned_path)
-                {
-                    std::cout<<"Replanning since the agent is too far from trajectory. ("<< current_distance_to_pruned_path <<"m)"<<std::endl;
-                    path_is_valid = createNewPath(projected_starting_position, projected_goal_position, goal_radius_tolerance);
-                }
-
-                // Compute the waypoint
-                if(path_is_valid)
-                {
-                    position_of_pruning_node = poseToVector(current_path_.poses[pruning_index_].pose);
-                    current_distance_to_pruned_path = (projected_starting_position - position_of_pruning_node).norm();
-                    
-                    
-                    int index = pruning_index_;
-                    lookup_ahead_pursuit_distance -= current_distance_to_pruned_path;
-                    while((0.0f < lookup_ahead_pursuit_distance) && (0 < index) )
-                    {
-                        lookup_ahead_pursuit_distance -= (poseToVector(current_path_.poses[index].pose) - poseToVector(current_path_.poses[index-1].pose)).norm();
-                        index --;
-                    }
-                    
-                    waypoint.position = poseToVector(current_path_.poses[index].pose);
-                }
-                
-            }
-
-            if (!path_is_valid)
-            {
-                // Return the agent position if the planner fails to produce a plan.
-                // TODO add a mechanism to indicate the planner caller that the plan failed.
-                std::cout<<"Planning failed: path planning will give a stationnary command"<<std::endl;
-                waypoint.position = agent_position;
-            }
-
-            current_waypoint_ = waypoint;
-            return waypoint;
-        }
-
-        virtual Waypoint getCurrentWaypoint() override
-        {
-            std::lock_guard<std::mutex> paht_lock(path_manipulation_mutex_);
-            return current_waypoint_; 
-        }
+        /**
+         * @brief Returns the last computed waypoint.
+         * @return The last computed waypoint.
+         */
+        virtual Waypoint getCurrentWaypoint() override;
 
     private:
+        /**
+         * @brief Occupancy grid from which the path will be computed.
+         */
         std::shared_ptr<OccupancyGrid2D> occupancy_grid_ptr_;
 
+        /**
+         * @brief Index indicating the progress of the agent on the trajectory. 
+         * Since the path is stored backwards, a high value means the agent is 
+         * at the begining of the trajectory.
+         */
         int pruning_index_ = 0 ;
 
+        /**
+         * @brief Stores the last computed waypoint.
+         */
         Waypoint current_waypoint_;
 
-        bool isNodeInGoal(const SearchNode& node);
+        /**
+         * @brief Computes an identifier that is unique for each OccupancyGrid2D::CellCoordinates.
+         * It used as a hash to stored the visited nodes.
+         */
+        unsigned int getUniqueIdOfCoordinates(const OccupancyGrid2D::CellCoordinates coordinates);
 
-        unsigned int getUniqueIdOfCoordinates(const OccupancyGrid2D::CellCoordinates coordinates)
-        {
-            OccupancyGrid2D::CellCoordinates max_coordinates = occupancy_grid_ptr_->getMaxCoordinates();
-            
-            return coordinates.x + coordinates.y * (max_coordinates.x +1);
-        }
-
+        /**
+         * @brief Methods that adds to a given priority queue and map the 8-neighbors cells of the current cell in the occupancy grid
+         * if they are free cells (no in obstacles) and if they are inside the bounds of the occupancy grid.
+         * @param current_node Current node from which the neighbors will be extracted from.
+         * @param goal_position Goal position to compute the heuristic cost function.
+         * @param processing_node_queue Reference to a priority queue that stores the nodes based on their cost and that will be 
+         * processed. The neighbors node will be added in this queue if they are valid.
+         * @param existing_nodes_map Reference to a map used to keep track of visited node. It's used to know if the neighbors 
+         * already exist and changed their cost and parents if the current node offers a lower cost. 
+         * Neighbors are added in the map if they aren't already there.
+         */
         void addChildrenNodesToQueue(std::shared_ptr<SearchNode> current_node,
                                      const Eigen::Vector3d goal_position,
                                      std::priority_queue<std::shared_ptr<SearchNode>, std::vector<std::shared_ptr<SearchNode>>, LesserCostEvaluator>& processing_node_queue,
-                                     std::unordered_map<unsigned int, std::shared_ptr<SearchNode>>& existing_nodes_map)
-        {
-            /* To be valid, a children should be an unoccupied cell and should be inside the grid.
-             * If the potential children node has already a parent, add it to the current children list only if the expected cost
-             * is lower than the one already there. 
-             */
+                                     std::unordered_map<unsigned int, std::shared_ptr<SearchNode>>& existing_nodes_map);
 
-            // Eight neighbors coordinates
-            std::vector<OccupancyGrid2D::CellCoordinates> potential_children_coordinates_list;
-            OccupancyGrid2D::CellCoordinates temp_coordinates;
-            temp_coordinates.x = current_node->coordinates_.x+1;
-            temp_coordinates.y = current_node->coordinates_.y;
-            potential_children_coordinates_list.push_back(temp_coordinates);
+        /**
+         * @brief Computes the cost of going from a source node towards a target node. The cost of the target is the cost 
+         * of the source node + the distance between the center of the source node cell and the target cell + an heuristic which
+         * is the euclidean distance between the target node and the goal.
+         * @param source_node Node to compute the cost from.
+         * @param target_node Node for which the cost is computed for.
+         * @param goal_position Position of the goal position to compute the heuristic.
+         * @return The cost of going to the the target_node from the source node.
+         */
+        float computeCostFunction(std::shared_ptr<const SearchNode> source_node, std::shared_ptr<const SearchNode> target_node,
+                                  const Eigen::Vector3d& goal_position);
 
-            temp_coordinates.x = current_node->coordinates_.x+1;
-            temp_coordinates.y = current_node->coordinates_.y+1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
+        /**
+         * @brief Transforms a Eigen::Vector3d to a ROS geometry pose message.
+         * @param pose Pose to transform in a 3D vector.
+         * @return The vector corresponding to the given pose.
+         */
+        Eigen::Vector3d poseToVector(const geometry_msgs::msg::Pose& pose);
 
-            temp_coordinates.x = current_node->coordinates_.x;
-            temp_coordinates.y = current_node->coordinates_.y+1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
+        /**
+         * @brief Transforms a ROS geometry pose message to Eigen::Vector3d.
+         * @param vector_3d The 3D vector to transform in a Pose.
+         * @return The ROS Pose message corresponding to the given 3D vector.
+         */
+        geometry_msgs::msg::Pose vectorToPose(const Eigen::Vector3d& vector_3d);
 
-            temp_coordinates.x = current_node->coordinates_.x-1;
-            temp_coordinates.y = current_node->coordinates_.y+1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
+        /**
+         * @brief Finds the index of the path corresponding to the agent's closest point on the trajectory.
+         * @param pruning_horizon Number of index from the current pruning_index_ to search for the closest point.
+         * @return The indexes of the closest trajectory grid cell from the agent in the given horizon.
+         */
+        int findClosestIndexOnTrajectory(const Eigen::Vector3d& agent_position, int pruning_horizon);
+    
+        /**
+         * @brief Updates the pruning_index_ to progress along the path.
+         * @param agent_position The current agent position.
+         * @param pruning_horizon Number of indexes from the current pruning_index_ to search for the closest point.
+         */
+        void prunePath(const Eigen::Vector3d& agent_position, int pruning_horizon);
 
-            temp_coordinates.x = current_node->coordinates_.x-1;
-            temp_coordinates.y = current_node->coordinates_.y;
-            potential_children_coordinates_list.push_back(temp_coordinates);
+        /**
+         * @brief Replace the old path for a new path starting at the starting_point and finishing at the goal_position if possible.
+         * Also resets the pruning_index to the start of the path. 
+         * The path will failed to be computed if there is no possible path between the start and finish point.
+         * @param starting_point Point from which to start the path.
+         * @param goal_position Point where the path should lead to.
+         * @param goal_radius_tolerance Radius around the goal in which cells will be considered as
+         *  a valid end point for the path planning algorithm.
+         */
+        bool createNewPath(Eigen::Vector3d starting_point, Eigen::Vector3d goal_position, float goal_radius_tolerance);
 
-            temp_coordinates.x = current_node->coordinates_.x-1;
-            temp_coordinates.y = current_node->coordinates_.y-1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
-
-            temp_coordinates.x = current_node->coordinates_.x;
-            temp_coordinates.y = current_node->coordinates_.y-1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
-
-            temp_coordinates.x = current_node->coordinates_.x+1;
-            temp_coordinates.y = current_node->coordinates_.y-1;
-            potential_children_coordinates_list.push_back(temp_coordinates);
-
-            if (occupancy_grid_ptr_)
-            {
-                for (auto potential_child_coordinates: potential_children_coordinates_list)
-                {
-                    std::optional<OccupancyGrid2D::CellStatus> child_status_opt = occupancy_grid_ptr_->getCellStatus(potential_child_coordinates);
-
-                    // If child status is an std::nullopt, the coordinates are out of bound of the occupancy grid.
-                    // Only consider the coordinates that are free cells.
-                    // TODO: Maybe extend to unknown cells.
-                    if (child_status_opt.has_value())
-                    {
-                        OccupancyGrid2D::CellStatus child_status = child_status_opt.value();
-
-                        if(child_status == OccupancyGrid2D::CellStatus::Free)
-                        {
-                            unsigned int unique_id = getUniqueIdOfCoordinates(potential_child_coordinates);
-                            
-                            // Verify if the cell was already visited.
-                            if(existing_nodes_map.find(unique_id) != existing_nodes_map.end())
-                            {
-                                std::shared_ptr<SearchNode> potential_child_ptr = existing_nodes_map[unique_id];
-                                float cost = computeCostFunction(current_node ,potential_child_ptr, goal_position);
-                                
-                                // If the new cost is better, replace existant parent and cost.
-                                if(cost < potential_child_ptr->cost_)
-                                {
-                                    potential_child_ptr->parent_ = current_node;
-                                    potential_child_ptr->cost_ = cost;
-                                    processing_node_queue.push(potential_child_ptr);
-                                }
-                            }
-                            else // The node was never created, create it.
-                            {
-                                std::shared_ptr<SearchNode> potential_child_ptr = std::make_shared<SearchNode>(potential_child_coordinates, 
-                                                                occupancy_grid_ptr_->getCenterOfCellFromCoordinates(potential_child_coordinates));
-                                potential_child_ptr->parent_ = current_node;
-                                potential_child_ptr->cost_ = computeCostFunction(current_node ,potential_child_ptr, goal_position);
-
-                                processing_node_queue.push(potential_child_ptr);
-                                existing_nodes_map.insert({unique_id, potential_child_ptr});
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        float computeCostFunction(std::shared_ptr<const SearchNode> from_node, std::shared_ptr<const SearchNode> to_node,
-                                  const Eigen::Vector3d& goal_position)
-        {
-            float cost = from_node->cost_; 
-            
-            // Cost of traveling between the cells
-            cost += (to_node->center_of_cell_pos_ - from_node->center_of_cell_pos_).norm();
-
-            // Distance heuristic
-            cost += (goal_position - to_node->center_of_cell_pos_).norm();
-
-            return cost;
-        }
-
-        Eigen::Vector3d poseToVector(const geometry_msgs::msg::Pose& pose)
-        {
-            return {pose.position.x, pose.position.y, pose.position.z};
-        }
-
-        geometry_msgs::msg::Pose vectorToPose(const Eigen::Vector3d& vector_3d)
-        {
-            geometry_msgs::msg::Pose pose;
-            
-            pose.position.x = vector_3d[0];
-            pose.position.y = vector_3d[1];
-            pose.position.z = vector_3d[2];
-            
-            return pose;
-        }
-
-        int findClosestIndexOnTrajectory(const Eigen::Vector3d& agent_position, int pruning_horizon)
-        {
-            if(pruning_index_ <= 0)
-            {
-                // Pruning index is already the closest
-                return 0;
-            }
-            else
-            {
-                float smallest_distance = (poseToVector(current_path_.poses[pruning_index_].pose) - agent_position).norm();
-                int smallest_distance_index = pruning_index_;
-
-                for (int index = pruning_index_-1; (index != -1) && (pruning_index_-pruning_horizon < index); index--)
-                {
-                    float agent_to_path_node_distance = (poseToVector(current_path_.poses[index].pose) - agent_position).norm();
-                    if(agent_to_path_node_distance < smallest_distance)
-                    {
-                        smallest_distance = agent_to_path_node_distance;
-                        smallest_distance_index = index;
-                    }
-                }
-                return smallest_distance_index;
-            } 
-        }
-
-        void prunePath(const Eigen::Vector3d& agent_position, int pruning_horizon)
-        {
-            pruning_index_ = findClosestIndexOnTrajectory(agent_position, pruning_horizon);
-        }
-
-        bool createNewPath(Eigen::Vector3d starting_point, Eigen::Vector3d goal_position, float goal_radius_tolerance)
-        {
-            std::optional<nav_msgs::msg::Path> new_path = computePath(starting_point, goal_position, goal_radius_tolerance);
-            
-            if (new_path.has_value())
-            {
-                current_path_ = new_path.value();
-                if(isPathEmpty())
-                {
-                    return false;
-                }
-                pruning_index_ = current_path_.poses.size()-1;
-                return true;
-            }
-            else
-            {
-                std::cout<<"Failed to generate new path"<<std::endl;
-                return false;
-            }
-        }
-
-        std::optional<nav_msgs::msg::Path> computePath(Eigen::Vector3d starting_point, Eigen::Vector3d goal_position, float goal_radius_tolerance)
-        {
-            std::priority_queue<std::shared_ptr<SearchNode>, std::vector<std::shared_ptr<SearchNode>>, LesserCostEvaluator> processing_node_queue;
-            std::unordered_map<unsigned int, std::shared_ptr<SearchNode>> existing_nodes_map;
-
-            if (occupancy_grid_ptr_)
-            {
-                bool search_failed = false;
-
-                std::lock_guard<std::mutex> grid_lock(occupancy_grid_ptr_->external_access_mutex_);
-
-                std::optional<OccupancyGrid2D::CellCoordinates> starting_coordinates_opt = 
-                                occupancy_grid_ptr_->getCellCoordinatesFromPosition(starting_point);
-                
-                std::optional<OccupancyGrid2D::CellCoordinates> goal_coordinates_opt = 
-                                occupancy_grid_ptr_->getCellCoordinatesFromPosition(goal_position);
-                
-                std::shared_ptr<SearchNode> last_node = nullptr;
-
-                if(!starting_coordinates_opt.has_value())
-                {
-                    std::cout<<"Error: The starting point is not in the occupancy grid. Can't perform planning."<<std::endl;
-                    OccupancyGrid2D::CellCoordinates max_cells = occupancy_grid_ptr_->getMaxCoordinates();
-                    search_failed = true;
-                }
-                if(!goal_coordinates_opt.has_value())
-                {
-                    std::cout<<"Error: The goal point is not in the occupancy grid. Can't perform planning."<<std::endl;
-                    search_failed = true;
-                }
-                
-                if (!search_failed)
-                {
-                    OccupancyGrid2D::CellCoordinates starting_coordinates = starting_coordinates_opt.value();
-                    OccupancyGrid2D::CellCoordinates goal_coordinates = goal_coordinates_opt.value();
-
-                    std::shared_ptr<SearchNode> starting_node = std::make_shared<SearchNode>(starting_coordinates, 
-                                                                occupancy_grid_ptr_->getCenterOfCellFromCoordinates(starting_coordinates));
-                    starting_node->cost_ =0.0f;
-                    starting_node->is_start_node_ = true;
-
-                    // Add first node in the queue and existing map.
-                    processing_node_queue.push(starting_node);
-                    existing_nodes_map.insert({getUniqueIdOfCoordinates(starting_node->coordinates_), starting_node});
-                    
-                    const Eigen::Vector3d projected_goal_position = occupancy_grid_ptr_->getCenterOfCellFromCoordinates(goal_coordinates);
-                    while(processing_node_queue.size()!=0)
-                    {
-                        std::shared_ptr<SearchNode> current_node = processing_node_queue.top();
-                        processing_node_queue.pop();
-                        
-                        // Verify if current node is at goal
-                        float euclidean_distance_to_goal = (projected_goal_position - current_node->center_of_cell_pos_).norm();
-                        if (euclidean_distance_to_goal < goal_radius_tolerance)
-                        {
-                            // Goal found.
-                            last_node = current_node;
-                            break;
-                        }
-
-                        // Using getCenterOfCellFromCoordinates() to get the goal position to get its project position on the occupancy grid.
-                        addChildrenNodesToQueue(current_node, projected_goal_position, processing_node_queue, existing_nodes_map);
-                    }
-                    if(last_node == nullptr)
-                    {
-                        std::cout<<"Planning failed: A* explored the whole space without finding path."<<std::endl;
-                    }
-
-                }
-
-                if (!search_failed && (last_node != nullptr))
-                {
-                    // Generate path
-                    std::shared_ptr<SearchNode> path_node = last_node;
-
-                    nav_msgs::msg::Path path;
-                    if (!path_node->is_start_node_)
-                    {
-                        while(true)
-                        {
-                            geometry_msgs::msg::PoseStamped pose_stamped;
-                            pose_stamped.pose = vectorToPose(path_node->center_of_cell_pos_);
-                            path.poses.push_back(pose_stamped);
-                            
-                            path_node = path_node->parent_;
-                            
-                            if(path_node->is_start_node_)
-                            {
-                                
-                                break;
-                            }
-                            
-                        }
-                    }
-
-                    return path;
-                }
-                
-            }
-            return std::nullopt;
-        }
-
+        /**
+         * @brief Computes a path in the provided internal occupancy from the starting_point to the goal_position using A*.
+         * @param starting_point Point from which to start the path.
+         * @param goal_position Point where the path should lead to.
+         * @param goal_radius_tolerance Radius around the goal in which cells will be considered as
+         *  a valid end point for the path planning algorithm.
+         * @return The compute path in the form of the ROS Path message which is a series of Poses.
+         */
+        std::optional<nav_msgs::msg::Path> computePath(Eigen::Vector3d starting_point, Eigen::Vector3d goal_position, float goal_radius_tolerance);
 };
