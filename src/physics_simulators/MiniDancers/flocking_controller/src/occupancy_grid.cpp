@@ -280,3 +280,9 @@ std::optional<OccupancyGrid2D::CellStatus> OccupancyGrid2D::getCellStatus(const 
     }
        
 }
+
+Eigen::Vector3d OccupancyGrid2D::getProjectedVectorOnGridPlan(Eigen::Vector3d vector_in_global_frame)
+{
+    vector_in_global_frame[2] = map_origin_[2];
+    return vector_in_global_frame;
+}

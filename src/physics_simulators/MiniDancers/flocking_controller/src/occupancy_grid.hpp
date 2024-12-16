@@ -21,6 +21,7 @@ class OccupancyGrid2D
         {
             Unknown=0,
             Free,
+            Inflated,
             Occupied
         };
 
@@ -99,6 +100,13 @@ class OccupancyGrid2D
          * @return Return the status of the cell or an std::nullopt if the cell doesn't exist
          */
         std::optional<CellStatus> getCellStatus(const CellCoordinates& coordinates);
+
+        /**
+         * @brief Return the projection of a vetor on the grid plane. It's equivalent of getting the closest point between a point and a plane.
+         * @param vector_in_global_frame 3D vector in the global frame to be projected on the grid plane.
+         * @return Projection of the given vector on the occupancy grid plane.
+         */
+        Eigen::Vector3d getProjectedVectorOnGridPlan(Eigen::Vector3d vector_in_global_frame);
 
         /**
          * @brief Mutex that can be used by external processes to protect access to the whole object.  

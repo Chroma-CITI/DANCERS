@@ -18,6 +18,8 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 
+#include <geometry_msgs/msg/pose_array.hpp>
+
 #include "occupancy_grid.hpp"
 #include "grid_path_planner.hpp"
 
@@ -119,6 +121,11 @@ class VATControllerNode : public rclcpp::Node
          * @brief Publisher that publishes the occupancy grid of the obstacles.
          */
         rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_grid_publisher_;
+
+        /**
+         * @brief Publisher that publishes the pose of the waypoints of the path planners.
+         */
+        rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr waypoint_publisher_;
 
         /**
          * @brief List of all the planners and their corresponding publisher.
@@ -356,25 +363,41 @@ class VATControllerNode : public rclcpp::Node
 
         void occupancy_grid_and_path_time_callback()
         {
-            nav_msgs::msg::OccupancyGrid grid_msg = this->occupancy_grid_ptr_->getOccupancyGridMsg();
-            // Add missing time in the message
-            grid_msg.header.stamp = this->now();
-            grid_msg.info.map_load_time = this->now();
-
-            for (PlannerAndPublisher& planner_and_pub: path_planners_and_pub_)
+            if(occupancy_grid_ptr_)
             {
-                nav_msgs::msg::Path path = planner_and_pub.path_planner_->getPath();
-                path.header.stamp = this->now();
-                path.header.frame_id = "map";
-                for(geometry_msgs::msg::PoseStamped& pose: path.poses)
-                {
-                    pose.header.stamp =this->now();
-                    pose.header.frame_id = "map";
-                }
-                planner_and_pub.publisher_->publish(path);
-            }
+                geometry_msgs::msg::PoseArray waypoint_array;
+                waypoint_array.header.stamp = this->now();
+                waypoint_array.header.frame_id = "map";
 
-            occupancy_grid_publisher_->publish(grid_msg);
+
+                nav_msgs::msg::OccupancyGrid grid_msg = this->occupancy_grid_ptr_->getOccupancyGridMsg();
+                // Add missing time in the message
+                grid_msg.header.stamp = this->now();
+                grid_msg.info.map_load_time = this->now();
+
+                for (PlannerAndPublisher& planner_and_pub: path_planners_and_pub_)
+                {
+                    nav_msgs::msg::Path path = planner_and_pub.path_planner_->getPath();
+                    path.header.stamp = this->now();
+                    path.header.frame_id = "map";
+                    for(geometry_msgs::msg::PoseStamped& pose: path.poses)
+                    {
+                        pose.header.stamp =this->now();
+                        pose.header.frame_id = "map";
+                    }
+                    planner_and_pub.publisher_->publish(path);
+                    
+                    PathPlanner::Waypoint waypoint = planner_and_pub.path_planner_->getCurrentWaypoint();
+                    geometry_msgs::msg::Pose waypoint_pose;
+                    waypoint_pose.position.x = waypoint.position[0];
+                    waypoint_pose.position.y = waypoint.position[1];
+                    waypoint_pose.position.z = waypoint.position[2];
+                    waypoint_array.poses.push_back(waypoint_pose);
+                }
+
+                occupancy_grid_publisher_->publish(grid_msg);
+                waypoint_publisher_->publish(waypoint_array);
+            }
             
         }
 
@@ -464,6 +487,9 @@ class VATControllerNode : public rclcpp::Node
                 fixed_altitude = altitude_param.as<float>();
             }
 
+            // Verify if planner should be used.
+            bool use_planner = config["use_planner"].as<bool>();
+
             // Initialize controllers
             const int number_of_agents = config["robots_number"].as<int>();
             for (int agent_id =0; agent_id < number_of_agents; agent_id++)
@@ -478,7 +504,7 @@ class VATControllerNode : public rclcpp::Node
                 populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
 
                 // Planner configuration
-                options.path_planner_params_.use_planner_ = config["use_planner"].as<bool>();
+                options.path_planner_params_.use_planner_ = use_planner;
                 if (options.path_planner_params_.use_planner_)
                 {
                     options.path_planner_params_.goal_radius_tolerance_ = static_cast<float>(config["goal_radius_tolerance"].as<double>());
@@ -508,6 +534,10 @@ class VATControllerNode : public rclcpp::Node
                 }
 
                 controllers_.push_back(std::make_unique<VATController>(options));
+            }
+            if(use_planner)
+            {
+                waypoint_publisher_ = this->create_publisher<geometry_msgs::msg::PoseArray>("waypoint_poses",5);
             }
         }
 };

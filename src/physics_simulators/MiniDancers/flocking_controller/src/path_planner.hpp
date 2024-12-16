@@ -20,6 +20,9 @@ class PathPlanner
                                                         const float goal_radius_tolerance,
                                                         const float distance_to_path_tolerance,
                                                         float lookup_ahead_pursuit_distance) = 0;
+
+        virtual Waypoint getCurrentWaypoint() = 0;
+
         inline nav_msgs::msg::Path getPath()
         {
             std::lock_guard<std::mutex> paht_lock(path_manipulation_mutex_);
