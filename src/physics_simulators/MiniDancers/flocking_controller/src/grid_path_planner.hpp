@@ -405,7 +405,7 @@ class GridPathPlanner: public PathPlanner
                             last_node = current_node;
                             break;
                         }
-                        number_of_processed_nodes++;
+
                         // Using getCenterOfCellFromCoordinates() to get the goal position to get its project position on the occupancy grid.
                         addChildrenNodesToQueue(current_node, projected_goal_position, processing_node_queue, existing_nodes_map);
                     }
