@@ -35,12 +35,12 @@ GridPathPlanner::Waypoint GridPathPlanner::getNextWaypoint(Eigen::Vector3d agent
         std::optional<OccupancyGrid2D::CellStatus> stating_point_status = occupancy_grid_ptr_->getCellStatus(starting_coordinates_opt.value());
         std::optional<OccupancyGrid2D::CellStatus> goal_position_status = occupancy_grid_ptr_->getCellStatus(goal_coordinates_opt.value());
         
-        if(stating_point_status.has_value() && (stating_point_status.value() != OccupancyGrid2D::CellStatus::Free))
+        if(stating_point_status.has_value() && (stating_point_status.value() == OccupancyGrid2D::CellStatus::Occupied))
         {
             std::cout<<"Planning failed: Starting point is not in a free cell"<<std::endl;
             path_is_valid = false;
         }
-        if(goal_position_status.has_value() && (goal_position_status.value() != OccupancyGrid2D::CellStatus::Free))
+        if(goal_position_status.has_value() && (goal_position_status.value() == OccupancyGrid2D::CellStatus::Occupied))
         {
             std::cout<<"Planning failed: Goal point is not in a free cell"<<std::endl;
             path_is_valid = false;
