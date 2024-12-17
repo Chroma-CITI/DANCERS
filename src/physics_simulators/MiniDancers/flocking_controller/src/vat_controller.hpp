@@ -31,6 +31,9 @@ class VATController
             float v_flock;
             float v_max;
             float v_sec_max;
+            float r_0_sec;
+            float v_sec_max_path;
+            float r_0_sec_path;
             float a_frict;
             float p_frict;
             float r_0_frict;
@@ -235,23 +238,17 @@ class VATController
          */
         Eigen::Vector3d secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params);
 
+        /**
+         * @brief Flocking behavior that makes an agent follow a path from a path planner
+         * @param self_agent Current agent states.
+         * @param goal Goal position that attracts the agent.
+         * @param params Flocking parameters to use.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d pathFollowing(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Function used for flocking computation, see curve in Vásárhelyi 2018 Fig.6. for parameters.
          */
-        double sigmoidLin(const double r, const double a, const double p)
-        {
-            if (r <= 0)
-            {
-                return 0;
-            }
-            else if (r * p > 0 && r * p < a / p)
-            {
-                return r * p;
-            }
-            else
-            {
-                return std::sqrt(2 * a * r - std::pow(a, 2) / std::pow(p, 2));
-            }
-        }
+        double sigmoidLin(const double r, const double a, const double p);
 };

@@ -363,7 +363,7 @@ class VATControllerNode : public rclcpp::Node
 
         void occupancy_grid_and_path_time_callback()
         {
-            if(occupancy_grid_ptr_)
+            if(occupancy_grid_ptr_ && occupancy_grid_publisher_)
             {
                 geometry_msgs::msg::PoseArray waypoint_array;
                 waypoint_array.header.stamp = this->now();
@@ -395,8 +395,14 @@ class VATControllerNode : public rclcpp::Node
                     waypoint_array.poses.push_back(waypoint_pose);
                 }
 
-                occupancy_grid_publisher_->publish(grid_msg);
-                waypoint_publisher_->publish(waypoint_array);
+                if(occupancy_grid_publisher_)
+                {
+                    occupancy_grid_publisher_->publish(grid_msg);
+                }
+                if(waypoint_publisher_)
+                {
+                    waypoint_publisher_->publish(waypoint_array);
+                }
             }
             
         }
@@ -416,6 +422,9 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.v_flock = config[vat_params_config_list_name]["v_flock"].as<double>();
                 vat_params.v_max = config[vat_params_config_list_name]["v_max"].as<double>();
                 vat_params.v_sec_max = config[vat_params_config_list_name]["v_sec_max"].as<double>();
+                vat_params.r_0_sec = config[vat_params_config_list_name]["r_0_sec"].as<double>();
+                vat_params.v_sec_max_path = config[vat_params_config_list_name]["v_sec_max_path"].as<double>();
+                vat_params.r_0_sec_path = config[vat_params_config_list_name]["r_0_sec_path"].as<double>();
                 vat_params.a_frict = config[vat_params_config_list_name]["a_frict"].as<double>();
                 vat_params.p_frict = config[vat_params_config_list_name]["p_frict"].as<double>();
                 vat_params.r_0_frict = config[vat_params_config_list_name]["r_0_frict"].as<double>();
@@ -431,6 +440,7 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.use_deconnexion_distance_instead_of_p_att = config[vat_params_config_list_name]["use_deconnexion_distance_instead_of_p_att"].as<bool>();
                 if (vat_params.use_deconnexion_distance_instead_of_p_att)
                 {
+                    float v_sec_max = (config["use_planner"].as<bool>())? vat_params.v_sec_max_path : vat_params.v_sec_max;
                     vat_params.expected_deconnexion_distance = config["expected_deconnexion_distance"].as<double>();
                     const double relative_distance = vat_params.expected_deconnexion_distance - vat_params.r_0_att;
                     if (relative_distance > 0.0)
@@ -454,6 +464,7 @@ class VATControllerNode : public rclcpp::Node
                 RCLCPP_WARN_STREAM(this->get_logger(), "Failed to read at least one VAT flocking parameter of the list " << vat_params_config_list_name <<", using ALL default VAT params.");
                 vat_params = default_vat_params_;
             }
+            std::cout<<"Post vat params config"<<std::endl;
         }
 
         /**
@@ -489,7 +500,7 @@ class VATControllerNode : public rclcpp::Node
 
             // Verify if planner should be used.
             bool use_planner = config["use_planner"].as<bool>();
-
+            std::cout<<"Pre Agent config"<<std::endl;
             // Initialize controllers
             const int number_of_agents = config["robots_number"].as<int>();
             for (int agent_id =0; agent_id < number_of_agents; agent_id++)
@@ -539,6 +550,7 @@ class VATControllerNode : public rclcpp::Node
             {
                 waypoint_publisher_ = this->create_publisher<geometry_msgs::msg::PoseArray>("waypoint_poses",5);
             }
+            std::cout<<"Post Agent config"<<std::endl;
         }
 };
 
