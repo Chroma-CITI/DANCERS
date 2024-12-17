@@ -196,7 +196,7 @@ class MiniDancers : public rclcpp::Node
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
             this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
             this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
-            this->network_routing_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_routing_links", 10);
+            this->network_idle_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_idle_links", 10);
             this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
 
             /* ----------- Service client ----------- */
@@ -252,7 +252,7 @@ class MiniDancers : public rclcpp::Node
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr desired_velocities_markers_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_mission_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
-        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_routing_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_idle_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
 
         /* Service client*/
@@ -494,6 +494,19 @@ void MiniDancers::DisplayRviz()
     network_marker_potential.color.a = 1.0;  // Fully opaque
     network_marker_potential.lifetime = rclcpp::Duration::from_seconds(0.1);
 
+    // idle neighbors
+    visualization_msgs::msg::Marker network_marker_idle{};
+    network_marker_idle.header.frame_id = "map";
+    network_marker_idle.id = 1003;
+    network_marker_idle.type = visualization_msgs::msg::Marker::LINE_LIST;
+    network_marker_idle.action = visualization_msgs::msg::Marker::ADD;
+    network_marker_idle.scale.x = 0.2;
+    network_marker_idle.color.r = 0.8;  
+    network_marker_idle.color.g = 0.8;
+    network_marker_idle.color.b = 0.8;
+    network_marker_idle.color.a = 1.0;  // Fully opaque
+    network_marker_idle.lifetime = rclcpp::Duration::from_seconds(0.1);
+
     for (int i=0; i < this->n_uavs; i++)
     {
         Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
@@ -523,12 +536,17 @@ void MiniDancers::DisplayRviz()
                     network_marker_potential.points.push_back(p1);
                     network_marker_potential.points.push_back(p2);
                     break;
+                case (AgentRoleType::Idle):
+                    network_marker_idle.points.push_back(p1);
+                    network_marker_idle.points.push_back(p2);
+                    break;
             }
         }
     }
 
     this->network_mission_pub_->publish(network_marker_mission);
-    this->network_potential_pub_->publish(network_marker_potential); 
+    this->network_potential_pub_->publish(network_marker_potential);
+    this->network_idle_pub_->publish(network_marker_idle);
 
     // // routing neighbors
     // visualization_msgs::msg::Marker network_marker_routing{};
