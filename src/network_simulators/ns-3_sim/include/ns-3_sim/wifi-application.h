@@ -133,7 +133,6 @@ class Receiver : public Application
     uint32_t m_port;      //!< Listening port.
     uint64_t m_received;             //!< Number of received packets
 
-
     Ptr<CounterCalculator<>> m_calc;           //!< Counter of the number of received packets.
     Ptr<TimeMinMaxAvgTotalCalculator> m_delay; //!< Delay calculator.
 

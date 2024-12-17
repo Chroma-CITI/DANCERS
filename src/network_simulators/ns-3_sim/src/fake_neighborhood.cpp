@@ -2,6 +2,8 @@
 
 #include <stack>
 
+#include <map>
+
 #include <boost/asio.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/filtering_streambuf.hpp>
@@ -145,7 +147,7 @@ public:
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
-        // ========================= COMPUTATION TIME SAVING =========================
+        // ========================= OUTPUT FILES =========================
         this->save_compute_time = config["save_compute_time"].as<bool>();
 
         std::string experience_name = config["experience_name"].as<std::string>();
@@ -183,11 +185,47 @@ public:
             // initialize the output file with headers
             this->probe = WallTimeProbe(this->m_computation_time_file);
         }
+
+        this->save_mission_packets = config["mission_flow"]["save_packets"].as<bool>();
+        if (this->save_mission_packets)
+        {
+            // Create a folder based on the experience name, if not existant already
+            if (boost::filesystem::create_directories(this->m_ros_ws_path + "/data/" + experience_name))
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Using existing data folder for this experiment");
+            }
+
+            // Define the output file name, based on the existing files in the experience folder (incremental)
+            std::string temp_path;
+            int i = 1;
+            while (this->m_mission_packets_file.empty())
+            {
+                temp_path = this->m_ros_ws_path + "/data/" + experience_name + "/mission_received_packets_" + std::to_string(i) + ".csv";
+                if (boost::filesystem::exists(temp_path))
+                {
+                    i++;
+                }
+                else
+                {
+                    this->m_mission_packets_file = temp_path;
+                }
+            }
+
+            // Write headers
+            std::ofstream f(this->m_mission_packets_file, std::ios::app);
+            f << "rcv_time(us),delay(us)" << std::endl;
+            f.close();
+        }
+
         // temporary path, should be incremented to not lose exp data later
-        std::string capacity_cost_out_file = this->m_ros_ws_path + "/data/" + experience_name + "/capacity_cost.csv";
-        std::ofstream capacity_cost_out(capacity_cost_out_file, std::ios::app);
-        capacity_cost_out << "time(ms),cost" << std::endl;
-        capacity_cost_out.close();
+        // std::string capacity_cost_out_file = this->m_ros_ws_path + "/data/" + experience_name + "/capacity_cost.csv";
+        // std::ofstream capacity_cost_out(capacity_cost_out_file, std::ios::app);
+        // capacity_cost_out << "time(ms),cost" << std::endl;
+        // capacity_cost_out.close();
 
 
         // ========================= NS3 =========================
@@ -208,6 +246,8 @@ public:
         std::string phyMode(config["phy_mode"].as<std::string>()); // Define a "Phy mode" that will be given to the WifiRemoteStationManager
         double frequency = 5.2e9;                                  // operating frequency in Hz
         this->max_neighbors = config["max_neighbors"].as<uint32_t>();
+        std::string routingAlgorithm = config["routing_algorithm"].as<std::string>();
+        this->use_real_routing_algorithm = config["use_real_routing_algorithm"].as<bool>();
 
         this->broadcast_window_size = Seconds(config["minimize_error_rate"]["broadcast_window_size"].as<double>());
 
@@ -308,8 +348,12 @@ public:
             yansWifiPhy.SetChannel(yansChannel.Create());
             yansWifiPhy.Set("TxPowerStart", DoubleValue(18));
             yansWifiPhy.Set("TxPowerEnd", DoubleValue(18));
+            yansWifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO);
+
 
             devices = wifi.Install(yansWifiPhy, mac, this->nodes);
+
+            yansWifiPhy.EnablePcap ("fake_neighborhood", devices);
 
         }
         else if (wifiType == "SpectrumWifiPhy")
@@ -335,11 +379,15 @@ public:
             spectrumWifiPhy.SetErrorRateModel(errorModelType);
             spectrumWifiPhy.Set("TxPowerStart", DoubleValue(14)); // dBm
             spectrumWifiPhy.Set("TxPowerEnd", DoubleValue(14));
+            spectrumWifiPhy.SetPcapDataLinkType (SpectrumWifiPhyHelper::DLT_IEEE802_11_RADIO);
 
             // Connect a callback that will save the pathloss value in an attribute every time it is calculated
             spectrumChannel->TraceConnectWithoutContext("PathLoss", MakeCallback(&FakeNeighborhood::SpectrumPathLossTrace, this));
 
             devices = wifi.Install(spectrumWifiPhy, mac, this->nodes);
+
+            spectrumWifiPhy.EnablePcap ("fake_neighborhood", devices);
+
         }
         else
         {
@@ -357,38 +405,67 @@ public:
         InternetStackHelper internet;
 
 
-        // Add AODV routing
-        // Ipv4ListRoutingHelper ipv4List;
-        // AodvHelper aodv;
-        // ipv4List.Add(aodv, 100);
-        // internet.SetRoutingHelper(ipv4List);
+        if (use_real_routing_algorithm)
+        {
+            if (routingAlgorithm == "OLSR")
+            {
+                // Add OLSR routing
+                Ipv4ListRoutingHelper ipv4List;
+                OlsrHelper olsr;
+                olsr.Set("HelloInterval", TimeValue(Seconds(0.5)));
+                olsr.Set("TcInterval", TimeValue(Seconds(1)));
+                ipv4List.Add(olsr, 100);
+                internet.SetRoutingHelper(ipv4List);
 
-        // Add OLSR routing
-        // Ipv4ListRoutingHelper ipv4List;
-        // OlsrHelper olsr;
-        // olsr.Set("HelloInterval", TimeValue(Seconds(0.1)));
-        // ipv4List.Add(olsr, 100);
-        // internet.SetRoutingHelper(ipv4List);
+
+                // Print routing table every 5 seconds
+                Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+                olsr.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+            }
+            else if (routingAlgorithm == "AODV")
+            {
+                // Add AODV routing
+                Ipv4ListRoutingHelper ipv4List;
+                AodvHelper aodv;
+                ipv4List.Add(aodv, 100);
+                internet.SetRoutingHelper(ipv4List);
         
-        // Add DSR routing (must be done after internet stack installation)
-        // DsrHelper dsr;
-        // DsrMainHelper dsrMain;
-        // dsrMain.Install(dsr, this->nodes);
+                // Print routing table every 5 seconds
+                Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+                aodv.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+            }
+            else if (routingAlgorithm == "DSDV")
+            {
+                // Add DSDV routing
+                DsdvHelper dsdv;
+                dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
+                dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
+                internet.SetRoutingHelper(dsdv);
+            }
+            else if (routingAlgorithm == "DSR")
+            {
+                // Add DSR routing (must be done after internet stack installation)
+                DsrHelper dsr;
+                DsrMainHelper dsrMain;
+                dsrMain.Install(dsr, this->nodes);
+            }
+            else 
+            {
+                RCLCPP_FATAL(this->get_logger(), "Unsupported routing algorithm %s", routingAlgorithm.c_str());
+                exit(EXIT_FAILURE);
+            }
 
-        // Add DSDV routing
-        // DsdvHelper dsdv;
-        // dsdv.Set("PeriodicUpdateInterval", TimeValue(Seconds(15)));
-        // dsdv.Set("SettlingTime", TimeValue(Seconds(6)));
-        // internet.SetRoutingHelper(dsdv);
+        }
+        else
+        {
+            Ipv4StaticRoutingHelper staticRouting;
+            internet.SetRoutingHelper(staticRouting);
+            
+            // Print routing table every 5 seconds
+            Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
+            staticRouting.PrintRoutingTableAllEvery(Seconds(5), routingStream);
+        }
 
-        // Ipv4ListRoutingHelper ipv4List;
-        Ipv4StaticRoutingHelper staticRouting;
-        // ipv4List.Add(staticRouting, 0);
-        internet.SetRoutingHelper(staticRouting);
-
-        // Print routing table every 5 seconds
-        Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
-        staticRouting.PrintRoutingTableAllEvery(Seconds(5), routingStream);
 
         // Actually install the internet stack on all nodes
         internet.Install(this->nodes);
@@ -734,6 +811,10 @@ public:
                             neighbors.push_back(std::make_pair(j, error_prob));
                             RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with error rate %f (%d/%d)", i, j, error_prob, this->broadcast_received_packets[i][j].size(), expected_packets_count);  
                         }
+                        else if (pseudoRoutingAlgo == "predefined_chain")
+                        {
+                            continue;
+                        }
                         else
                         {
                             RCLCPP_FATAL(this->get_logger(), "Pseudo routing algorithm %s not supported", pseudoRoutingAlgo);
@@ -760,14 +841,22 @@ public:
                     {
                         this->dijkstra_bottleneck(source, graph, dist, parent);
                         double cost = dist[sink_node_id];
-                        std::ofstream file;
-                        file.open(capacity_cost_out_file, std::ios::app);
-                        file << Simulator::Now().ToDouble(Time::MS) << "," << cost << std::endl;
-                        file.close();
+                        // std::ofstream file;
+                        // file.open(capacity_cost_out_file, std::ios::app);
+                        // file << Simulator::Now().ToDouble(Time::MS) << "," << cost << std::endl;
+                        // file.close();
                     }
                     else if (pseudoRoutingAlgo == "minimize_error_rate")
                     {
                         this->dijkstra_error_rate(source, graph, dist, parent);
+                    }
+                    else if (pseudoRoutingAlgo == "predefined_chain")
+                    {
+                        for (int i = 0; i < this->nodes.GetN()-1; i++)
+                        {
+                            parent.push_back(i+1);
+                        }
+                        parent[source] = -1;
                     }
                     else 
                     {
@@ -793,7 +882,10 @@ public:
                         continue;
                     }
 
-                    updateStaticIpv4Routes(path_list);
+                    if (!use_real_routing_algorithm)
+                    {
+                        updateStaticIpv4Routes(path_list);
+                    }
 
                     int curr = source;
                     // std::cout << "Path: " << source;
@@ -881,6 +973,7 @@ private:
     Time broadcast_flow_timeout;
     uint32_t max_neighbors;
     Time broadcast_window_size;
+    bool use_real_routing_algorithm;
 
     Ptr<PropagationLossModel> m_propagationLossModel;
 
@@ -901,6 +994,10 @@ private:
     bool save_compute_time;
     std::string m_computation_time_file;
     WallTimeProbe probe;
+
+    // save received mission packets (optional)
+    bool save_mission_packets;
+    std::string m_mission_packets_file;
 
     // Stats attributes (optional)
     Ptr<PacketCounterCalculator> missionTotalRx;
@@ -1020,6 +1117,24 @@ void FakeNeighborhood::PhyRxEndTrace(std::string context, Ptr<const Packet> pack
 void FakeNeighborhood::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
     RCLCPP_INFO(this->get_logger(), "Mission flow packet received");
+
+    if (this->save_mission_packets)
+    {
+        // print packet to file
+        myTimestampTag timestamp;
+        // Should never not be found since the sender is adding it, but
+        // you never know.
+        if (packet->FindFirstMatchingByteTag(timestamp))
+        {
+            Time tx = timestamp.GetTimestamp();
+            Time now = Simulator::Now();
+            Time delay = now - tx;
+
+            std::ofstream f(this->m_mission_packets_file, std::ios::app);
+            f << now.ToInteger(Time::US) << "," << delay.ToInteger(Time::US) << std::endl;
+            f.close();
+        }
+    }
 }
 
 /**
@@ -1039,8 +1154,8 @@ void FakeNeighborhood::flock_receiver_clbk(std::string context, Ptr<const Packet
 
     Time rxTime = Simulator::Now();
     double rxPow = this->pathlosses[std::stoi(context)][peer_id];
-    this->broadcast_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
 
+    this->broadcast_neighbors[std::stoi(context)][peer_id] = std::make_pair(rxPow, rxTime);
     this->broadcast_received_packets[std::stoi(context)][peer_id].push_back(rxTime);
 }
 

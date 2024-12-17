@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 6
+robots_number: 2
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -33,25 +33,27 @@ mission_flow:
   source_robot_ids: [1]
   sink_robot_id: 0
   port: 7777
-  packet_size: 64 # bytes
-  interval: 500000 # us
+  packet_size: 1024 # bytes
+  interval: 50000 # us
   timeout: 500000 # us
   start_time: 3.0 # s
   stop_time: 2000.0 # s
   flow_id: 1
+  save_packets: true
+
 
 broadcast_flow:
   enable: true
   port: 4000
   packet_size: 64 # bytes
-  interval: 100000 # us
+  interval: 250000 # us
   timeout: 500000 # us
   start_time: 1.0 # s
   stop_time: 2000.0 # s
   flow_id: 2
 
 # ******* NEIGHBORHOOD *******
-pseudo_routing_algorithm: 'minimize_error_rate' # [shortest_dist, capacity_bottleneck, minimize_error_rate] 
+pseudo_routing_algorithm: 'capacity_bottleneck' # [shortest_dist, capacity_bottleneck, minimize_error_rate] 
 
 minimize_error_rate:
   broadcast_window_size: 0.5  # s
@@ -61,7 +63,7 @@ minimize_error_rate:
 controller_publish_cmd: true
 
 # **** Constraints ****
-expected_deconnexion_distance: 150.0
+expected_deconnexion_distance: 130.0
 
 # **** Parameters ****
 VAT_undefined_flocking_parameters:
@@ -90,15 +92,15 @@ VAT_undefined_flocking_parameters:
 
 VAT_mission_flocking_parameters:
   v_flock: 1.0
-  v_max: 15
-  v_sec_max: 15
+  v_max: 200
+  v_sec_max: 10
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
   C_frict: 0.8
   v_frict: 0.63
   p_att: 0.08  # old 0.08
-  r_0_att: 40
+  r_0_att: 20
   p_rep: 0.13
   r_0_rep: 30
   a_shill: 53
@@ -167,8 +169,8 @@ secondary_objectives:
   # 0: [-30, 0, 10, true]
   # 1: [30, 200, 10, false]
 
-  0: [0, 0, 10, true]
-  1: [0, 200, 10, false]
+  0: [-100, 0, 10, true]
+  1: [100, 300, 10, false]
   # 2: [-50, 150, 10, false]
   # 3: [0, 150, 10, false]
 
@@ -186,7 +188,7 @@ distribution: uniform # [uniform, normal]
 numb_obst: 10
 radius_obst: 10
 radius_stdev_obst: 0
-height_obst: 10
+height_obst: 30
 arena_radius: 100
 arena_center_x: 0
 arena_center_y: 100
@@ -243,9 +245,9 @@ cmd_loop_period: 100000 # us
 
 # Simulation timings. BE CAREFUL : sync_window must be divisible by phy_step_size, phy_step_size must be divisible by net_step_size 
 # and phy_step_size must a multiple of step_length
-sync_window: 5000 # in us | the duration between two position exchange and clock synchronization between physics and network simulators
-phy_step_size: 5000 # in us | the duration of 1 physics simulator simulation loop
-net_step_size: 5000 # in us
+sync_window: 2000 # in us | the duration between two position exchange and clock synchronization between physics and network simulators
+phy_step_size: 2000 # in us | the duration of 1 physics simulator simulation loop
+net_step_size: 2000 # in us
 
 print_debug: true
 

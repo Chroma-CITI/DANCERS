@@ -137,14 +137,15 @@ public:
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
-        // ========================= COMPUTATION TIME SAVING =========================
+        // ========================= OUTPUT FILES =========================
         this->save_compute_time = config["save_compute_time"].as<bool>();
+
+        std::string experience_name = config["experience_name"].as<std::string>();
 
         if (this->save_compute_time)
         {
 
             // Create a folder based on the experience name, if not existant already
-            std::string experience_name = config["experience_name"].as<std::string>();
             if (boost::filesystem::create_directories(this->m_ros_ws_path + "/data/" + experience_name))
             {
                 RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
@@ -168,10 +169,46 @@ public:
                 {
                     this->m_computation_time_file = temp_path;
                 }
-            }            
+            }
+
 
             // initialize the output file with headers
             this->probe = WallTimeProbe(this->m_computation_time_file);
+        }
+
+        this->save_mission_packets = config["mission_flow"]["save_packets"].as<bool>();
+        if (this->save_mission_packets)
+        {
+            // Create a folder based on the experience name, if not existant already
+            if (boost::filesystem::create_directories(this->m_ros_ws_path + "/data/" + experience_name))
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Using existing data folder for this experiment");
+            }
+
+            // Define the output file name, based on the existing files in the experience folder (incremental)
+            std::string temp_path;
+            int i = 1;
+            while (this->m_mission_packets_file.empty())
+            {
+                temp_path = this->m_ros_ws_path + "/data/" + experience_name + "/mission_received_packets_" + std::to_string(i) + ".csv";
+                if (boost::filesystem::exists(temp_path))
+                {
+                    i++;
+                }
+                else
+                {
+                    this->m_mission_packets_file = temp_path;
+                }
+            }
+
+            // Write headers
+            std::ofstream f(this->m_mission_packets_file, std::ios::app);
+            f << "rcv_time(us),delay(us)" << std::endl;
+            f.close();
         }
 
         // ========================= NS3 =========================
@@ -798,6 +835,10 @@ private:
     std::string m_computation_time_file;
     WallTimeProbe probe;
 
+    // save received mission packets (optional)
+    bool save_mission_packets;
+    std::string m_mission_packets_file;
+
     // Stats attributes (optional)
     Ptr<PacketCounterCalculator> missionTotalRx;
     Ptr<PacketCounterCalculator> missionTotalTx;
@@ -889,6 +930,24 @@ void AdhocChainFlocking::PhyRxEndTrace(std::string context, Ptr<const Packet> pa
 void AdhocChainFlocking::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
     RCLCPP_INFO(this->get_logger(), "Mission flow packet received");
+
+    if (this->save_mission_packets)
+    {
+        // print packet to file
+        myTimestampTag timestamp;
+        // Should never not be found since the sender is adding it, but
+        // you never know.
+        if (packet->FindFirstMatchingByteTag(timestamp))
+        {
+            Time tx = timestamp.GetTimestamp();
+            Time now = Simulator::Now();
+            Time delay = now - tx;
+
+            std::ofstream f(this->m_mission_packets_file, std::ios::app);
+            f << now.ToInteger(Time::US) << "," << delay.ToInteger(Time::US) << std::endl;
+            f.close();
+        }
+    }
 }
 
 void AdhocChainFlocking::mission_flow_sender_clbk(Ptr<const Packet> packet)
