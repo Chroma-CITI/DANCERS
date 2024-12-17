@@ -70,6 +70,9 @@ VAT_undefined_flocking_parameters:
   v_flock: 0.5
   v_max: 3
   v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
@@ -81,7 +84,7 @@ VAT_undefined_flocking_parameters:
   r_0_rep: 20
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
+  r_0_shill: 1.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
@@ -92,8 +95,11 @@ VAT_undefined_flocking_parameters:
 
 VAT_mission_flocking_parameters:
   v_flock: 1.0
-  v_max: 200
-  v_sec_max: 10
+  v_max: 15
+  v_sec_max: 2.0
+  r_0_sec: 4.0
+  v_sec_max_path: 15
+  r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
@@ -105,7 +111,7 @@ VAT_mission_flocking_parameters:
   r_0_rep: 30
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
+  r_0_shill: 1.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
@@ -115,6 +121,9 @@ VAT_potential_flocking_parameters:
   v_flock: 0.5
   v_max: 3
   v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
@@ -126,7 +135,7 @@ VAT_potential_flocking_parameters:
   r_0_rep: 20
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
+  r_0_shill: 1.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
@@ -136,6 +145,9 @@ VAT_idle_flocking_parameters:
   v_flock: 0.5
   v_max: 3
   v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
@@ -147,11 +159,42 @@ VAT_idle_flocking_parameters:
   r_0_rep: 20
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
+  r_0_shill: 1.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
   use_deconnexion_distance_instead_of_p_att: false
+
+# ******* LEADER PATH PLANNER *******
+# When true, the secondary_objectives will be reached trough a A* start path planning
+# When false, the agent will be attract by a direct force towards the goal.
+use_planner: true
+
+# Distance at which the planner will stop looking for closer grid cells.
+goal_radius_tolerance: 1.0
+
+# If the distance between the agent and its path is greater than distance_to_path_tolerance, the agent will replan a path.
+distance_to_path_tolerance: 3.0
+
+# Distance ahead of the closest point on the path that agent will be attract to. Similar to the carrot on a stick.
+lookup_ahead_pursuit_distance: 5.0
+
+# **** Occupancy grid for the planner ****
+
+# Heigh of the grid in the global frame. 
+grid_altitude: 10.0
+
+# The size of the map is based on the smallest x and y position to the 
+# largest x and y positions from obstalces and secondary objectives.
+# The map inflation is a padding in meter to add around those dimensions.
+map_inflation: 20.0
+
+# Extra size to add on each size of obstacles for safe navigation. 
+obstacle_inflation: 2.5
+
+# Resolution in meter/cell of the occupancy grid.
+map_resolution: 0.5
+
 
 # ******* PRE-PLANNED FLIGHT *******
 circle_parameters:
@@ -202,37 +245,36 @@ buildings:
   #   size_y: 20
 
 # CORRIDOR
-  # - id: 1
-  #   x: -50
-  #   y: 0
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 300
-  # - id: 2
-  #   x: 50
-  #   y: -45
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 210
-  # - id: 3
-  #   x: 5
-  #   y: 125
-  #   height: 20
-  #   size_x: 60
-  #   size_y: 50
-  # - id: 4
-  #   x: 10
-  #   y: 200
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 100
-  # - id: 5
-  #   x: 100
-  #   y: 150
-  #   height: 20
-  #   size_x: 50
-  #   size_y: 200
-
+- id: 1
+  x: -50
+  y: 0
+  height: 20
+  size_x: 50
+  size_y: 300
+- id: 2
+  x: 50
+  y: -45
+  height: 20
+  size_x: 50
+  size_y: 210
+- id: 3
+  x: 5
+  y: 125
+  height: 20
+  size_x: 60
+  size_y: 50
+- id: 4
+  x: 10
+  y: 200
+  height: 20
+  size_x: 50
+  size_y: 100
+- id: 5
+  x: 100
+  y: 150
+  height: 20
+  size_x: 50
+  size_y: 200
 # ******* GAZEBO *******
 
 world_sdf_path: /src/worlds/default.sdf

@@ -15,7 +15,16 @@
 #include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 
+#include <nav_msgs/msg/occupancy_grid.hpp>
+#include <nav_msgs/msg/path.hpp>
+
+#include <geometry_msgs/msg/pose_array.hpp>
+
+#include "occupancy_grid.hpp"
+#include "grid_path_planner.hpp"
+
 using namespace std::placeholders;
+using namespace std::chrono_literals;
 
 class VATControllerNode : public rclcpp::Node
 {
@@ -42,8 +51,13 @@ class VATControllerNode : public rclcpp::Node
             // Initialize obstacles
             obstaclesInitialization(config);
 
+            std::map<int, Eigen::Vector3d> secondary_objectives = getAgentSecondaryObjective(config);
+
+            // Initialize the 
+            occupancyGridAndPlannerInitialization(config, obstacles_, secondary_objectives);
+
             // Initialize the controllers
-            agentControllerInitialization(config);
+            agentControllerInitialization(config, secondary_objectives);
 
             should_controller_publish_cmd_ = config["controller_publish_cmd"].as<bool>();
 
@@ -59,6 +73,15 @@ class VATControllerNode : public rclcpp::Node
         }
 
     private:
+        /**
+         * @brief Structure combining the a path planner to its ROS publisher.
+         */
+        struct PlannerAndPublisher
+        {
+            std::shared_ptr<GridPathPlanner> path_planner_;
+            rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr publisher_;
+        };
+
         /**
          * @brief Flag that indicates if the controller should publish its service respons on a topic.
          * Mainly used for debugging. 
@@ -95,6 +118,21 @@ class VATControllerNode : public rclcpp::Node
         rclcpp::Publisher<dancers_msgs::msg::VelocityHeadingArray>::SharedPtr cmd_publisher_;
 
         /**
+         * @brief Publisher that publishes the occupancy grid of the obstacles.
+         */
+        rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_grid_publisher_;
+
+        /**
+         * @brief Publisher that publishes the pose of the waypoints of the path planners.
+         */
+        rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr waypoint_publisher_;
+
+        /**
+         * @brief List of all the planners and their corresponding publisher.
+         */
+        std::vector<PlannerAndPublisher> path_planners_and_pub_;
+
+        /**
          * @brief Map containing the controllers for each agent. The key is the agent's id. 
          */
         std::vector<std::unique_ptr<VATController>> controllers_;
@@ -103,6 +141,21 @@ class VATControllerNode : public rclcpp::Node
          * @brief Obstacle list to avoid. Used in the shillTerm().
          */
         std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles_;
+
+        /**
+         * @brief 2D Occupancy grid of the obstacles.
+         */
+        std::shared_ptr<OccupancyGrid2D> occupancy_grid_ptr_;
+
+        /**
+         * @brief Path planner in the associated occupancy grid.
+         */
+        std::shared_ptr<GridPathPlanner> path_planner_;
+
+        /**
+         * @brief Timer used to periodically call the publisher of the occupancy grid.
+         */
+        rclcpp::TimerBase::SharedPtr occupancy_grid_pub_timer_;
 
         /**
          * @brief Callback that computes all the desired velocities of a group of agent given their self states, neighbor states and obstacles.
@@ -173,6 +226,188 @@ class VATControllerNode : public rclcpp::Node
         }
 
         /**
+         * @brief Initialize the 2D occupancy grid with obstacles where its size is 
+         * determined by the obstacles and secondary objectives position plus a buffer.
+         * Also initialize a global plath planner using the occupancy grid. 
+         * @param obstacles List of obstacles to put in the occupancy grid.
+         * @param secondary_objectives List of all the secondary objectives
+         */
+        void occupancyGridAndPlannerInitialization(const YAML::Node& config,
+                                         std::shared_ptr<std::vector<cuboid::obstacle_t>> obstacles,
+                                         std::map<int, Eigen::Vector3d>& secondary_objectives)
+        {
+            if (obstacles)
+            {
+                float min_relevant_x = 0.0f;
+                float max_relevant_x = 0.0f;
+
+                float min_relevant_y = 0.0f;
+                float max_relevant_y = 0.0f;
+
+                if (obstacles->size() != 0)
+                {
+                    min_relevant_x = (*obstacles)[0].center[0] - (*obstacles)[0].size_x/2;
+                    max_relevant_x = (*obstacles)[0].center[0] + (*obstacles)[0].size_x/2;
+
+                    min_relevant_y = (*obstacles)[0].center[1] - (*obstacles)[0].size_y/2;
+                    max_relevant_y = (*obstacles)[0].center[1] + (*obstacles)[0].size_y/2; 
+                }
+
+                for(auto secondary_objective = secondary_objectives.begin(); secondary_objective != secondary_objectives.end();  secondary_objective++)
+                {
+                    Eigen::Vector3d &objective_position = secondary_objective->second;
+
+                    if ((obstacles->size() == 0) && secondary_objective == secondary_objectives.begin())
+                    {
+                        min_relevant_x = objective_position[0];
+                        max_relevant_x = objective_position[0];
+
+                        min_relevant_y = objective_position[1];
+                        max_relevant_y = objective_position[1]; 
+                    }
+                    else
+                    {
+                        if (objective_position[0] < min_relevant_x)
+                        {
+                            min_relevant_x = objective_position[0];
+                        }
+                        if (max_relevant_x < objective_position[0])
+                        {
+                            max_relevant_x = objective_position[0];
+                        }
+                        if (objective_position[1] < min_relevant_y)
+                        {
+                            min_relevant_y = objective_position[1];
+                        }
+                        if (max_relevant_y < objective_position[1])
+                        {
+                            max_relevant_y = objective_position[1];
+                        }
+                    }
+                }
+
+                for (int obstacle_index = 1; obstacle_index < (*obstacles).size(); obstacle_index++)
+                {
+                    const cuboid::obstacle_t &obstacle = (*obstacles)[obstacle_index];
+
+                    if ((obstacle.center[0] - obstacle.size_x/2) < min_relevant_x)
+                    {
+                        min_relevant_x = obstacle.center[0] - obstacle.size_x/2;
+                    }
+                    if (max_relevant_x < (obstacle.center[0] + obstacle.size_x/2))
+                    {
+                        max_relevant_x = obstacle.center[0] + obstacle.size_x/2;
+                    }
+                    if ((obstacle.center[1] - obstacle.size_y/2) < min_relevant_y)
+                    {
+                        min_relevant_y = obstacle.center[1] - obstacle.size_y/2;
+                    }
+                    if (max_relevant_y < (obstacle.center[1] + obstacle.size_y/2))
+                    {
+                        max_relevant_y = obstacle.center[1] + obstacle.size_y/2;
+                    }
+                }
+
+                float grid_altitude = 10.0f;
+                if(YAML::Node altitude_param = config["grid_altitude"])
+                {
+                    grid_altitude = static_cast<float>(altitude_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param grid_altitude is not set. The default value of "<<grid_altitude << " is used.");
+                }
+
+                float obstacle_inflation = 0.0f;
+                if(YAML::Node obstacle_inflation_param = config["obstacle_inflation"])
+                {
+                    obstacle_inflation = static_cast<float>(obstacle_inflation_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param obstacle_inflation is not set. The default value of "<<obstacle_inflation << " is used.");
+                }
+
+                float map_inflation = 20.0f;
+                if(YAML::Node map_inflation_param = config["map_inflation"])
+                {
+                    map_inflation = static_cast<float>(map_inflation_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param map_inflation is not set. The default value of "<< map_inflation << " is used.");
+                }
+
+                float map_resolution = 0.5f;
+                if(YAML::Node map_resolution_param = config["map_resolution"])
+                {
+                    float map_resolution = static_cast<float>(map_resolution_param.as<double>());  
+                }
+                else
+                {
+                    RCLCPP_WARN_STREAM(this->get_logger(), "The param map_resolution is not set. The default value of "<< map_resolution << " is used.");
+                }
+
+                Eigen::Vector3d origin = {min_relevant_x -map_inflation, min_relevant_y - map_inflation, grid_altitude};
+                Eigen::Vector3d opposite_corner = {max_relevant_x + map_inflation, max_relevant_y + map_inflation, grid_altitude};
+
+                occupancy_grid_ptr_ = std::make_shared<OccupancyGrid2D>(origin, opposite_corner, map_resolution, obstacle_inflation, OccupancyGrid2D::CellStatus::Free);
+                occupancy_grid_ptr_->populateGridFromObstacles(obstacles);
+                
+                path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
+
+                occupancy_grid_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("flocking_controller_occupancy_grid", 10);
+                occupancy_grid_pub_timer_ = this->create_wall_timer(100ms, std::bind(&VATControllerNode::occupancy_grid_and_path_time_callback, this));
+            }
+        }
+
+        void occupancy_grid_and_path_time_callback()
+        {
+            if(occupancy_grid_ptr_ && occupancy_grid_publisher_)
+            {
+                geometry_msgs::msg::PoseArray waypoint_array;
+                waypoint_array.header.stamp = this->now();
+                waypoint_array.header.frame_id = "map";
+
+
+                nav_msgs::msg::OccupancyGrid grid_msg = this->occupancy_grid_ptr_->getOccupancyGridMsg();
+                // Add missing time in the message
+                grid_msg.header.stamp = this->now();
+                grid_msg.info.map_load_time = this->now();
+
+                for (PlannerAndPublisher& planner_and_pub: path_planners_and_pub_)
+                {
+                    nav_msgs::msg::Path path = planner_and_pub.path_planner_->getPath();
+                    path.header.stamp = this->now();
+                    path.header.frame_id = "map";
+                    for(geometry_msgs::msg::PoseStamped& pose: path.poses)
+                    {
+                        pose.header.stamp =this->now();
+                        pose.header.frame_id = "map";
+                    }
+                    planner_and_pub.publisher_->publish(path);
+                    
+                    PathPlanner::Waypoint waypoint = planner_and_pub.path_planner_->getCurrentWaypoint();
+                    geometry_msgs::msg::Pose waypoint_pose;
+                    waypoint_pose.position.x = waypoint.position[0];
+                    waypoint_pose.position.y = waypoint.position[1];
+                    waypoint_pose.position.z = waypoint.position[2];
+                    waypoint_array.poses.push_back(waypoint_pose);
+                }
+
+                if(occupancy_grid_publisher_)
+                {
+                    occupancy_grid_publisher_->publish(grid_msg);
+                }
+                if(waypoint_publisher_)
+                {
+                    waypoint_publisher_->publish(waypoint_array);
+                }
+            }
+            
+        }
+
+        /**
          * @brief Gets VAT parameters from a a given YAML list name and populate a VAT_params_t struct.
          * @param config YAML config to fetch the list from
          * @param vat_params_config_list_name Variable name of the YAML list containing the VAT parameters
@@ -187,6 +422,9 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.v_flock = config[vat_params_config_list_name]["v_flock"].as<double>();
                 vat_params.v_max = config[vat_params_config_list_name]["v_max"].as<double>();
                 vat_params.v_sec_max = config[vat_params_config_list_name]["v_sec_max"].as<double>();
+                vat_params.r_0_sec = config[vat_params_config_list_name]["r_0_sec"].as<double>();
+                vat_params.v_sec_max_path = config[vat_params_config_list_name]["v_sec_max_path"].as<double>();
+                vat_params.r_0_sec_path = config[vat_params_config_list_name]["r_0_sec_path"].as<double>();
                 vat_params.a_frict = config[vat_params_config_list_name]["a_frict"].as<double>();
                 vat_params.p_frict = config[vat_params_config_list_name]["p_frict"].as<double>();
                 vat_params.r_0_frict = config[vat_params_config_list_name]["r_0_frict"].as<double>();
@@ -202,6 +440,7 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.use_deconnexion_distance_instead_of_p_att = config[vat_params_config_list_name]["use_deconnexion_distance_instead_of_p_att"].as<bool>();
                 if (vat_params.use_deconnexion_distance_instead_of_p_att)
                 {
+                    float v_sec_max = (config["use_planner"].as<bool>())? vat_params.v_sec_max_path : vat_params.v_sec_max;
                     vat_params.expected_deconnexion_distance = config["expected_deconnexion_distance"].as<double>();
                     const double relative_distance = vat_params.expected_deconnexion_distance - vat_params.r_0_att;
                     if (relative_distance > 0.0)
@@ -228,18 +467,29 @@ class VATControllerNode : public rclcpp::Node
         }
 
         /**
-         * @brief Initialize the controller of each agent based on a configuration file.
-         * @param config YAML configuration stucture containing the obstacles.
+         * @brief Get the secondary objectives serving as end goal for specified agents from the config file.
+         * @param config YAML configuration stucture containing the secondary objectives.
+         * @return A map containing the secondary objectives where the key is the agent id and the value the cuboid obstacle.
          */
-        void agentControllerInitialization(YAML::Node& config)
+        std::map<int, Eigen::Vector3d> getAgentSecondaryObjective(YAML::Node& config)
         {
             // Get secondary objectives from config files
             std::map<int, Eigen::Vector3d> secondary_objectives;
             for (auto goal : config["secondary_objectives"])
             {
-                secondary_objectives.insert({goal.first.as<int>(), Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>())});
+                Eigen::Vector3d objective = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
+                secondary_objectives.insert({goal.first.as<int>(), objective});
             }
+            return  secondary_objectives;
+        }
 
+        /**
+         * @brief Initialize the controller of each agent based on a configuration file.
+         * @param config YAML configuration stucture containing the obstacles.
+         * @param secondary_objectives Map of secondary objective positions for agent specified through their id in the keys of the map.
+         */
+        void agentControllerInitialization(YAML::Node& config, std::map<int, Eigen::Vector3d>& secondary_objectives)
+        {
             // Get the fixed altitude option
             std::optional<float> fixed_altitude;
             if (YAML::Node altitude_param = config["target_altitude"]) 
@@ -247,6 +497,8 @@ class VATControllerNode : public rclcpp::Node
                 fixed_altitude = altitude_param.as<float>();
             }
 
+            // Verify if planner should be used.
+            bool use_planner = config["use_planner"].as<bool>();
             // Initialize controllers
             const int number_of_agents = config["robots_number"].as<int>();
             for (int agent_id =0; agent_id < number_of_agents; agent_id++)
@@ -260,6 +512,15 @@ class VATControllerNode : public rclcpp::Node
                 populateVATParametersFromConfig(config,"VAT_potential_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Potential]);
                 populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
 
+                // Planner configuration
+                options.path_planner_params_.use_planner_ = use_planner;
+                if (options.path_planner_params_.use_planner_)
+                {
+                    options.path_planner_params_.goal_radius_tolerance_ = static_cast<float>(config["goal_radius_tolerance"].as<double>());
+                    options.path_planner_params_.distance_to_path_tolerance_ = static_cast<float>(config["distance_to_path_tolerance"].as<double>());
+                    options.path_planner_params_.lookup_ahead_pursuit_distance_ = static_cast<float>(config["lookup_ahead_pursuit_distance"].as<double>());
+                }
+
                 // Get the altitude parameter
                 options.desired_fixed_altitude = fixed_altitude;
 
@@ -267,10 +528,25 @@ class VATControllerNode : public rclcpp::Node
                 if (secondary_objectives.find(agent_id) != secondary_objectives.end())
                 {
                     options.secondary_objective = secondary_objectives[agent_id];
-                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);  
+                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent_id << " : " << secondary_objectives[agent_id].transpose() << std::endl);
+
+                    if (options.path_planner_params_.use_planner_)
+                    {
+                        PlannerAndPublisher planner_and_publisher;
+                        planner_and_publisher.path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
+                        std::string topic_prefix = "agent_path" + std::to_string(agent_id);
+                        planner_and_publisher.publisher_ = this->create_publisher<nav_msgs::msg::Path>(topic_prefix, 4);
+                        
+                        options.path_planner_params_.path_planner_ = planner_and_publisher.path_planner_;
+                        path_planners_and_pub_.push_back(planner_and_publisher);
+                    }
                 }
 
                 controllers_.push_back(std::make_unique<VATController>(options));
+            }
+            if(use_planner)
+            {
+                waypoint_publisher_ = this->create_publisher<geometry_msgs::msg::PoseArray>("waypoint_poses",5);
             }
         }
 };
