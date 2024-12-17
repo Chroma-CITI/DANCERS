@@ -177,15 +177,15 @@ void GridPathPlanner::addChildrenNodesToQueue(std::shared_ptr<SearchNode> curren
             {
                 OccupancyGrid2D::CellStatus child_status = child_status_opt.value();
 
-                if(child_status == OccupancyGrid2D::CellStatus::Free)
+                if(child_status == OccupancyGrid2D::CellStatus::Free || child_status == OccupancyGrid2D::CellStatus::Inflated)
                 {
                     unsigned int unique_id = getUniqueIdOfCoordinates(potential_child_coordinates);
-                    
+
                     // Verify if the cell was already visited.
                     if(existing_nodes_map.find(unique_id) != existing_nodes_map.end())
                     {
                         std::shared_ptr<SearchNode> potential_child_ptr = existing_nodes_map[unique_id];
-                        float cost = computeCostFunction(current_node ,potential_child_ptr, goal_position);
+                        float cost = computeCostFunction(current_node ,potential_child_ptr, goal_position, child_status);
                         
                         // If the new cost is better, replace existant parent and cost.
                         if(cost < potential_child_ptr->cost_)
@@ -200,7 +200,7 @@ void GridPathPlanner::addChildrenNodesToQueue(std::shared_ptr<SearchNode> curren
                         std::shared_ptr<SearchNode> potential_child_ptr = std::make_shared<SearchNode>(potential_child_coordinates, 
                                                         occupancy_grid_ptr_->getCenterOfCellFromCoordinates(potential_child_coordinates));
                         potential_child_ptr->parent_ = current_node;
-                        potential_child_ptr->cost_ = computeCostFunction(current_node ,potential_child_ptr, goal_position);
+                        potential_child_ptr->cost_ = computeCostFunction(current_node ,potential_child_ptr, goal_position, child_status);
 
                         processing_node_queue.push(potential_child_ptr);
                         existing_nodes_map.insert({unique_id, potential_child_ptr});
@@ -212,7 +212,7 @@ void GridPathPlanner::addChildrenNodesToQueue(std::shared_ptr<SearchNode> curren
 }
 
 float GridPathPlanner::computeCostFunction(std::shared_ptr<const SearchNode> source_node, std::shared_ptr<const SearchNode> target_node,
-                            const Eigen::Vector3d& goal_position)
+                            const Eigen::Vector3d& goal_position, OccupancyGrid2D::CellStatus target_node_status)
 {
     float cost = source_node->cost_; 
     
@@ -221,6 +221,9 @@ float GridPathPlanner::computeCostFunction(std::shared_ptr<const SearchNode> sou
 
     // Distance heuristic
     cost += (goal_position - target_node->center_of_cell_pos_).norm();
+
+    // Add cost if the status of the cell is inflatec
+    cost += (target_node_status == OccupancyGrid2D::CellStatus::Inflated)? 100.0f: 0.0f;
 
     return cost;
 }

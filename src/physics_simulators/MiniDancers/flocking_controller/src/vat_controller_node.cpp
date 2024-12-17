@@ -464,7 +464,6 @@ class VATControllerNode : public rclcpp::Node
                 RCLCPP_WARN_STREAM(this->get_logger(), "Failed to read at least one VAT flocking parameter of the list " << vat_params_config_list_name <<", using ALL default VAT params.");
                 vat_params = default_vat_params_;
             }
-            std::cout<<"Post vat params config"<<std::endl;
         }
 
         /**
@@ -500,7 +499,6 @@ class VATControllerNode : public rclcpp::Node
 
             // Verify if planner should be used.
             bool use_planner = config["use_planner"].as<bool>();
-            std::cout<<"Pre Agent config"<<std::endl;
             // Initialize controllers
             const int number_of_agents = config["robots_number"].as<int>();
             for (int agent_id =0; agent_id < number_of_agents; agent_id++)
@@ -550,7 +548,6 @@ class VATControllerNode : public rclcpp::Node
             {
                 waypoint_publisher_ = this->create_publisher<geometry_msgs::msg::PoseArray>("waypoint_poses",5);
             }
-            std::cout<<"Post Agent config"<<std::endl;
         }
 };
 

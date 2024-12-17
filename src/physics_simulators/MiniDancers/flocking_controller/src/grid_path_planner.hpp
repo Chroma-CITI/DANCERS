@@ -36,7 +36,6 @@ class GridPathPlanner: public PathPlanner
                 inline SearchNode(const OccupancyGrid2D::CellCoordinates& coordinates,const Eigen::Vector3d& center_of_cell_pos): 
                           coordinates_(coordinates), center_of_cell_pos_(center_of_cell_pos) {}
 
-
                 /**
                  * @brief Coordinates of a cell in an occupancy grid that this class represents for the search algorithm.
                  */
@@ -151,14 +150,16 @@ class GridPathPlanner: public PathPlanner
         /**
          * @brief Computes the cost of going from a source node towards a target node. The cost of the target is the cost 
          * of the source node + the distance between the center of the source node cell and the target cell + an heuristic which
-         * is the euclidean distance between the target node and the goal.
+         * is the euclidean distance between the target node and the goal + an internal cost if the status of the cell is 
+         * OccupancyGrid2D::CellStatus::Inflated.
          * @param source_node Node to compute the cost from.
          * @param target_node Node for which the cost is computed for.
          * @param goal_position Position of the goal position to compute the heuristic.
+         * @param target_node_status Status of the target node that could add an extra cost.
          * @return The cost of going to the the target_node from the source node.
          */
         float computeCostFunction(std::shared_ptr<const SearchNode> source_node, std::shared_ptr<const SearchNode> target_node,
-                                  const Eigen::Vector3d& goal_position);
+                                  const Eigen::Vector3d& goal_position, OccupancyGrid2D::CellStatus target_node_status);
 
         /**
          * @brief Transforms a Eigen::Vector3d to a ROS geometry pose message.

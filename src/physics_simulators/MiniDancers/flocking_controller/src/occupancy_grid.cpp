@@ -31,7 +31,6 @@ OccupancyGrid2D::OccupancyGrid2D(const Eigen::Vector3d& origin,
 
 std::optional<int> OccupancyGrid2D::getIndexFromDistance(const float distance, Axis axis)
 {
-
     int cell_index = static_cast<int>(distance/cell_side_size_);
 
     if (cell_index < 0)
@@ -127,14 +126,24 @@ void OccupancyGrid2D::populateGridFromObstacles(std::shared_ptr<std::vector<cubo
             {
                 Eigen::Vector3d obstacle_center_in_grid_frame = obstacle.center-map_origin_;
 
-                int min_x = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]-obstacle.size_x/2 - obstacle_inflation_,
-                                                        Axis::X);
-                int max_x = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]+obstacle.size_x/2 + obstacle_inflation_,
+                int min_x = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]-obstacle.size_x/2, Axis::X);
+
+                int min_x_obstacles = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]-obstacle.size_x/2 - obstacle_inflation_,
                                                         Axis::X);
                 
-                int min_y = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]-obstacle.size_y/2 - obstacle_inflation_,
-                                                        Axis::Y);
-                int max_y = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]+obstacle.size_y/2 + obstacle_inflation_,
+                int max_x = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]+obstacle.size_x/2, Axis::X);
+
+                int max_x_obstacles = getClosestIndexFromDistance(obstacle_center_in_grid_frame[0]+obstacle.size_x/2 + obstacle_inflation_,
+                                                        Axis::X);
+                
+                int min_y = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]-obstacle.size_y/2, Axis::Y);
+
+                int min_y_obstacles = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]-obstacle.size_y/2 - obstacle_inflation_,
+                                                        Axis::Y);   
+
+                int max_y = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]+obstacle.size_y/2, Axis::Y);
+
+                int max_y_obstacles = getClosestIndexFromDistance(obstacle_center_in_grid_frame[1]+obstacle.size_y/2 + obstacle_inflation_,
                                                         Axis::Y);
 
                 for(int x_index = min_x; x_index < max_x; x_index++)
@@ -143,6 +152,54 @@ void OccupancyGrid2D::populateGridFromObstacles(std::shared_ptr<std::vector<cubo
                     {
                         const std::lock_guard<std::mutex> lock(grid_access_mutex_);
                         grid_[x_index][y_index].status = CellStatus::Occupied;
+                    }
+                }
+
+                for (int x_index = min_x_obstacles; x_index < min_x; x_index++)
+                {
+                    for(int y_index = min_y_obstacles; y_index < max_y_obstacles; y_index++)
+                    {
+                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
+                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
+                        {
+                            grid_[x_index][y_index].status = CellStatus::Inflated;
+                        }
+                    }
+                }
+
+                for (int x_index = max_x_obstacles; max_x <= x_index; x_index--)
+                {
+                    for(int y_index = min_y_obstacles; y_index < max_y_obstacles; y_index++)
+                    {
+                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
+                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
+                        {
+                            grid_[x_index][y_index].status = CellStatus::Inflated;
+                        }
+                    }
+                }
+
+                for(int y_index = min_y_obstacles; y_index <= min_y; y_index++)
+                {
+                    for (int x_index = min_x_obstacles; x_index < max_x_obstacles; x_index++)
+                    {
+                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
+                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
+                        {
+                            grid_[x_index][y_index].status = CellStatus::Inflated;
+                        }
+                    }
+                }
+
+                for(int y_index = max_y_obstacles;  max_y <= y_index; y_index--)
+                {
+                    for (int x_index = min_x_obstacles; x_index < max_x_obstacles; x_index++)
+                    {
+                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
+                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
+                        {
+                            grid_[x_index][y_index].status = CellStatus::Inflated;
+                        }
                     }
                 }
             }
@@ -241,6 +298,10 @@ nav_msgs::msg::OccupancyGrid OccupancyGrid2D::getOccupancyGridMsg()
             else if(grid_[x_index][y_index].status == CellStatus::Occupied)
             {
                 grid_msg.data.emplace_back(1);
+            }
+            else if(grid_[x_index][y_index].status == CellStatus::Inflated)
+            {
+                grid_msg.data.emplace_back(100);
             }
             else
             {
