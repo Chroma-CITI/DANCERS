@@ -129,6 +129,11 @@ class VATController
          */
         const float altitude_deadband_ = 0.5;
 
+        /**
+         * @brief A list of neighbors that is a snapshot of the last known positions of our neighbors. It is used to navigate back to their position in case of complete lost of connectivity
+         */
+        std::vector<std::shared_ptr<const agent_util::AgentState_t>> last_known_neighbors_;
+
         /* ----------- Flocking behaviors ----------- */
         /**
          * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.

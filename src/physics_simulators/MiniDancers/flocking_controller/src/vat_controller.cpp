@@ -24,6 +24,11 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> potential_neighbors;
     std::vector<std::shared_ptr<const agent_util::AgentState_t>> idle_neighbors;
 
+    if (!self_agent.neighbors.empty())
+    {
+        this->last_known_neighbors_.clear();
+    }
+
     //std::cout<<"Current agent ID: " << id_ << std::endl;
     for (auto neighbor : self_agent.neighbors)
     {
@@ -40,6 +45,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Mission)
             {
                 mission_neighbors.push_back(agent_list[neighbor.id]);
+                this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
                 //std::cout<<" Role: Mission"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
@@ -49,6 +55,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Potential)
             {
                 potential_neighbors.push_back(agent_list[neighbor.id]);
+                this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
                 //std::cout<<" Role: Potential"<<std::endl;
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
@@ -59,6 +66,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
             {
                 //std::cout<<" Role: Idle"<<std::endl;
                 idle_neighbors.push_back(agent_list[neighbor.id]);
+                this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
                 if (id_ == DEBUG_ID_TO_LOG)
                 {
                     //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Idle"<<std::endl;
@@ -69,11 +77,12 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
 
     if (self_agent.role_type == agent_util::AgentRoleType::Undefined)
     {
-        // TODO: Find behavior for undefined roles
         if (id_ == DEBUG_ID_TO_LOG)
         {
             //std::cout<<"Self role: Undefined"<<std::endl;
         }
+        // In this role, if we the neighbor list of the agent is not empty, it represents the last neighborhood known by the agent, before it switched to undefined role. In this case, we are attracted by our last neighborhood.
+        summed_velocity += attractionTerm(self_agent, this->last_known_neighbors_, VAT_params_[self_agent.role_type]);
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Mission)
     {     
@@ -150,8 +159,8 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     // Obstacles avoidance
     summed_velocity += shillTerm(self_agent, obstacles, VAT_params_[self_agent.role_type]);
 
-    // Verify if the agent has a secondary objective.
-    if (secondary_objective_.has_value())
+    // Verify if the agent has a secondary objective. Deactivate the secondary objective if we are undefined.
+    if (secondary_objective_.has_value() && self_agent.role_type != agent_util::AgentRoleType::Undefined)
     {
         summed_velocity += secondaryObjective(self_agent, secondary_objective_.value(), VAT_params_[self_agent.role_type]);
     }
@@ -213,12 +222,12 @@ Eigen::Vector3d VATController::attractionTerm(const agent_util::AgentState_t& se
 
     for (std::shared_ptr<const agent_util::AgentState_t> neighbor: neighbors)
     {
-        const Eigen::Vector3d relative_position = self_agent.position  - neighbor->position;
+        const Eigen::Vector3d relative_position = neighbor->position - self_agent.position;
         const double distance = relative_position.norm();
 
         if (distance > role_params.r_0_att)
         {
-            result += role_params.p_att * (role_params.r_0_att - distance) * (relative_position) / distance;
+            result += role_params.p_att * (distance - role_params.r_0_att) * (relative_position) / distance;
         }
     }
     return result;   
