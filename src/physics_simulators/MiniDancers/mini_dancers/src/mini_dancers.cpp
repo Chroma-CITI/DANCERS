@@ -291,7 +291,7 @@ void MiniDancers::InitObstacles()
         obstacle_marker.color.r = 0.0;
         obstacle_marker.color.g = 1.0;  // Green color
         obstacle_marker.color.b = 0.0;
-        obstacle_marker.color.a = 0.7;  // Fully opaque
+        obstacle_marker.color.a = 0.8;  // Fully opaque
 
         // Set the lifetime of the marker (0 means it stays until removed)
         obstacle_marker.lifetime = rclcpp::Duration::from_seconds(0.0);
@@ -346,10 +346,6 @@ void MiniDancers::InitUavs()
         agent.id = i;
         agent.uav_system = uav_system;
         agent.neighbors = std::vector<NeighborInfo_t>();
-        // agent.neighbors_mission = std::vector<int>();
-        // agent.neighbors_potential = std::vector<int>();
-        // agent.neighbors_routing = std::vector<int>();
-        // agent.link_qualities = std::vector<double>();
         if (this->secondary_objectives.find(i) != this->secondary_objectives.end())
         {
             agent.secondary_objective = this->secondary_objectives[i];
@@ -703,10 +699,6 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
         for (int i=0; i < this->n_uavs; i++)
         {
             this->uavs[i].neighbors.clear();
-            // this->uavs[i].neighbors_mission.clear();
-            // this->uavs[i].neighbors_potential.clear();
-            // this->uavs[i].neighbors_routing.clear();
-            // this->uavs[i].link_qualities.clear();
         }
         
         for (int i=0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
@@ -732,6 +724,20 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
             }
 
             ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
+
+            if (my_neighbors.neighborid().empty())
+            {
+                if (this->uavs[i].role == AgentRoleType::Undefined)
+                {
+                    // Skip this agent, we don't want to erase its neighbors list
+                    continue;
+                }
+                else
+                {
+                    RCLCPP_FATAL(this->get_logger(), "Agent %d has no neighbors but has a role different of Undefined !", agent_id);
+                    exit(EXIT_FAILURE);
+                }
+            }
             
             assert(my_neighbors.neighborid_size() == my_neighbors.linkquality_size());
             for (int j=0; j < my_neighbors.neighborid_size(); j++)
