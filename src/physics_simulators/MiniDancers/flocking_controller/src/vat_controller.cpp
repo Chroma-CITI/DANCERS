@@ -7,7 +7,8 @@
 VATController::VATController(const VATController::ControllerOptions_t& options): id_(options.id), 
                                                                                  VAT_params_(std::move(options.VAT_params)),
                                                                                  desired_fixed_altitude_(options.desired_fixed_altitude),
-                                                                                 secondary_objective_(options.secondary_objective) {}
+                                                                                 secondary_objective_(options.secondary_objective),
+                                                                                 path_planner_params_(options.path_planner_params_) {}
 
 dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector<std::shared_ptr<const agent_util::AgentState_t>>& agent_list, const std::vector<cuboid::obstacle_t>& obstacles)
 {
@@ -162,7 +163,14 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     // Verify if the agent has a secondary objective. Deactivate the secondary objective if we are undefined.
     if (secondary_objective_.has_value() && self_agent.role_type != agent_util::AgentRoleType::Undefined)
     {
-        summed_velocity += secondaryObjective(self_agent, secondary_objective_.value(), VAT_params_[self_agent.role_type]);
+        if(path_planner_params_.use_planner_)
+        {
+            summed_velocity += pathFollowing(self_agent, secondary_objective_.value(), VAT_params_[self_agent.role_type]);
+        }
+        else
+        {
+            summed_velocity += secondaryObjective(self_agent, secondary_objective_.value(), VAT_params_[self_agent.role_type]);
+        }
     }
 
     // Limit speed if too high.
@@ -274,15 +282,62 @@ Eigen::Vector3d VATController::shillTerm(const agent_util::AgentState_t& self_ag
 Eigen::Vector3d VATController::secondaryObjective(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params)
 {
     Eigen::Vector3d result = Eigen::Vector3d::Zero();
-    
-    Eigen::Vector3d relative_position = self_agent.position - goal;
 
-    result += role_params.v_flock * -(relative_position);
+    Eigen::Vector3d relative_position = goal - self_agent.position;
 
-    if (result.norm() > role_params.v_sec_max)
+    if (role_params.r_0_sec < relative_position.norm())
     {
-        result = role_params.v_sec_max * result.normalized();
+        result += role_params.v_sec_max*relative_position.normalized();
+    }
+    else if(0.0f < role_params.r_0_sec)
+    {
+        result += relative_position.norm()/role_params.r_0_sec*role_params.v_sec_max * relative_position.normalized();
     }
 
     return result;
 }
+
+Eigen::Vector3d VATController::pathFollowing(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params)
+{
+    Eigen::Vector3d result = Eigen::Vector3d::Zero();
+    
+    Eigen::Vector3d waypoint = goal;
+
+    //Change goal for next point on the trajectory if using a planner.
+    if(path_planner_params_.path_planner_ != nullptr)
+    {
+        waypoint = path_planner_params_.path_planner_->getNextWaypoint(self_agent.position, goal, 
+                                                                       path_planner_params_.goal_radius_tolerance_, 
+                                                                       path_planner_params_.distance_to_path_tolerance_, 
+                                                                       path_planner_params_.lookup_ahead_pursuit_distance_).position;
+    }
+
+    Eigen::Vector3d relative_position = waypoint - self_agent.position;
+
+    if (role_params.r_0_sec_path < relative_position.norm())
+    {
+        result += role_params.v_sec_max_path*relative_position.normalized();
+    }
+    else if(0.0f < role_params.r_0_sec_path)
+    {
+        result += relative_position.norm()/role_params.r_0_sec_path*role_params.v_sec_max_path * relative_position.normalized();
+    }
+
+    return result;
+}
+
+double VATController::sigmoidLin(const double r, const double a, const double p)
+{
+    if (r <= 0)
+    {
+        return 0;
+    }
+    else if (r * p > 0 && r * p < a / p)
+    {
+        return r * p;
+    }
+    else
+    {
+        return std::sqrt(2 * a * r - std::pow(a, 2) / std::pow(p, 2));
+    }
+        }
