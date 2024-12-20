@@ -10,7 +10,7 @@ seed: 15
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 12
+robots_number: 10
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -41,7 +41,7 @@ mission_flow:
   sink_robot_id: 0
   port: 7777
   packet_size: 1024 # bytes
-  interval: 50000 # us
+  interval: 2000 # us
   timeout: 500000 # us
   start_time: 3.0 # s
   stop_time: 2000.0 # s
@@ -97,19 +97,19 @@ VAT_undefined_flocking_parameters:
 VAT_mission_flocking_parameters:
   v_flock: 1.0
   v_max: 15
-  v_sec_max: 2.0
+  v_sec_max: 6.0
   r_0_sec: 4.0
   v_sec_max_path: 15
   r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
-  r_0_frict: 85.3
+  r_0_frict: 85.3 # old 85.3
   C_frict: 0.8
   v_frict: 0.63
-  p_att: 0.08  # old 0.08
-  r_0_att: 20
+  p_att: 0.16  # old 0.08
+  r_0_att: 30
   p_rep: 0.13
-  r_0_rep: 30
+  r_0_rep: 20
   a_shill: 53
   p_shill: 3.55
   r_0_shill: 1.0 # old 0.3
@@ -128,7 +128,7 @@ VAT_potential_flocking_parameters:
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
-  C_frict: 0.8
+  C_frict: 5.0
   v_frict: 0.63
   p_att: 0.16  # old 0.08
   r_0_att: 30
@@ -246,36 +246,36 @@ buildings:
   #   size_y: 20
 
 # CORRIDOR
-- id: 1
-  x: -50
-  y: 0
-  height: 20
-  size_x: 50
-  size_y: 300
-- id: 2
-  x: 50
-  y: -45
-  height: 20
-  size_x: 50
-  size_y: 210
-- id: 3
-  x: 5
-  y: 125
-  height: 20
-  size_x: 60
-  size_y: 50
-- id: 4
-  x: 10
-  y: 200
-  height: 20
-  size_x: 50
-  size_y: 100
-- id: 5
-  x: 100
-  y: 150
-  height: 20
-  size_x: 50
-  size_y: 200
+# - id: 1
+#   x: -50
+#   y: 0
+#   height: 20
+#   size_x: 50
+#   size_y: 300
+# - id: 2
+#   x: 50
+#   y: -45
+#   height: 20
+#   size_x: 50
+#   size_y: 210
+# - id: 3
+#   x: 5
+#   y: 125
+#   height: 20
+#   size_x: 60
+#   size_y: 50
+# - id: 4
+#   x: 10
+#   y: 200
+#   height: 20
+#   size_x: 50
+#   size_y: 100
+# - id: 5
+#   x: 100
+#   y: 150
+#   height: 20
+#   size_x: 50
+#   size_y: 200
 # ******* GAZEBO *******
 
 world_sdf_path: /src/worlds/default.sdf
