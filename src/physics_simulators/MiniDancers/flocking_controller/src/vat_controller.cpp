@@ -235,7 +235,14 @@ Eigen::Vector3d VATController::attractionTerm(const agent_util::AgentState_t& se
 
         if (distance > role_params.r_0_att)
         {
-            result += role_params.p_att * (distance - role_params.r_0_att) * (relative_position) / distance;
+            if (self_agent.role_type == agent_util::AgentRoleType::Mission)
+            {
+                result += role_params.p_att * pow((distance - role_params.r_0_att), 2) * (relative_position) / distance;
+            }
+            else
+            {
+                result += role_params.p_att * (distance - role_params.r_0_att) * (relative_position) / distance;
+            }
         }
     }
     return result;   
