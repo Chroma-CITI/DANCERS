@@ -60,3 +60,6 @@ data/
 
 # databases
 .db
+
+# network traces
+*.pcap
