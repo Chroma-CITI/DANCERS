@@ -3,14 +3,29 @@
 This project is a joined robotics and network co-simulator for the purpose of research on communication among a fleet of UAVs.
 
 
-## About
-A *co-simulator* uses two or more existing and mature simulators to build a larger simulator, able to get the better of the two worlds.
+## Project organization
 
-Our co-simulator is based on the state-of-the-art, widely used simulators [Gazebo](https://gazebosim.org/home) and [NS-3](https://www.nsnam.org/). The first is a complete and powerful 3D robotic simulator, the second is a realistic network simulator able to faithfully recreate network protocols for many technologies.
+The `src` repository holds the source code of DANCERS. You'll find repertories holdin code of different natures :
 
-We built upon the previous co-simulation work proposed in [ROS-NetSim](https://ieeexplore.ieee.org/document/9345354), which gives a reliable synchronization technique and message passing between the two simulators. The fact that ROS-NetSim is open-source made it easy for us to reuse and modify their proposal, we thank the authors for this choice.
+### Configuration and Launch files
+
+- **config** : Holds the (`yaml`) configuration files for the experiments made with DANCERS.
+- **launch** : Holds the sripts used to launch the co-simulator. You'll find ROS2 launch files and shell scripts in there.
+- **multi_exp_launch** : Holds useful scripts to launch multiple simulations automatically.
+
+### ROS2 packages
+
+Most of the important code of DANCERS is written as C++ ROS2 Nodes. If you are not familiar with ROS2, you can find their documentation [here](https://docs.ros.org/en/humble/index.html) (ROS2 Humble).
+
+- **coordinator** : The code for the coordinator module of DANCERS, that manages the synchronization and message exchange between the simulators.
+- **network_simulators/ns-3_sim** : The code for the network part of the simulation, with ns-3.
+- **physics_simulators/Gazebo** : The code for the physics part of the simulation, with Gazebo.
+- **physics_simulators/MiniDancers** : The code for the physics part of the simulation, with MiniDancers.
+- **physics_simulators/RobotSim** : The code for the physics part of the simulation, with RobotSim.
+- **dancers_msgs** : A package with the custom ROS2 messages used in DANCERS. 
+
 
 ## Installation and tutorial
 
-The detailed functioning and documentation of the co-simulator can be found on the GitHub wiki. 
+The detailed functioning and documentation of the co-simulator can be found on the GitHub [wiki](https://github.com/Chroma-CITI/DANCERS/wiki). 
 
