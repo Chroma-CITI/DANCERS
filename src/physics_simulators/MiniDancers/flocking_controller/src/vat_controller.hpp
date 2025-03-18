@@ -5,7 +5,7 @@
 #include <vector>
 #include <memory>
 
-#include <Eigen/Core>
+#include <Eigen/Dense>
 
 #include <dancers_msgs/msg/agent_state.hpp>
 #include <dancers_msgs/msg/neighbor_array.hpp>
@@ -47,9 +47,12 @@ class VATController
             float p_shill;
             float r_0_shill;
             float v_shill;
-
+            float p_los;
+            float r_los_obst_inflation;
+            
             float expected_deconnexion_distance;
             bool use_deconnexion_distance_instead_of_p_att = false;
+            bool use_squared_attraction_term = false;
         };
 
         struct PathPlannerParams_t
@@ -132,6 +135,12 @@ class VATController
          * @param options Struct containing all the options used in the initialization.
          */
         VATController(const VATController::ControllerOptions_t& options);
+
+        /**
+         * @brief Set the secondary objective of the agent.
+         * @param secondary_objective New secondary objective of the agent.
+         */
+        void SetSecondaryObjective(const Eigen::Vector3d& secondary_objective);
 
     private:
         /**
@@ -245,12 +254,22 @@ class VATController
 
         /**
          * @brief Flocking behavior that makes an agent follow a path from a path planner
-         * @param self_agent Current agent states.
+         * @param self_agent Current agent state.
          * @param goal Goal position that attracts the agent.
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
         Eigen::Vector3d pathFollowing(const agent_util::AgentState_t& self_agent, const Eigen::Vector3d& goal, const VATController::VAT_params_t& role_params);
+        
+        /**
+         * @brief Flocking behavior that helps an agent to conserve LOS with its neighbors
+         * @param self_agent Current agent state.
+         * @param neighbors List of all neighbors.
+         * @param obstacles 3D Obstacles that present in the environment (AABB).
+         * @param params Flocking parameters to use.
+         * @return Velocity command of the behavior.
+         */
+        Eigen::Vector3d losConservationTerm(const agent_util::AgentState_t& self_agent, const std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Function used for flocking computation, see curve in Vásárhelyi 2018 Fig.6. for parameters.

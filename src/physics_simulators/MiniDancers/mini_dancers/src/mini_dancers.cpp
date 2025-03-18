@@ -14,6 +14,8 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <dancers_msgs/msg/velocity_heading_array.hpp>
 #include <dancers_msgs/srv/get_agent_velocities.hpp>
+#include <dancers_msgs/msg/target.hpp>
+#include <dancers_msgs/msg/agent_struct_array.hpp>
 
 #include <protobuf_msgs/physics_update.pb.h>
 #include <protobuf_msgs/network_update.pb.h>
@@ -31,6 +33,7 @@
 
 using namespace mrs_multirotor_simulator;
 using namespace std::chrono_literals;
+using std::placeholders::_1;
 
 /**
  * @brief The MiniDancers ROS2 node, part of the DANCERS co-simulator
@@ -133,6 +136,7 @@ class MiniDancers : public rclcpp::Node
                 obs.size_z = height;
                 this->obstacles.push_back(obs);
             }
+            this->publish_agent_structs = config["publish_agent_structs"].as<bool>();
             this->n_uavs = config["robots_number"].as<int>();
             this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
             this->it = 0;
@@ -144,8 +148,9 @@ class MiniDancers : public rclcpp::Node
             this->omega = 0.005;
             for (auto goal : config["secondary_objectives"])
             {
-                this->secondary_objectives[goal.first.as<int>()] = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
-                std::cout << "agent " << goal.first.as<int>() << " : " << this->secondary_objectives[goal.first.as<int>()].transpose() << std::endl;
+                this->secondary_objectives[goal.first.as<int>()].first = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
+                this->secondary_objectives[goal.first.as<int>()].second = goal.second[3].as<bool>();
+                std::cout << "agent " << goal.first.as<int>() << " : " << this->secondary_objectives[goal.first.as<int>()].first.transpose() << std::endl;
             }
 
             try
@@ -192,12 +197,21 @@ class MiniDancers : public rclcpp::Node
             /* ----------- Publishers ----------- */
             this->obstacles_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("obstacles", qos_persistent);
             this->pose_array_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("agent_poses", 10);
+            if (this->publish_agent_structs)
+            {
+                this->agent_structs_pub_ = this->create_publisher<dancers_msgs::msg::AgentStructArray>("agent_structs", 10);
+            }
             this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
             this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
             this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
             this->network_idle_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_idle_links", 10);
-            this->secondary_objectives_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("secondary_objectives", 10);
+            this->target_areas_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("target_areas", 10);
+            this->base_station_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("base_station", 10);
+
+
+            /* ----------- Subscribers ----------- */
+            this->targets_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&MiniDancers::targets_clbk, this, _1));
 
             /* ----------- Service client ----------- */
             command_client_ = this->create_client<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities");
@@ -220,7 +234,7 @@ class MiniDancers : public rclcpp::Node
         uint64_t it;
         uint64_t it_end_sim;
         std::string phy_uds_server_address;
-        std::map<int, Eigen::Vector3d> secondary_objectives;
+        std::map<int, std::pair<Eigen::Vector3d, bool>> secondary_objectives;
         std::string ros_ws_path;
         VAT_params_t vat_params;
         circle_params_t circle_params;
@@ -228,7 +242,6 @@ class MiniDancers : public rclcpp::Node
         uint32_t potential_flow_id;
         uint32_t routing_flow_id;
         bool cosim_mode;
-
 
         double radius;
         double omega;
@@ -248,12 +261,19 @@ class MiniDancers : public rclcpp::Node
         /* Publishers */
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obstacles_pub_;
         rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_pub_;
+        rclcpp::Publisher<dancers_msgs::msg::AgentStructArray>::SharedPtr agent_structs_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr id_markers_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr desired_velocities_markers_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_mission_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_potential_pub_;
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr network_idle_pub_;
-        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr secondary_objectives_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_areas_pub_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr base_station_pub_;
+
+
+        /* Subscribers */
+        rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr targets_sub_;
+        void targets_clbk(dancers_msgs::msg::Target msg);
 
         /* Service client*/
         rclcpp::Client<dancers_msgs::srv::GetAgentVelocities>::SharedPtr command_client_;
@@ -263,7 +283,29 @@ class MiniDancers : public rclcpp::Node
         std::string m_computation_time_file;
         WallTimeProbe probe;
 
+        /* Publish agent Structs */
+        bool publish_agent_structs;
 };
+
+void MiniDancers::targets_clbk(dancers_msgs::msg::Target msg)
+{
+    std::pair<Eigen::Vector3d, bool> p;
+    p.first = Eigen::Vector3d(msg.position.x, msg.position.y, msg.position.z);
+    p.second = msg.target_type;
+
+    std::cout << "Agent " << msg.id << " has a new target : " << p.first.transpose() << std::endl;
+
+    this->secondary_objectives[msg.id] = p;
+    for (auto agent = this->uavs.begin(); agent != this->uavs.end(); ++agent)
+    {
+        if (agent->id == msg.id)
+        {
+            agent->secondary_objective = p.first;
+            std::cout << "Agent " << agent->id << " has a secondary objective : " << p.first.transpose() << std::endl;
+        }
+    }
+}
+
 
 /**
  * @brief Initialize the obstacles in Rviz
@@ -323,12 +365,14 @@ void MiniDancers::InitObstacles()
 void MiniDancers::InitUavs()
 {
     int n_columns = (int)sqrt(this->n_uavs);
-    double spacing = 3.0;
+    double spacing = 5.0;
+    double grid_x_init = 0.0;
+    double grid_y_init = -((n_columns-1) * spacing)/2;
     for (int i = 0; i < this->n_uavs; i++)
     {
         // Grid spawn
-        double spawn_x = i / n_columns * spacing;
-        double spawn_y = spacing * (i% n_columns);
+        double spawn_x = grid_x_init + i / n_columns * spacing;
+        double spawn_y = grid_y_init + spacing * (i% n_columns);
         double spawn_z = 1.0;
         double spawn_heading = 0.0;
 
@@ -348,7 +392,7 @@ void MiniDancers::InitUavs()
         agent.neighbors = std::vector<NeighborInfo_t>();
         if (this->secondary_objectives.find(i) != this->secondary_objectives.end())
         {
-            agent.secondary_objective = this->secondary_objectives[i];
+            agent.secondary_objective = this->secondary_objectives[i].first;
         }
         this->desired_velocities.push_back(Eigen::Vector3d::Zero());
 
@@ -436,41 +480,72 @@ void MiniDancers::DisplayRviz()
     this->id_markers_pub_->publish(id_marker_array);
     this->desired_velocities_markers_pub_->publish(desired_velocities_marker_array);
 
-    // Display secondary objectives
-    visualization_msgs::msg::Marker secondary_objectives_marker{};
-    secondary_objectives_marker.header.frame_id = "map";
-    secondary_objectives_marker.id = 1000;
-    secondary_objectives_marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
-    secondary_objectives_marker.action = visualization_msgs::msg::Marker::ADD;
-    secondary_objectives_marker.scale.x = 5.0;
-    secondary_objectives_marker.scale.y = 5.0;
-    secondary_objectives_marker.scale.z = 5.0;
-    secondary_objectives_marker.pose.position.x = 0.0;
-    secondary_objectives_marker.pose.position.y = 0.0;
-    secondary_objectives_marker.pose.position.z = 0.0;
-    secondary_objectives_marker.color.r = 1.0;
-    secondary_objectives_marker.color.g = 0.0;
-    secondary_objectives_marker.color.b = 1.0;
-    secondary_objectives_marker.color.a = 0.5;
-    secondary_objectives_marker.lifetime = rclcpp::Duration::from_seconds(0);
+    // Display Sources
+    visualization_msgs::msg::Marker sources_marker{};
+    sources_marker.header.frame_id = "map";
+    sources_marker.id = 1000;
+    sources_marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    sources_marker.action = visualization_msgs::msg::Marker::ADD;
+    sources_marker.scale.x = 5.0;
+    sources_marker.scale.y = 5.0;
+    sources_marker.scale.z = 5.0;
+    sources_marker.pose.position.x = 0.0;
+    sources_marker.pose.position.y = 0.0;
+    sources_marker.pose.position.z = 0.0;
+    sources_marker.color.r = 1.0;
+    sources_marker.color.g = 0.0;
+    sources_marker.color.b = 1.0;
+    sources_marker.color.a = 0.5;
+    sources_marker.lifetime = rclcpp::Duration::from_seconds(0);
     for (auto secondary_objective : this->secondary_objectives)
     {
-        geometry_msgs::msg::Point p{};
-        p.x = secondary_objective.second.x();
-        p.y = secondary_objective.second.y();
-        p.z = secondary_objective.second.z();
-        secondary_objectives_marker.points.push_back(p);
+        if (secondary_objective.second.second == false)
+        {
+            geometry_msgs::msg::Point p{};
+            p.x = secondary_objective.second.first.x();
+            p.y = secondary_objective.second.first.y();
+            p.z = secondary_objective.second.first.z();
+            sources_marker.points.push_back(p);
+        }
     }
-    this->secondary_objectives_pub_->publish(secondary_objectives_marker);
+    this->target_areas_pub_->publish(sources_marker);
+
+    // Display Sink
+    visualization_msgs::msg::Marker sink_marker{};
+    sink_marker.header.frame_id = "map";
+    sink_marker.id = 1001;
+    sink_marker.type = visualization_msgs::msg::Marker::SPHERE;
+    sink_marker.action = visualization_msgs::msg::Marker::ADD;
+    sink_marker.scale.x = 5.0;
+    sink_marker.scale.y = 5.0;
+    sink_marker.scale.z = 5.0;
+    sink_marker.color.r = 1.0;
+    sink_marker.color.g = 1.0;
+    sink_marker.color.b = 0.0;
+    sink_marker.color.a = 0.5;
+    sink_marker.lifetime = rclcpp::Duration::from_seconds(0);
+    for (auto secondary_objective : this->secondary_objectives)
+    {
+        if (secondary_objective.second.second == true)
+        {
+            sink_marker.pose.position.x = secondary_objective.second.first.x();
+            sink_marker.pose.position.y = secondary_objective.second.first.y();
+            sink_marker.pose.position.z = secondary_objective.second.first.z();
+
+            this->base_station_pub_->publish(sink_marker);
+        }
+    }
+
+
 
     // Display edges between neighbors
     // mission neighbors
     visualization_msgs::msg::Marker network_marker_mission{};
     network_marker_mission.header.frame_id = "map";
-    network_marker_mission.id = 1001;
+    network_marker_mission.id = 1010;
     network_marker_mission.type = visualization_msgs::msg::Marker::LINE_LIST;
     network_marker_mission.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_mission.scale.x = 0.3;
+    network_marker_mission.scale.x = 0.2;
     network_marker_mission.color.r = 1.0;  // Red color
     network_marker_mission.color.g = 0.0;
     network_marker_mission.color.b = 0.0;
@@ -480,10 +555,10 @@ void MiniDancers::DisplayRviz()
     // potential neighbors
     visualization_msgs::msg::Marker network_marker_potential{};
     network_marker_potential.header.frame_id = "map";
-    network_marker_potential.id = 1002;
+    network_marker_potential.id = 1011;
     network_marker_potential.type = visualization_msgs::msg::Marker::LINE_LIST;
     network_marker_potential.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_potential.scale.x = 0.2;
+    network_marker_potential.scale.x = 0.1;
     network_marker_potential.color.r = 0.0;  
     network_marker_potential.color.g = 0.0;
     network_marker_potential.color.b = 1.0;  // Blue color
@@ -493,10 +568,10 @@ void MiniDancers::DisplayRviz()
     // idle neighbors
     visualization_msgs::msg::Marker network_marker_idle{};
     network_marker_idle.header.frame_id = "map";
-    network_marker_idle.id = 1003;
+    network_marker_idle.id = 1012;
     network_marker_idle.type = visualization_msgs::msg::Marker::LINE_LIST;
     network_marker_idle.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_idle.scale.x = 0.2;
+    network_marker_idle.scale.x = 0.1;
     network_marker_idle.color.r = 0.8;  
     network_marker_idle.color.g = 0.8;
     network_marker_idle.color.b = 0.8;
@@ -603,6 +678,8 @@ void MiniDancers::UpdateCmds()
     
     auto request = std::make_shared<dancers_msgs::srv::GetAgentVelocities::Request>();
  
+    dancers_msgs::msg::AgentStructArray agent_structs;
+
     for (int i=0; i < this->n_uavs; i++)
     {
         dancers_msgs::msg::AgentStruct agent_struct;
@@ -642,11 +719,17 @@ void MiniDancers::UpdateCmds()
             neighbor_msg.agent_id = neighbor.id;
             neighbor_msg.link_quality = neighbor.link_quality;
             
-            agent_struct.neighbor_array.neighbors.emplace_back(std::move(neighbor_msg));
+            agent_struct.neighbor_array.neighbors.push_back(neighbor_msg);
         }
 
-        request->agent_structs.emplace_back(std::move(agent_struct));
+        request->agent_structs.push_back(agent_struct);
+
+        if (this->publish_agent_structs)
+        {
+            agent_structs.structs.emplace_back(std::move(agent_struct));
+        }
     }
+    this->agent_structs_pub_->publish(agent_structs);
     
     auto result = command_client_->async_send_request(request);
 
@@ -867,6 +950,11 @@ void MiniDancers::Loop()
                 workers[i].join();
             }
             workers.clear();
+
+            // for (int i=0; i < this->n_uavs; i++)
+            // {
+            //     this->MakeStep(i);
+            // }
 
             this->DisplayRviz();
             

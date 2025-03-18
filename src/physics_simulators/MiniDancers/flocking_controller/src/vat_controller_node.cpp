@@ -14,6 +14,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
+#include "dancers_msgs/msg/target.hpp"
 
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -66,6 +67,10 @@ class VATControllerNode : public rclcpp::Node
                 cmd_publisher_ = this->create_publisher<dancers_msgs::msg::VelocityHeadingArray>("velocity_cmd", 10);
             }
 
+            // Initialize subscriber
+            this->target_position_subscriber_ = this->create_subscription<dancers_msgs::msg::Target>(
+                "targets", 10, std::bind(&VATControllerNode::targetPositionCallback, this, _1));
+
             // Create the service
             service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities", 
                                                                                   std::bind(&VATControllerNode::commandCallback,this, _1, _2));
@@ -83,7 +88,7 @@ class VATControllerNode : public rclcpp::Node
         };
 
         /**
-         * @brief Flag that indicates if the controller should publish its service respons on a topic.
+         * @brief Flag that indicates if the controller should publish its service response on a topic.
          * Mainly used for debugging. 
          */
         bool should_controller_publish_cmd_ = false;
@@ -156,6 +161,16 @@ class VATControllerNode : public rclcpp::Node
          * @brief Timer used to periodically call the publisher of the occupancy grid.
          */
         rclcpp::TimerBase::SharedPtr occupancy_grid_pub_timer_;
+
+        /**
+         * @brief Subscriber to get updates of the target positions
+         */
+        rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr target_position_subscriber_;
+
+        void targetPositionCallback(dancers_msgs::msg::Target msg)
+        {
+            controllers_[msg.id]->SetSecondaryObjective(Eigen::Vector3d(msg.position.x, msg.position.y, msg.position.z));
+        }
 
         /**
          * @brief Callback that computes all the desired velocities of a group of agent given their self states, neighbor states and obstacles.
@@ -238,6 +253,9 @@ class VATControllerNode : public rclcpp::Node
         {
             if (obstacles)
             {
+
+                // Determine the size of the occupancy grid
+
                 float min_relevant_x = 0.0f;
                 float max_relevant_x = 0.0f;
 
@@ -437,6 +455,8 @@ class VATControllerNode : public rclcpp::Node
                 vat_params.p_shill = config[vat_params_config_list_name]["p_shill"].as<double>();
                 vat_params.r_0_shill = config[vat_params_config_list_name]["r_0_shill"].as<double>();
                 vat_params.v_shill = config[vat_params_config_list_name]["v_shill"].as<double>();
+                vat_params.p_los = config[vat_params_config_list_name]["p_los"].as<double>();
+                vat_params.r_los_obst_inflation = config[vat_params_config_list_name]["r_los_obst_inflation"].as<double>();
                 vat_params.use_deconnexion_distance_instead_of_p_att = config[vat_params_config_list_name]["use_deconnexion_distance_instead_of_p_att"].as<bool>();
                 if (vat_params.use_deconnexion_distance_instead_of_p_att)
                 {

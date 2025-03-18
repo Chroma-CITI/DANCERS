@@ -71,7 +71,7 @@ namespace agent_util
         }
         else
         {
-            // Add logging
+            // Default to Undefined if the role is not recognized 
             agent_state.role_type = AgentRoleType::Undefined;
         }
 

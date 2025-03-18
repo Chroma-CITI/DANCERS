@@ -10,6 +10,12 @@ VATController::VATController(const VATController::ControllerOptions_t& options):
                                                                                  secondary_objective_(options.secondary_objective),
                                                                                  path_planner_params_(options.path_planner_params_) {}
 
+void VATController::SetSecondaryObjective(const Eigen::Vector3d& secondary_objective)
+{
+    secondary_objective_ = secondary_objective;
+}
+
+
 dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector<std::shared_ptr<const agent_util::AgentState_t>>& agent_list, const std::vector<cuboid::obstacle_t>& obstacles)
 {
     dancers_msgs::msg::VelocityHeading velocity_heading;
@@ -37,7 +43,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
         {
             const agent_util::AgentState_t& neighbor_agent = *agent_list[neighbor.id];
 
-            //std::cout<<"Nieghbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality;
+            //std::cout<<"Neighbor Id: " << neighbor.id << ". Link quality: "<< neighbor.link_quality;
             if( neighbor_agent.role_type == agent_util::AgentRoleType::Undefined)
             {
                 //Should not happen by definition of the Undefined role
@@ -48,30 +54,18 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
                 mission_neighbors.push_back(agent_list[neighbor.id]);
                 this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
                 //std::cout<<" Role: Mission"<<std::endl;
-                if (id_ == DEBUG_ID_TO_LOG)
-                {
-                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Mission"<<std::endl;
-                }
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Potential)
             {
                 potential_neighbors.push_back(agent_list[neighbor.id]);
                 this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
                 //std::cout<<" Role: Potential"<<std::endl;
-                if (id_ == DEBUG_ID_TO_LOG)
-                {
-                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Potential"<<std::endl;
-                }
             }
             else if (neighbor_agent.role_type == agent_util::AgentRoleType::Idle)
             {
                 //std::cout<<" Role: Idle"<<std::endl;
                 idle_neighbors.push_back(agent_list[neighbor.id]);
                 this->last_known_neighbors_.push_back(agent_list[neighbor.id]);
-                if (id_ == DEBUG_ID_TO_LOG)
-                {
-                    //std::cout<<"Has neighbor "<< neighbor.id <<" as " <<" Idle"<<std::endl;
-                }
             }
         }
     }
@@ -94,7 +88,8 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
         // Only interacts with mission neihbors
         summed_velocity += alignmentTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
                         + attractionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
-                        + repulsionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type]);
+                        + repulsionTerm(self_agent, mission_neighbors, VAT_params_[self_agent.role_type])
+                        + losConservationTerm(self_agent, mission_neighbors, obstacles, VAT_params_[self_agent.role_type]);
     }
     else if(self_agent.role_type == agent_util::AgentRoleType::Potential)
     {
@@ -153,7 +148,7 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::vector
     }
     else
     {
-        //std::cout<<"Error: Agent has an undefined role. The role as a casted int value of "<< self_agent.role_type << ". Returning a velocity of 0."<<std::endl;
+        //std::cout<<"Error: Agent has an undefined role. The role has a casted int value of "<< self_agent.role_type << ". Returning a velocity of 0."<<std::endl;
         return velocity_heading;
     }
 
@@ -235,7 +230,7 @@ Eigen::Vector3d VATController::attractionTerm(const agent_util::AgentState_t& se
 
         if (distance > role_params.r_0_att)
         {
-            if (self_agent.role_type == agent_util::AgentRoleType::Mission)
+            if (self_agent.role_type == agent_util::AgentRoleType::Mission && role_params.use_squared_attraction_term)
             {
                 result += role_params.p_att * pow((distance - role_params.r_0_att), 2) * (relative_position) / distance;
             }
@@ -298,7 +293,7 @@ Eigen::Vector3d VATController::secondaryObjective(const agent_util::AgentState_t
     }
     else if(0.0f < role_params.r_0_sec)
     {
-        result += relative_position.norm()/role_params.r_0_sec*role_params.v_sec_max * relative_position.normalized();
+        result += (relative_position.norm()/role_params.r_0_sec)*role_params.v_sec_max*relative_position.normalized();
     }
 
     return result;
@@ -332,6 +327,39 @@ Eigen::Vector3d VATController::pathFollowing(const agent_util::AgentState_t& sel
 
     return result;
 }
+
+
+Eigen::Vector3d VATController::losConservationTerm(const agent_util::AgentState_t& self_agent, const std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t& role_params)
+{
+    Eigen::Vector3d result = Eigen::Vector3d::Zero();
+
+    for (std::shared_ptr<const agent_util::AgentState_t> neighbor: neighbors)
+    {
+        for (const cuboid::obstacle_t& obstacle : obstacles){
+            cuboid::obstacle_t inflated_obstacle = cuboid::inflate_obst(obstacle, role_params.r_los_obst_inflation);
+
+            std::optional<std::pair<Eigen::Vector3d, Eigen::Vector3d>> enter_exit_points = cuboid::segment_cuboid_intersection(self_agent.position, neighbor->position, inflated_obstacle);
+            
+            if(enter_exit_points)
+            {
+                double intersection_distance = (enter_exit_points->first - enter_exit_points->second).norm();
+                
+                std::pair<Eigen::Vector3d, Eigen::Vector3d> shifted_points = cuboid::computeNonIntersectingLine(self_agent.position, neighbor->position, inflated_obstacle);
+
+                result = (shifted_points.first - self_agent.position).normalized();
+                                
+                // Scale force
+                result = result * (intersection_distance*role_params.p_los);
+            }
+            else
+            {
+                // No intersection, no force.
+            }
+        }
+    }
+    return result;
+}
+
 
 double VATController::sigmoidLin(const double r, const double a, const double p)
 {
