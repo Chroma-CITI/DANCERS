@@ -26,13 +26,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
     
     add_executable(gazebo_sim src/gazebo_sim.cpp)
-    add_executable(gazebo_only src/gazebo_only.cpp)
     target_link_libraries(gazebo_sim
-            gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
-            gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
-            yaml-cpp
-            )
-    target_link_libraries(gazebo_only
             gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
             gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
             yaml-cpp
@@ -48,14 +42,6 @@ ament_target_dependencies(gazebo_sim
   dancers_msgs
 )
 
-ament_target_dependencies(gazebo_only
-  rclcpp
-  Boost
-  protobuf_msgs
-  geometry_msgs
-  nav_msgs
-)
-
 include_directories(include/${PROJECT_NAME})
 
 # hard-coded include path makes this file fail if moved
@@ -64,7 +50,6 @@ include_directories(../../../_include_all)
 INSTALL(
   TARGETS 
   gazebo_sim
-  gazebo_only
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

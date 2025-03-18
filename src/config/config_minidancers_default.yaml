@@ -222,12 +222,11 @@ obstacle_inflation: 2.5
 # Resolution in meter/cell of the occupancy grid.
 map_resolution: 0.5
 
-
 # ******* PRE-PLANNED FLIGHT *******
 circle_parameters:
   gain: 10
   omega: 0.1
- 
+
 # secondary objectives of the drones, with the form robot_ID: [x, y, z, target(false)|sink(true)] 
 # Be careful, there is no check that on the robot_ID in this list, if add a secondary objective for robot 10 and robot 10 does not exist, it will be ignored
 secondary_objectives: 
@@ -316,7 +315,7 @@ buildings:
 
 # ******* GAZEBO *******
 
-world_sdf_path: /src/worlds/default.sdf
+world_sdf_path: src/physics_simulators/Gazebo/worlds/default.sdf       # (from root of ROS2 workspace)
 update_rate: 20000 # in Hz | The objective rate at which Gazebo tries to run simulation loops. 
 
 # Period of the command loop of the robots (Gazebo only)

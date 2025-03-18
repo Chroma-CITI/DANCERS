@@ -4,7 +4,7 @@ session="sim"
 
 config_path='config_minidancers_default.yaml'
 [ -n "$1" ] && config_path="$1"
-config_path="${config_path/#\~/$HOME}"
+config_path="${config_path/#\~/$HOME}" # to extend "~"
 
 path_to_ros2_ws='~/sim_ws'
 [ -n "$2" ] && path_to_ros2_ws="$2"

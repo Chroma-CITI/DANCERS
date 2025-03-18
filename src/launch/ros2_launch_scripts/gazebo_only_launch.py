@@ -40,7 +40,7 @@ def generate_launch_description():
     # [config] robots_number: Number of px4_Autopilot to launch
     # [config] robots_model: name of the model that will be spawned in Gazebo (a model with this name must exist in PX4-Autopilot/Tools/simulation/gz/models)
     spawn_px4 = ExecuteProcess(
-        cmd=['/home/theotime/simulation_ws/src/launch/spawn_px4.bash', str(config['robots_number']), str(config['robots_model'])],
+        cmd=['/home/theotime/simulation_ws/src/launch/other_scripts/spawn_px4.bash', str(config['robots_number']), str(config['robots_model'])],
         name='spawn_px4',
         env=node_env
     )

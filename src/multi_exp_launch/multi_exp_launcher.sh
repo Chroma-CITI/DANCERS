@@ -25,9 +25,9 @@ while [ $meta_counter -lt $n_expe ]; do
     while IFS= read -r file; do
         echo Launching $file:
 
-        # gnome-terminal --wait -- ./src/tmux_scripts/start_dancers_minidancers.sh $file $path_to_ros2_ws                 # for minidancers
-        # gnome-terminal --wait -- ./src/tmux_scripts/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws $file    # for robotsim
-        gnome-terminal --wait -- ./src/tmux_scripts/start_dancers_gazebo.sh $file                                     # for gazebo
+        # gnome-terminal --wait -- ./src/launch/start_dancers_minidancers.sh $file $path_to_ros2_ws                 # for minidancers
+        # gnome-terminal --wait -- ./src/launch/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws $file    # for robotsim
+        gnome-terminal --wait -- ./src/launch/start_dancers_gazebo.sh $file                                     # for gazebo
 
         echo Finished $file, sleeping for 3 seconds
         sleep 3
@@ -38,6 +38,6 @@ done
 echo Finished all experiments
 
 
-# find $config_folder -maxdepth 1 -type f -name "*.yaml" -print0 | sort -h | xargs -0 ./src/tmux_scripts/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws 
+# find $config_folder -maxdepth 1 -type f -name "*.yaml" -print0 | sort -h | xargs -0 ./src/launch/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws 
 
-# "Launching {}" \; -exec ./src/tmux_scripts/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws {} \; -exec sleep 5 \;
+# "Launching {}" \; -exec ./src/launch/start_dancers_viragh.sh $path_to_viragh $path_to_ros2_ws {} \; -exec sleep 5 \;

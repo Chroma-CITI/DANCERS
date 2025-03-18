@@ -223,7 +223,7 @@ public:
         f << "[init]\n\nangle=0\n\n[obstacles]\n\n";
         for (auto building : config["buildings"])
         {
-            std::string name = building["name"].as<std::string>();
+            std::string name = building["id"].as<std::string>();
             double x = building["x"].as<double>() * 100; // Multiply everything by 100 because lengths are in cm in Viragh's simulator (wtf)
             double y = building["y"].as<double>() * 100;
             double z = (building["height"].as<double>() / 2) * 100;

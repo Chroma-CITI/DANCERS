@@ -2,15 +2,22 @@
 
 session="sim"
 
-config_name='config_2.yaml'
-[ -n "$1" ] && config_name="$1"
-config_name="${config_name/#\~/$HOME}"
+config_path='config_gazebo_default.yaml'
+[ -n "$1" ] && config_path="$1"
+config_path="${config_path/#\~/$HOME}" # to extend "~"
 
-path_to_ros2_ws=$ROS_WS
+path_to_ros2_ws='~/sim_ws'
+[ -n "$2" ] && path_to_ros2_ws="$2"
+path_to_ros2_ws="${path_to_ros2_ws/#\~/$HOME}"
 
 tmux kill-session -t $session
 
-config_name=$(python3 $path_to_ros2_ws/src/config/generate_obstacles.py $config_name)
+config_path=$(python3 $path_to_ros2_ws/src/config/generate_obstacles.py $config_path)
+
+if [ "$config_path" = "RecursionError" ]; then
+    echo "Error in generating obstacles: the obstacles are too constrained and overlap, please lower number or size of obstacles."
+    exit 1
+fi
 
 # Grid generator : from an initial position, number of columns and distance between points, generate a 3D position 
 # call it with grid_generator(i) where i is the index of the point in the grid
@@ -27,23 +34,17 @@ grid_generator(){
     echo "-$x,$y,$z,0,0,0,0"
 }
 
-
-if [ "$config_name" = "RecursionError" ]; then
-    echo "Error in generating obstacles: the obstacles are too constrained and overlap, please lower number or size of obstacles."
-    exit 1
-fi
-
-tmux new-session -d -s $session "cd $path_to_ros2_ws && ros2 run gazebo_sim gazebo_sim --ros-args -p config_file:=$config_name -p cosim_mode:=true"
-# tmux set remain-on-exit on
+tmux new-session -d -s $session "ros2 run gazebo_sim gazebo_sim --ros-args -p config_file:=$config_path -p cosim_mode:=true -p use_sim_time:=true"
+tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_name -p cosim_mode:=true"
-tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run coordinator coordinator --ros-args -p config_file:=$config_name"
+tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim ns3_sim_pseudo_routing --ros-args -p config_file:=$config_path -p cosim_mode:=true -p use_sim_time:=true"
+tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # tmux select-pane -t $session:$window.2
 # tmux split-window -t $session:$window -h -d "gz sim -g"
 
-gnome-terminal -- ./src/tmux_scripts/start_px4_mission.sh $config_name
+gnome-terminal -- $path_to_ros2_ws/src/launch/tmux_scripts/start_px4_mission.sh $config_path
 pid_term=$!
 
 # window=1
@@ -55,7 +56,7 @@ pid_term=$!
 # done
 
 # window=2
-# tmux new-window -t $session:$window "cd $path_to_ros2_ws && ros2 launch multirobot_control N_VAT_neighbors.launch.py config_path:=$config_name" 
+# tmux new-window -t $session:$window "cd $path_to_ros2_ws && ros2 launch multirobot_control N_VAT_neighbors.launch.py config_path:=$config_path" 
 
 tmux attach-session -t $session:0 -d
 

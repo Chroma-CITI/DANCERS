@@ -32,7 +32,7 @@ def generate_launch_description():
 
     # ROS2 Action: run a bash script as sudo to configure the virtual network (require sudo)
     setup_network = ExecuteProcess(
-        cmd=['sudo', ws_path + '/src/launch/setup_network.bash', str(config['robots_number'])],
+        cmd=['sudo', ws_path + '/src/launch/other_scripts/setup_network.bash', str(config['robots_number'])],
         name='setup_network'
     )
 
@@ -93,7 +93,7 @@ def generate_launch_description():
     # [config] robots_number: Number of px4_Autopilot to launch
     # [config] robots_model: name of the model that will be spawned in Gazebo (a model with this name must exist in PX4-Autopilot/Tools/simulation/gz/models)
     spawn_px4 = ExecuteProcess(
-        cmd=['/home/theotime/simulation_ws/src/launch/spawn_px4_netns.bash', str(config['robots_number']), str(config['robots_model']), '4001', 'false'],
+        cmd=['/home/theotime/simulation_ws/src/launch/other_scripts/spawn_px4_netns.bash', str(config['robots_number']), str(config['robots_model']), '4001', 'false'],
         name='spawn_px4',
         env=node_env
     )

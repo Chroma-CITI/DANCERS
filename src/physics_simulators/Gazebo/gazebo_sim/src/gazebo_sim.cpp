@@ -30,7 +30,8 @@
 
 // ROS2 messages
 #include <nav_msgs/msg/odometry.hpp>
-#include <dancers_msgs/msg/neighbor_id_quality_array.hpp>
+#include <dancers_msgs/msg/neighbor.hpp>
+#include <dancers_msgs/msg/neighbor_array.hpp>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
@@ -299,7 +300,7 @@ public:
 
         for (std::string robot_name : gazebo_models)
         {
-            this->neighbors_pub_vector_.push_back(this->create_publisher<dancers_msgs::msg::NeighborIdQualityArray>(robot_name + "/neighbors", qos_pub));
+            this->neighbors_pub_vector_.push_back(this->create_publisher<dancers_msgs::msg::NeighborArray>(robot_name + "/neighbors", qos_pub));
         }
 
         // ========================= GAZEBO SERVER CONFIGURATION =========================
@@ -472,53 +473,50 @@ public:
             }
         }
 
-        if (config["VAT_flocking_parameters"]["secondary_objective_flag"].as<bool>() == true)
+        for (auto secondary_objective : config["secondary_objectives"])
         {
-            for (auto secondary_objective : config["secondary_objectives"])
+            std::string name = "objective_robot_" + std::to_string(secondary_objective.first.as<uint32_t>());
+            int32_t x = secondary_objective.second[0].as<int32_t>();
+            int32_t y = secondary_objective.second[1].as<int32_t>();
+            int32_t z = secondary_objective.second[2].as<int32_t>();
+            std::string objectiveSdf = R"(
+                    <?xml version="1.0" ?>
+                    <sdf version='1.7'>
+                        <model name=')" +
+                                        name + R"('>
+                            <static>true</static>
+                            <link name='link'>
+                                <pose>)" +
+                                        std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z) + R"( 0 0 0</pose>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <sphere>
+                                            <radius>0.2</radius>
+                                        </sphere>
+                                    </geometry>
+                                    <material>
+                                        <ambient>0.2 0.2 0.2 0.3</ambient>
+                                        <diffuse>1.0 0.05 0.05 1</diffuse>
+                                        <specular>0.0 0.0 0.0 1</specular>
+                                    </material>
+                                </visual>
+                            </link>
+                        </model>
+                    </sdf>
+                )";
+
+            req.set_sdf(objectiveSdf);
+
+            if (verbose)
             {
-                std::string name = "objective_robot_" + std::to_string(secondary_objective.first.as<uint32_t>());
-                int32_t x = secondary_objective.second[0].as<int32_t>();
-                int32_t y = secondary_objective.second[1].as<int32_t>();
-                int32_t z = secondary_objective.second[2].as<int32_t>();
-                std::string objectiveSdf = R"(
-                        <?xml version="1.0" ?>
-                        <sdf version='1.7'>
-                            <model name=')" +
-                                           name + R"('>
-                                <static>true</static>
-                                <link name='link'>
-                                    <pose>)" +
-                                           std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(z) + R"( 0 0 0</pose>
-                                    <visual name='visual'>
-                                        <geometry>
-                                            <sphere>
-                                                <radius>0.2</radius>
-                                            </sphere>
-                                        </geometry>
-                                        <material>
-                                            <ambient>0.2 0.2 0.2 0.3</ambient>
-                                            <diffuse>1.0 0.05 0.05 1</diffuse>
-                                            <specular>0.0 0.0 0.0 1</specular>
-                                        </material>
-                                    </visual>
-                                </link>
-                            </model>
-                        </sdf>
-                    )";
+                RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
+            }
 
-                req.set_sdf(objectiveSdf);
-
-                if (verbose)
-                {
-                    RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
-                }
-
-                executed = node.Request(service, req, timeout, respo, result);
-                check_service_results(service, executed, result);
-                if (respo.data())
-                {
-                    RCLCPP_DEBUG(this->get_logger(), "Created objective %s", name.c_str());
-                }
+            executed = node.Request(service, req, timeout, respo, result);
+            check_service_results(service, executed, result);
+            if (respo.data())
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Created objective %s", name.c_str());
             }
         }
 
@@ -608,14 +606,14 @@ public:
                     // convert the received protobuf message to ROS2 messages and publish them on separate topics
                     for (int i = 0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
                     {
-                        dancers_msgs::msg::NeighborIdQualityArray msg{};
+                        dancers_msgs::msg::NeighborArray msg{};
                         int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
                         for (int j = 0; j < neighbors_list_msg.ordered_neighbors(i).neighborid_size(); j++)
                         {
-                            dancers_msgs::msg::NeighborIdQuality neighbor{};
-                            neighbor.id = neighbors_list_msg.ordered_neighbors(i).neighborid(j) + 1;                // ATTENTION: here we add 1 to the agent IDs because we want the IDs to start at 1 when using Gazebo, because the PX4 works with instance numbers starting at 1 !
+                            dancers_msgs::msg::Neighbor neighbor{};
+                            neighbor.agent_id = neighbors_list_msg.ordered_neighbors(i).neighborid(j) + 1;                // ATTENTION: here we add 1 to the agent IDs because we want the IDs to start at 1 when using Gazebo, because the PX4 works with instance numbers starting at 1 !
                             neighbor.link_quality = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
-                            msg.neighbors_id_quality_array.push_back(neighbor);
+                            msg.neighbors.push_back(neighbor);
                         }
                         this->neighbors_pub_vector_[agent_id]->publish(msg);
                     }
@@ -691,7 +689,7 @@ private:
     rclcpp::Time simulation_length;
 
     // ros2 publishers
-    std::vector< rclcpp::Publisher<dancers_msgs::msg::NeighborIdQualityArray>::SharedPtr > neighbors_pub_vector_;
+    std::vector< rclcpp::Publisher<dancers_msgs::msg::NeighborArray>::SharedPtr > neighbors_pub_vector_;
 
     std::string ros_ws_path;
 };

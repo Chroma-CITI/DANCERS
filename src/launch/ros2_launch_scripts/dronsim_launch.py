@@ -1,4 +1,3 @@
-
 # ROS2 Launch program that starts a co-simulation of Gazebo and NS-3 along with the Gazebo GUI.
 # It sets-up a virtual network infrastructure based on the file setup_network.bash and launches PX4-Autopilot instances.
 
@@ -14,37 +13,26 @@ import yaml
 
 
 def generate_launch_description():
+    ws_path = '/home/theotime/simulation_ws'
+    config_path = ws_path + '/src/config/config_flocking_4.yaml'
+
+    # copy all the environment variables of the user
+    node_env = os.environ.copy()
+
+    # read the config file (Need pyYaml >= 5.1)
+    with open(config_path) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
     # Boolean parameter to launch the Gazebo GUI or not
     use_gz_gui = LaunchConfiguration('use_gz_gui', default=True)
     use_gz_gui_arg = DeclareLaunchArgument(
         'use_gz_gui',
         default_value=use_gz_gui,
         description='If true, launch the Gazebo GUI')
-    
-    # String parameter to find the config file
-    config_path = LaunchConfiguration('config_path')
-    config_path_arg = DeclareLaunchArgument(
-        'config_path',
-        default_value='config.yaml',
-        description='Path to the config file')
-    
-    ros_ws = os.environ.get('ROS_WS')
-    
-    # copy all the environment variables of the user
-    node_env = os.environ.copy()
-
-    # read the config file (Need pyYaml >= 5.1)
-    # try/catch to handle the case where the file is not found
-    try:
-        with open(config_path.perform(context)) as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)
-    except FileNotFoundError:
-        print("Error: config file not found")
-
 
     # ROS2 Action: run a bash script as sudo to configure the virtual network (require sudo)
     setup_network = ExecuteProcess(
-        cmd=['sudo', ros_ws + '/src/launch/setup_network.bash', str(config['robots_number'])],
+        cmd=['sudo', ws_path + '/src/launch/other_scripts/setup_network.bash', str(config['robots_number'])],
         name='setup_network'
     )
 
@@ -57,7 +45,7 @@ def generate_launch_description():
     
     set_FASTRTPS_DEFAULT_PROFILE_FILE = SetEnvironmentVariable(
         name='FASTRTPS_DEFAULT_PROFILE_FILE',
-        value=[ros_ws + '/src/config/fastrtps_whitelist_profile.xml']
+        value=[ws_path + '/src/config/fastrtps_whitelist_profile.xml']
     )
     
     coordinator = Node(
@@ -100,12 +88,11 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_gz_gui'))
     )
 
-    # TODO : Instead of spawning the drones statically at launch from a script, write a ROS2 node providing a "spawn drone" service that can spawn or remove uavs during runtime
     # ROS2 Action: Runs a bash script to launch N PX4-Autopilot instances from the ~/PX4-Autopilot directory
     # [config] robots_number: Number of px4_Autopilot to launch
     # [config] robots_model: name of the model that will be spawned in Gazebo (a model with this name must exist in PX4-Autopilot/Tools/simulation/gz/models)
     spawn_px4 = ExecuteProcess(
-        cmd=[ros_ws + '/src/launch/spawn_px4_netns.bash', str(config['robots_number']), str(config['robots_model'])],
+        cmd=['/home/theotime/simulation_ws/src/launch/other_scripts/spawn_px4_netns.bash', str(config['robots_number']), str(config['robots_model'])],
         name='spawn_px4',
         env=node_env
     )
@@ -143,7 +130,6 @@ def generate_launch_description():
             env=node_env
         )
 
-    # Bridges from Gazebo pub/sub to ROS2 pub/sub messages (lidar)
     def ros_gz_bridge_lidar(i):
         gz_topic_name = '/world/multicopter/model/'+config['robots_model']+'_'+str(i)+'/link/base_link/sensor/gpu_lidar/scan'
         node = Node(
@@ -195,7 +181,7 @@ def generate_launch_description():
             env=node_env
         )
         
-    # static transform frame for lidar position relative to UAV body
+
     def lidar_static_tf2_broadcaster(i):
         lid = Node(
             package='tf2_ros',
@@ -244,7 +230,7 @@ def generate_launch_description():
     # it appears the OnShutDown event handler doesn't work with any action other than LogInfo() 
     # see https://robotics.stackexchange.com/questions/24908/how-to-execute-a-script-at-shutdown-of-a-launch-process
     def remove_network(event, context):
-        os.system('sudo '+ros_ws+'/src/launch/remove_network.bash '+str(config['robots_number']))
+        os.system('sudo '+ws_path+'/src/launch/remove_network.bash '+str(config['robots_number']))
         os.system('pkill -2 parameter_bridg')
         os.system('pkill -3 gazebo_sim')
         return [
@@ -254,7 +240,6 @@ def generate_launch_description():
     # The main ROS2 LaunchDescription object
     ld = LaunchDescription([
         use_gz_gui_arg,
-        config_path_arg,
         setup_network,
         set_GZ_IP,
         set_FASTRTPS_DEFAULT_PROFILE_FILE,

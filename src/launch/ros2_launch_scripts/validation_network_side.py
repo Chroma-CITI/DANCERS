@@ -32,7 +32,7 @@ def generate_launch_description():
 
     # ROS2 Action: run a bash script as sudo to configure the virtual network (require sudo)
     setup_network = ExecuteProcess(
-        cmd=['sudo', ws_path + '/src/launch/setup_network.bash', str(config['robots_number'])],
+        cmd=['sudo', ws_path + '/src/launch/other_scripts/setup_network.bash', str(config['robots_number'])],
         name='setup_network'
     )
 

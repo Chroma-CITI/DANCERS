@@ -21,6 +21,7 @@
 #include "ns3/dsdv-module.h"
 
 #include "protobuf_msgs/network_update.pb.h"
+#include "protobuf_msgs/physics_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
@@ -202,7 +203,7 @@ public:
         // initialize the output file with headers
         std::ofstream file;
         file.open(out_file.c_str(), std::ios::out);
-        file << "dist,sent,received" << std::endl;
+        file << "dist,sent,received,pathloss" << std::endl;
         file.close();
 
         // ========================= NS3 =========================
@@ -216,12 +217,17 @@ public:
         Time neighbor_timeout_value = MicroSeconds(config["neighbor_timeout_value"].as<uint32_t>());
         int numNodes = config["robots_number"].as<int>();
 
-        std::string wifiType = config["wifi_type"].as<std::string>();
+        this->wifiType = config["wifi_type"].as<std::string>();
         std::string errorModelType = config["error_model_type"].as<std::string>();
         std::string propagation_loss_model = config["propagation_loss_model"].as<std::string>();
         std::string phyMode(config["phy_mode"].as<std::string>()); // Define a "Phy mode" that will be given to the WifiRemoteStationManager
         double frequency = 5.2e9;                                  // operating frequency in Hz
         this->max_neighbors = config["max_neighbors"].as<uint32_t>();
+
+        // Fix non-unicast data rate to be the same as that of unicast
+        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
+            StringValue (phyMode));
+
 
         this->sent_packets = 0;
         this->received_packets = 0;
@@ -239,11 +245,11 @@ public:
             nodeMob = CreateObject<ConstantPositionMobilityModel>();
             this->nodes.Get(i)->AggregateObject(nodeMob);
         }
-        this->nodes.Get(0)->GetObject<ConstantPositionMobilityModel>()->SetPosition(Vector(0.0, 0.0, 0.0));
-        this->nodes.Get(1)->GetObject<ConstantPositionMobilityModel>()->SetPosition(Vector(10.0, 0.0, 0.0));
-        this->targets_reached = false;
+        this->nodes.Get(0)->GetObject<ConstantPositionMobilityModel>()->SetPosition(Vector(-10.0, 0.0, 1.0));
+        this->nodes.Get(1)->GetObject<ConstantPositionMobilityModel>()->SetPosition(Vector(10.0, 0.0, 1.0));
 
-        advanceNode(this->nodes.Get(1), 5, 100.0); // node ptr , dist in m , period of change of pos in s
+        advanceNode(this->nodes.Get(0), Vector(0.0, 1.0, 0.0), 100.0, false); // node ptr , dist in m , period of change of pos in s
+        advanceNode(this->nodes.Get(1), Vector(0.0, 1.0, 0.0), 100.0, true); // node ptr , dist in m , period of change of pos in s
 
         RCLCPP_DEBUG(this->get_logger(), "Finished the configuration of MOBILITY module");
 
@@ -318,6 +324,12 @@ public:
                                            DoubleValue(7.0));
                 yansChannel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
             }
+            // else if (propagation_loss_model == "FirstOrderPropagationLossModel")
+            // {
+            //     this->m_propagationLossModel = CreateObject<FirstOrderBuildingAwarePropagationLossModel>();
+            //     yansChannel.AddPropagationLoss("ns3::FirstOrderBuildingAwarePropagationLossModel");
+            //     yansChannel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
+            // }
 
             yansWifiPhy.SetChannel(yansChannel.Create());
             yansWifiPhy.Set("TxPowerStart", DoubleValue(18));
@@ -609,12 +621,10 @@ public:
                 // Wait until reception of a message on the UDS socket
                 std::string received_data = gzip_decompress(socket->receive_one_message());
 
-                // Initialize empty protobuf message type [NetworkUpdate]
-                network_update_proto::NetworkUpdate NetworkUpdate_msg;
+                // Initialize empty protobuf message type [PhysicsUpdate]
+                physics_update_proto::PhysicsUpdate physics_update_msg;
                 // Transform the message received from the UDS socket [string] -> [protobuf]
-                NetworkUpdate_msg.ParseFromString(received_data);
-
-                this->targets_reached = NetworkUpdate_msg.targets_reached();
+                physics_update_msg.ParseFromString(received_data);
 
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
@@ -627,10 +637,10 @@ public:
                 //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
                 // }
 
-                if (!NetworkUpdate_msg.robots_positions().empty())
+                if (!physics_update_msg.robots_positions().empty())
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                    robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
+                    robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
@@ -697,7 +707,7 @@ public:
                 // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
                 // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);
 
-                std::string response = gzip_compress(generate_response(NetworkUpdate_msg));
+                std::string response = gzip_compress(generateResponseProtobuf());
 
                 // Send the response to the network coordinator
                 socket->send_one_message(response);
@@ -760,13 +770,12 @@ private:
     Time mission_flow_timeout;
     Time broadcast_flow_timeout;
     uint32_t max_neighbors;
+    std::string wifiType;
 
     int sent_packets;
     int received_packets;
 
     Ptr<PropagationLossModel> m_propagationLossModel;
-
-    bool targets_reached;
 
     // ns3 Trace callbacks
     void SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb);
@@ -794,12 +803,12 @@ private:
     Ptr<PacketCounterCalculator> navEffectiveTx;
 
     // co-simulation specific methods
-    std::string generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg);
-    std::string generate_neighbors_msg();
+    std::string generateResponseProtobuf();
+    std::string generateNeighborsMsg();
 
     void timeoutNeighbors();
     void updateNeighborsPathloss();
-    void advanceNode(Ptr<ns3::Node> node, double dist, double period);
+    void advanceNode(Ptr<ns3::Node> node, Vector vec, double period, bool save_packets);
 
 
 };
@@ -829,7 +838,7 @@ void PacketSuccessExp::PhyTxBeginTrace(std::string context, Ptr<const Packet> pa
         if (nav_flow.GetFlowId() == this->mission_flow_id)
         {
             // We are sending a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            std::cout << nodeId << ": Sending a mission packet to " << destId << std::endl;
+            // std::cout << nodeId << ": Sending a mission packet to " << destId << std::endl;
             this->mission_flow_neighbors[nodeId][destId] = std::make_pair(rxPow, txTime);
         }
     }
@@ -868,7 +877,7 @@ void PacketSuccessExp::PhyRxEndTrace(std::string context, Ptr<const Packet> pack
         if (nav_flow.GetFlowId() == this->mission_flow_id && nodeId == destId)
         {
             // We are receiving a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            std::cout << nodeId << ": Receiving a mission packet from " << sourceId << std::endl;
+            // std::cout << nodeId << ": Receiving a mission packet from " << sourceId << std::endl;
             this->mission_flow_neighbors[nodeId][sourceId] = std::make_pair(rxPow, rxTime);
         }
     }
@@ -878,13 +887,13 @@ void PacketSuccessExp::PhyRxEndTrace(std::string context, Ptr<const Packet> pack
 void PacketSuccessExp::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
     this->received_packets += 1;
-    RCLCPP_INFO(this->get_logger(), "Mission flow packet received");
+    RCLCPP_DEBUG(this->get_logger(), "Mission flow packet received");
 }
 
 void PacketSuccessExp::mission_flow_sender_clbk(Ptr<const Packet> packet)
 {
     this->sent_packets += 1;
-    RCLCPP_INFO(this->get_logger(), "Mission flow packet sent");
+    RCLCPP_DEBUG(this->get_logger(), "Mission flow packet sent");
 }
 
 void PacketSuccessExp::flock_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id)
@@ -907,7 +916,7 @@ void PacketSuccessExp::flocking_broadcaster_clbk(std::string context, Ptr<const 
  * @returns A string-serialized version of the "ordered_neighbors" protobuf message
  */
 std::string
-PacketSuccessExp::generate_neighbors_msg()
+PacketSuccessExp::generateNeighborsMsg()
 {
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
     std::map<uint32_t, int> flow_ids;
@@ -942,30 +951,24 @@ PacketSuccessExp::generate_neighbors_msg()
     // Create and add the ordered_neighbors protobuf message
     for (auto const &agent : neighbors)
     {
-        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
-        std::vector<double> ordered_pathlosses;
-        neighbor_msg->set_agentid(agent.first);
-        unsigned int num_neighbors = 0;
-        // Sort the pathlosses to add them in the protobuf message in the right order.
-        for (auto const &neigh : agent.second)
-        {
-            ordered_pathlosses.push_back(neigh.second.first);
-        }
-        std::sort(ordered_pathlosses.begin(), ordered_pathlosses.end(), std::greater<double>());
+        // Sort the agents by descending pathloss
+        std::vector<std::pair<uint32_t, std::pair<double, Time>>> ordered_neighbors(agent.second.begin(), agent.second.end());
+        std::sort(ordered_neighbors.begin(), ordered_neighbors.end(), [](const auto& a, const auto& b) {
+            return a.second.first > b.second.first;
+        });
 
-        // Search on the values of the pathloss map, which is quite bad if two neighbors have exactly the same pathloss
-        for (auto const &pathloss : ordered_pathlosses)
+        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        neighbor_msg->set_agentid(agent.first);
+        neighbor_msg->set_role(ordered_neighbors_proto::OrderedNeighbors_Role_MISSION);
+
+        // Sort the pathlosses to add them in the protobuf message in the right order.
+        for (auto const &neighbor : ordered_neighbors)
         {
-            neighbor_msg->add_neighbortype(flow_ids[agent.first]);
-            for (auto const &neigh : agent.second)
-            {
-                if (neigh.second.first == pathloss && pathloss != 0 && num_neighbors < this->max_neighbors) 
-                {
-                    neighbor_msg->add_neighborid(neigh.first);
-                    neighbor_msg->add_linkquality(neigh.second.first);
-                    num_neighbors++;
-                }
-            }
+            uint32_t neighbor_id = neighbor.first;
+            neighbor_msg->add_neighborid(neighbor_id);
+            neighbor_msg->add_linkquality(neighbor.second.first);
+            neighbor_msg->add_neighbortype(ordered_neighbors_proto::OrderedNeighbors_Role_MISSION);
+            neighbor_msg->add_time_val(neighbor.second.second.ToInteger(Time::US));
         }
 
         // std::cout << neighbor_msg->DebugString() << std::endl;
@@ -987,13 +990,14 @@ PacketSuccessExp::generate_neighbors_msg()
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-PacketSuccessExp::generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg)
+PacketSuccessExp::generateResponseProtobuf()
 {
     // Change message type to "END"
-    NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    NetworkUpdate_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg()));
+    network_update_proto::NetworkUpdate network_update_msg;
+    network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
+    network_update_msg.set_ordered_neighbors(gzip_compress(generateNeighborsMsg()));
     std::string str_response;
-    NetworkUpdate_msg.SerializeToString(&str_response);
+    network_update_msg.SerializeToString(&str_response);
 
     return str_response;
 }
@@ -1046,24 +1050,43 @@ void PacketSuccessExp::updateNeighborsPathloss()
     }
 }
 
-void PacketSuccessExp::advanceNode(Ptr<ns3::Node> node, double dist, double period)
+void PacketSuccessExp::advanceNode(Ptr<ns3::Node> node, Vector vec, double period, bool save_packets)
 {
     Ptr<MobilityModel> mobility = node->GetObject<MobilityModel>();
     Vector pos = mobility->GetPosition();
-    pos.x += dist;
+    pos = vec + pos;
     mobility->SetPosition(pos);
 
-    // write sent and received packets to file
-    std::ofstream file;
-    file.open(this->out_file.c_str(), std::ios_base::app);
-    file << pos.x << "," << this->sent_packets << "," << this->received_packets << std::endl;
-    file.close();
+    if (save_packets)
+    {
+        // write sent and received packets to file
+        std::ofstream file;
+        file.open(this->out_file.c_str(), std::ios_base::app);
+        double dist = (this->nodes.Get(0)->GetObject<MobilityModel>()->GetPosition() - pos).GetLength();
+        double PL;
+        if (wifiType == "YansWifiPhy")
+        {
+            if (this->m_propagationLossModel)
+            {
+                PL = this->m_propagationLossModel->CalcRxPower(18.0, this->nodes.Get(0)->GetObject<MobilityModel>(), mobility);
+            }
+        } else if (wifiType == "SpectrumWifiPhy") {
+            PL = this->pathlosses[0][1];
+        } else {
+            std::cout << "Unknown wifi type: " << wifiType << std::endl;
+            exit(EXIT_FAILURE);
+        }
 
-    std::cout << "Dist " << pos.x << " received packets: " << this->received_packets << " sent packets: " << this->sent_packets << std::endl;
+        file << pos.y << "," << this->sent_packets << "," << this->received_packets << "," << PL << std::endl;
+        file.close();
 
-    this->sent_packets = 0;
-    this->received_packets = 0;
-    Simulator::Schedule(Seconds(period), &PacketSuccessExp::advanceNode, this, node, dist, period);
+        std::cout << "Pose " << pos << " received packets: " << this->received_packets << " sent packets: " << this->sent_packets << " pathloss: " << PL << std::endl;
+
+        this->sent_packets = 0;
+        this->received_packets = 0;
+    }
+    
+    Simulator::Schedule(Seconds(period), &PacketSuccessExp::advanceNode, this, node, vec, period, save_packets);
 }
 
 /**

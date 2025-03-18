@@ -24,36 +24,36 @@ find_package(Boost REQUIRED filesystem)
 set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
 
-add_executable(gz_odom_publisher src/gz_odom_publisher.cpp)
+# add_executable(gz_odom_publisher src/gz_odom_publisher.cpp)
 
-target_link_libraries(gz_odom_publisher
-  gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
-  gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
-)
+# target_link_libraries(gz_odom_publisher
+#   gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
+#   gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
+# )
 
-ament_target_dependencies(gz_odom_publisher
-  px4_msgs
-  rclcpp
-  nav_msgs
-)
+# ament_target_dependencies(gz_odom_publisher
+#   px4_msgs
+#   rclcpp
+#   nav_msgs
+# )
 
-add_executable(VAT_neighbors src/VAT_neighbors.cpp)
+# add_executable(VAT_neighbors src/VAT_neighbors.cpp)
 
-target_link_libraries(VAT_neighbors
-  yaml-cpp
-  Eigen3::Eigen
-  gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
-  gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
-)
+# target_link_libraries(VAT_neighbors
+#   yaml-cpp
+#   Eigen3::Eigen
+#   gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER}
+#   gz-common${GZ_COMMON_VER}::gz-common${GZ_COMMON_VER}
+# )
 
-ament_target_dependencies(VAT_neighbors
-  px4_msgs
-  rclcpp
-  sensor_msgs
-  obstacle_detector
-  nav_msgs
-  dancers_msgs
-)
+# ament_target_dependencies(VAT_neighbors
+#   px4_msgs
+#   rclcpp
+#   sensor_msgs
+#   obstacle_detector
+#   nav_msgs
+#   dancers_msgs
+# )
 
 add_executable(pose_array_saver src/pose_array_saver.cpp)
 
@@ -71,8 +71,8 @@ ament_target_dependencies(pose_array_saver
 
 INSTALL(
   TARGETS 
-  gz_odom_publisher
-  VAT_neighbors
+  # gz_odom_publisher
+  # VAT_neighbors
   pose_array_saver
   DESTINATION lib/${PROJECT_NAME})
 

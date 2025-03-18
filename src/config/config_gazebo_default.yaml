@@ -10,7 +10,7 @@ seed: 12
 # ******* SCENARIO DEFINITION *******
 
 # The number of robots in the fleet
-robots_number: 6
+robots_number: 2
 
 # The model of the robot. Must match the robots names in Gazebo in the following way : {robots_model}_{i} where i = 0..{robots_number}
 # Example : x500_0, x500_1, x500_2, etc.
@@ -24,52 +24,209 @@ simulation_length: 0 # s
 wifi_type: 'SpectrumWifiPhy' # [YansWifiPhy, SpectrumWifiPhy]
 propagation_loss_model: 'HybridBuildingsPropagationLossModel' # [LogDistancePropagationLossModel, HybridBuildingsPropagationLossModel], used only with YansWifiPhy
 error_model_type: 'ns3::NistErrorRateModel'
-phy_mode: 'ErpOfdmRate54Mbps'
+phy_mode: 'HtMcs7' # 802.11g: [ErpOfdmRate54Mbps] 802.11n: [HtMcs0, HtMcs1, HtMcs2, HtMcs3, ..., HtMcs7]
+routing_algorithm: 'OLSR' # [AODV, DSDV, OLSR, BATMAN, DSR]
+frequency: 5.2e9
+short_guard_interval_supported: false
+
+# ******* NEIGHBORHOOD *******
+pseudo_routing_algorithm: 'shortest_dist' # [shortest_dist, capacity_bottleneck, minimize_error_rate, predefined_chain] 
+use_real_routing_algorithm: false # If false, the route between source and sink, computed by the pseudo_routing_algorithm will be used to actually route the data. In which case, the routing_algorithm is deactivated and not used
+
+shortest_dist:
+  distance_threshold: 40 # m
+  constant_before_threshold: 10
+
+minimize_error_rate:
+  broadcast_window_size: 0.5  # s
+
+hybrid_dist_error_rate:
+  distance_threshold: 60 # m
+  constant_before_threshold: 10
+  error_rate_exponent: 2
+  distance_gain: 1
+  error_rate_gain: 200
 
 # ******* NETWORK APPLICATIONS *******
 mission_flow:
   enable: true
-  source_robot_ids: [1, 2]
+  source_robot_ids: [1]
   sink_robot_id: 0
   port: 7777
-  packet_size: 64 # bytes
-  interval: 500000 # us
+  packet_size: 1024 # bytes
+  interval: 200000 # us
   timeout: 500000 # us
-  start_time: 0.0 # s
-  stop_time: 300.0 # s
+  start_time: 3.0 # s
+  stop_time: 2000.0 # s
   flow_id: 1
+  save_packets: false
 
 broadcast_flow:
   enable: true
   port: 4000
   packet_size: 64 # bytes
-  interval: 500000 # us
-  timeout: 2000000 # us
-  start_time: 0.0 # s
-  stop_time: 300.0 # s
+  interval: 250000 # us
+  timeout: 500000 # us
+  start_time: 1.0 # s
+  stop_time: 2000.0 # s
   flow_id: 2
 
 # ******* FLOCKING *******
-VAT_flocking_parameters:
-  v_flock: 2.0
-  v_max: 4
+# Indicates if the ROS flocking_controller should publish on a topic the command its sends.
+controller_publish_cmd: true
+
+# **** Constraints ****
+expected_deconnexion_distance: 130.0
+
+# **** Parameters ****
+VAT_undefined_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
   a_frict: 4.16
   p_frict: 3.2
   r_0_frict: 85.3
   C_frict: 0.8
   v_frict: 0.63
-  p_att: 0.03  # old 0.08
+  p_att: 0.08  # old 0.08
+  r_0_att: 5
+  p_rep: 0.13
+  r_0_rep: 5
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 1.0 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  # If use_deconnexion_distance_instead_of_p_att is true, p_att will be overriden so that the 
+  # attraction speed can counter the v_sec_max at the expected_deconnexion_distance.
+  use_deconnexion_distance_instead_of_p_att: false 
+  use_squared_attraction_term: false
+  p_los: 0.0
+  r_los_obst_inflation: 0.0
+
+VAT_mission_flocking_parameters:
+  v_flock: 1.0
+  v_max: 15
+  v_sec_max: 6.0
+  r_0_sec: 4.0
+  v_sec_max_path: 6.0
+  r_0_sec_path: 4.0
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3 # old 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.16  # old 0.08
+  r_0_att: 30
+  p_rep: 0.13
+  r_0_rep: 20
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 1.0 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: true
+  use_squared_attraction_term: false
+  p_los: 1.0
+  r_los_obst_inflation: 5.0
+
+VAT_potential_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 5.0
+  v_frict: 0.63
+  p_att: 0.16  # old 0.08
+  r_0_att: 30
+  p_rep: 0.13
+  r_0_rep: 20
+  a_shill: 53
+  p_shill: 3.55
+  r_0_shill: 1.0 # old 0.3
+  v_shill: 13.622
+  auto_propulsion_flag: false
+  secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: false
+  use_squared_attraction_term: false
+  p_los: 0.0
+  r_los_obst_inflation: 0.0
+
+
+VAT_idle_flocking_parameters:
+  v_flock: 0.5
+  v_max: 3
+  v_sec_max: 3
+  r_0_sec: 4.0
+  v_sec_max_path: 3
+  r_0_sec_path: 4.0
+  a_frict: 4.16
+  p_frict: 3.2
+  r_0_frict: 85.3
+  C_frict: 0.8
+  v_frict: 0.63
+  p_att: 0.08  # old 0.08
   r_0_att: 20
   p_rep: 0.13
   r_0_rep: 20
   a_shill: 53
   p_shill: 3.55
-  r_0_shill: 0.3 # old 0.3
+  r_0_shill: 1.0 # old 0.3
   v_shill: 13.622
   auto_propulsion_flag: false
   secondary_objective_flag: true
+  use_deconnexion_distance_instead_of_p_att: false
+  use_squared_attraction_term: false
+  p_los: 0.0
+  r_los_obst_inflation: 0.0
 
-# secondary objectives of the drones, with the form robot_ID: [x, y, z, target(true)|sink(false)] 
+
+# ******* LEADER PATH PLANNER *******
+# When true, the secondary_objectives will be reached trough a A* start path planning
+# When false, the agent will be attract by a direct force towards the goal.
+use_planner: false
+
+# Distance at which the planner will stop looking for closer grid cells.
+goal_radius_tolerance: 1.0
+
+# If the distance between the agent and its path is greater than distance_to_path_tolerance, the agent will replan a path.
+distance_to_path_tolerance: 3.0
+
+# Distance ahead of the closest point on the path that agent will be attract to. Similar to the carrot on a stick.
+lookup_ahead_pursuit_distance: 5.0
+
+# **** Occupancy grid for the planner ****
+
+# Heigh of the grid in the global frame. 
+grid_altitude: 10.0
+
+# The size of the map is based on the smallest x and y position to the 
+# largest x and y positions from obstalces and secondary objectives.
+# The map inflation is a padding in meter to add around those dimensions.
+map_inflation: 20.0
+
+# Extra size to add on each size of obstacles for safe navigation. 
+obstacle_inflation: 2.5
+
+# Resolution in meter/cell of the occupancy grid.
+map_resolution: 0.5
+
+# ******* PRE-PLANNED FLIGHT *******
+circle_parameters:
+  gain: 10
+  omega: 0.1
+
+# secondary objectives of the drones, with the form robot_ID: [x, y, z, target(false)|sink(true)] 
 # Be careful, there is no check that on the robot_ID in this list, if add a secondary objective for robot 10 and robot 10 does not exist, it will be ignored
 secondary_objectives: 
   # 0: [-15, -40, 10, false]
@@ -77,15 +234,19 @@ secondary_objectives:
   # 2: [0, 50, 10, false]
   # 3: [40, 70, 10, false]
 
-  # 0: [-30, 0, 10, true]
-  # 1: [30, 200, 10, false]
+  # Corridor
+  # 0: [0, 0, 10, true]
+  # 1: [50, 250, 10, false]
 
   0: [0, 0, 10, true]
-  1: [50, 150, 10, false]
-  2: [-50, 150, 10, false]
-  # 3: [0, 150, 10, false]
+  1: [20, 20, 10, false]
+  # 2: [-40, 100, 10, false]
+  # 3: [-70, 150, 10, false]
+  # 4: [200, 350, 10, false] 
+  # 5: [-200, 350, 10, false]
+  # 6: [340, 100, 10, false]
 
-target_altitude: 10.0 # Flocking is done at fixed altitude for now.
+# target_altitude: 10.0 # Flocking is done at fixed altitude for now. If not defined, the flocking will be done in 3D.
 
 neighbor_timeout_value: 2000000 # Value after which the robot will be considered as lost (microseconds)
 
@@ -167,6 +328,7 @@ print_debug: true
 
 save_compute_time: false
 enable_stats: false
+publish_agent_structs: true
 
 net_use_uds: true
 phy_use_uds: true

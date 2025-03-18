@@ -25,9 +25,9 @@ tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path"
-tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run coordinator coordinator --ros-args -p config_file:=$config_path"
+tmux split-window -t $session:$window -v -d "cd $path_to_ros2_ws && ros2 run ns-3_sim ns3_sim_pseudo_routing --ros-args -p config_file:=$config_path -p use_sim_time:=true"
+tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux select-pane -t $session:$window.2
-tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run robotsim_connector robotsim_connector --ros-args -p config_file:=$config_path -p viragh_path:=$path_to_viragh"
+tmux split-window -t $session:$window -h "cd $path_to_ros2_ws && ros2 run robotsim_connector robotsim_connector --ros-args -p config_file:=$config_path -p viragh_path:=$path_to_viragh -p use_sim_time:=true"
 
 tmux attach-session -t $session -d

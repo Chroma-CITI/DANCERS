@@ -31,8 +31,8 @@ session="mission"
 tmux kill-session -t $session
 
 # Spawn the PX4 Autopilot instances
-tmux new-session -d -s $session "$ROS_WS/src/launch/spawn_px4.bash $config_robots_number $config_robots_model && bash"
-# tmux set remain-on-exit on
+tmux new-session -d -s $session "$ROS_WS/src/launch/other_scripts/spawn_px4.bash $config_robots_number $config_robots_model && bash"
+tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'mission'
