@@ -17,6 +17,7 @@ find_package(protobuf_msgs REQUIRED)
 find_package(Boost REQUIRED iostreams filesystem system)
 find_package(ns3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(dancers_msgs REQUIRED)
 
 # add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp 
 #   include/${PROJECT_NAME}/wifi-application.cpp 
@@ -78,7 +79,7 @@ ament_target_dependencies(adhoc_chain_flocking
   protobuf_msgs
   rclcpp)
 
-add_executable(fake_neighborhood src/fake_neighborhood.cpp
+add_executable(ns3_sim_pseudo_routing src/ns3_sim_pseudo_routing.cpp
   include/${PROJECT_NAME}/wifi-application.cpp 
   include/${PROJECT_NAME}/wifi-application.h
   include/${PROJECT_NAME}/chain-flocking-application.cpp
@@ -88,7 +89,7 @@ add_executable(fake_neighborhood src/fake_neighborhood.cpp
   include/${PROJECT_NAME}/flocking-application.cpp
   include/${PROJECT_NAME}/flocking-application.h
 )
-target_link_libraries(fake_neighborhood
+target_link_libraries(ns3_sim_pseudo_routing
   yaml-cpp
   ns3::libcore
   ns3::libwifi
@@ -106,44 +107,45 @@ target_link_libraries(fake_neighborhood
   ns3::libcsma
   ns3::libtap-bridge
 )
-ament_target_dependencies(fake_neighborhood
+ament_target_dependencies(ns3_sim_pseudo_routing
+  Boost 
+  protobuf_msgs
+  rclcpp
+  dancers_msgs)
+
+
+add_executable(packet_success_exp src/packet_success_exp.cpp
+  include/${PROJECT_NAME}/wifi-application.cpp 
+  include/${PROJECT_NAME}/wifi-application.h
+  include/${PROJECT_NAME}/chain-flocking-application.cpp
+  include/${PROJECT_NAME}/chain-flocking-application.h
+  include/${PROJECT_NAME}/pick-neighbors-header.cpp
+  include/${PROJECT_NAME}/pick-neighbors-header.h
+  include/${PROJECT_NAME}/flocking-application.cpp
+  include/${PROJECT_NAME}/flocking-application.h
+)
+target_link_libraries(packet_success_exp
+  yaml-cpp
+  ns3::libcore
+  ns3::libwifi
+  ns3::libmobility
+  ns3::libolsr
+  ns3::libaodv
+  ns3::libdsdv
+  ns3::libdsr
+  ns3::libinternet
+  ns3::libbuildings
+  ns3::libpropagation
+  ns3::libspectrum
+  ns3::libnetwork
+  ns3::libapplications
+  ns3::libcsma
+  ns3::libtap-bridge
+)
+ament_target_dependencies(packet_success_exp
   Boost 
   protobuf_msgs
   rclcpp)
-
-
-# add_executable(packet_success_exp src/packet_success_exp.cpp
-#   include/${PROJECT_NAME}/wifi-application.cpp 
-#   include/${PROJECT_NAME}/wifi-application.h
-#   include/${PROJECT_NAME}/chain-flocking-application.cpp
-#   include/${PROJECT_NAME}/chain-flocking-application.h
-#   include/${PROJECT_NAME}/pick-neighbors-header.cpp
-#   include/${PROJECT_NAME}/pick-neighbors-header.h
-#   include/${PROJECT_NAME}/flocking-application.cpp
-#   include/${PROJECT_NAME}/flocking-application.h
-# )
-# target_link_libraries(packet_success_exp
-#   yaml-cpp
-#   ns3::libcore
-#   ns3::libwifi
-#   ns3::libmobility
-#   ns3::libolsr
-#   ns3::libaodv
-#   ns3::libdsdv
-#   ns3::libdsr
-#   ns3::libinternet
-#   ns3::libbuildings
-#   ns3::libpropagation
-#   ns3::libspectrum
-#   ns3::libnetwork
-#   ns3::libapplications
-#   ns3::libcsma
-#   ns3::libtap-bridge
-# )
-# ament_target_dependencies(packet_success_exp
-#   Boost 
-#   protobuf_msgs
-#   rclcpp)
 
 message("ns-3 version " ${ns3_VERSION})
 
@@ -184,6 +186,7 @@ message("ns-3 version " ${ns3_VERSION})
 # message("Boost version " ${Boost_VERSION_STRING})
 
 include_directories(include/${PROJECT_NAME})
+include_directories(include/${PROJECT_NAME}/util)
 # hard-coded include path makes this file fail if moved
 include_directories(../../_include_all)
 
@@ -199,8 +202,8 @@ INSTALL(
   # ns-3_only_csma
   # ns-3_sim_wifi_adhoc
   adhoc_chain_flocking
-  fake_neighborhood
-  # packet_success_exp
+  ns3_sim_pseudo_routing
+  packet_success_exp
   # carousel-use-case
   DESTINATION lib/${PROJECT_NAME})
 
