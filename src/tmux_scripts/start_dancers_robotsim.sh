@@ -21,7 +21,7 @@ if [ "$config_path" = "RecursionError" ]; then
 fi
 
 tmux new-session -d -s $session "cd $path_to_viragh &&  ./robotflocksim_main -obst obstacles/cosim_obstacles.default"
-# tmux set remain-on-exit on
+tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'dancers'

@@ -27,7 +27,7 @@ tmux set remain-on-exit on
 window=0
 tmux rename-window -t $session:$window 'dancers'
 # Available ns-3 sim modules : [fake_neighborhood , adhoc_chain_flocking]
-tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim adhoc_chain_flocking --ros-args -p config_file:=$config_path -p use_sim_time:=true"
+tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim ns3_sim_pseudo_routing --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux select-pane -t $session:$window.2
 tmux split-window -t $session:$window -h "ros2 run flocking_controller flocking_controller_vat --ros-args -p config_file:=$config_path -p use_sim_time:=true"
