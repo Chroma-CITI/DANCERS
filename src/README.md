@@ -12,6 +12,7 @@ The `src` repository holds the source code of DANCERS. You'll find repertories h
 - **config** : Holds the (`yaml`) configuration files for the experiments made with DANCERS.
 - **launch** : Holds the sripts used to launch the co-simulator. You'll find ROS2 launch files and shell scripts in there.
 - **multi_exp_launch** : Holds useful scripts to launch multiple simulations automatically.
+- **protobuf_msgs** : Holds the definition of the protobuf messages exhanged between the simulators.
 
 ### ROS2 packages
 
