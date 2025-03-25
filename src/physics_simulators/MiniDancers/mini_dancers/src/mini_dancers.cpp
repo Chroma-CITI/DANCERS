@@ -660,7 +660,7 @@ void MiniDancers::DisplayRviz()
 /**
  * @brief Updates the internal state of the agents with the new input commands (called at every timestep)
  * 
- * This is where the controller code goes !
+ * This is where the controller code goes ! It uses a ROS2 service to fetch the command from the controller.
  */
 void MiniDancers::UpdateCmds()
 {
@@ -760,10 +760,7 @@ void MiniDancers::UpdateCmds()
         RCLCPP_ERROR_STREAM(this->get_logger(), "Couldn't call the command service: " << command_client_->get_service_name()<< ". Skipping control step");
         return;
     }
-
-
 }
-
 
 /**
  * @brief Updates the internal state of the agents with neighbors lists received from the outside (typically received from the network simulator)
