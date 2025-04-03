@@ -39,7 +39,7 @@ class OccupancyGrid2D
         struct CellCoordinates
         {
             int x=0;
-            int y =0;
+            int y=0;
         };
 
         /**
@@ -102,7 +102,7 @@ class OccupancyGrid2D
         std::optional<CellStatus> getCellStatus(const CellCoordinates& coordinates);
 
         /**
-         * @brief Return the projection of a vetor on the grid plane. It's equivalent of getting the closest point between a point and a plane.
+         * @brief Return the projection of a vector on the grid plane. It's equivalent of getting the closest point between a point and a plane.
          * @param vector_in_global_frame 3D vector in the global frame to be projected on the grid plane.
          * @return Projection of the given vector on the occupancy grid plane.
          */

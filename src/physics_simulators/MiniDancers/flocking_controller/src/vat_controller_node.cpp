@@ -359,7 +359,7 @@ class VATControllerNode : public rclcpp::Node
                 float map_resolution = 0.5f;
                 if(YAML::Node map_resolution_param = config["map_resolution"])
                 {
-                    float map_resolution = static_cast<float>(map_resolution_param.as<double>());  
+                    map_resolution = static_cast<float>(map_resolution_param.as<double>());
                 }
                 else
                 {

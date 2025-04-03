@@ -155,45 +155,9 @@ void OccupancyGrid2D::populateGridFromObstacles(std::shared_ptr<std::vector<cubo
                     }
                 }
 
-                for (int x_index = min_x_obstacles; x_index < min_x; x_index++)
+                for (int x_index = min_x_obstacles; x_index < max_x_obstacles; x_index++)
                 {
                     for(int y_index = min_y_obstacles; y_index < max_y_obstacles; y_index++)
-                    {
-                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
-                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
-                        {
-                            grid_[x_index][y_index].status = CellStatus::Inflated;
-                        }
-                    }
-                }
-
-                for (int x_index = max_x_obstacles; max_x <= x_index; x_index--)
-                {
-                    for(int y_index = min_y_obstacles; y_index < max_y_obstacles; y_index++)
-                    {
-                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
-                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
-                        {
-                            grid_[x_index][y_index].status = CellStatus::Inflated;
-                        }
-                    }
-                }
-
-                for(int y_index = min_y_obstacles; y_index <= min_y; y_index++)
-                {
-                    for (int x_index = min_x_obstacles; x_index < max_x_obstacles; x_index++)
-                    {
-                        const std::lock_guard<std::mutex> lock(grid_access_mutex_);
-                        if(grid_[x_index][y_index].status != CellStatus::Occupied)
-                        {
-                            grid_[x_index][y_index].status = CellStatus::Inflated;
-                        }
-                    }
-                }
-
-                for(int y_index = max_y_obstacles;  max_y <= y_index; y_index--)
-                {
-                    for (int x_index = min_x_obstacles; x_index < max_x_obstacles; x_index++)
                     {
                         const std::lock_guard<std::mutex> lock(grid_access_mutex_);
                         if(grid_[x_index][y_index].status != CellStatus::Occupied)
