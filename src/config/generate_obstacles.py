@@ -78,7 +78,6 @@ if __name__ == '__main__':
     
     config_file = sys.argv[1]
     
-    
     # Get the real path to this script file, regardless of where it was run from
     script_path = path.dirname(path.realpath(__file__))
     if not path.isdir(script_path + "/auto_obstacles"):
@@ -102,7 +101,7 @@ if __name__ == '__main__':
     radius_of_obst = config['radius_obst']
     std = config['radius_stdev_obst']
     height = config['height_obst']
-    radius -= radius_of_obst + 30 #avoid obstacles on the edges of the arena
+    radius -= radius_of_obst + 1 #avoid obstacles on the edges of the arena
     filename = path.splitext(path.basename(config_file))[0]+"_auto_obst_" + distrib + "_" + str(numb_obst) + "_" + t[0] + "_" + t[1] + "_"\
                                 + t[2] + "_" + t[3] + ".yaml"    
     

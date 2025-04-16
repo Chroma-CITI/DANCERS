@@ -54,12 +54,12 @@ tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-# Available ns-3 sim modules : [ns-3_sim_wifi_adhoc , adhoc_chain_flocking, standard_wifi_network]
 tmux split-window -t $session:$window -v -d "ros2 run $networks_pkg $networks_node --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux select-pane -t $session:$window.2
 tmux split-window -t $session:$window -h "ros2 run $physics_pkg $physics_node --ros-args -p config_file:=$config_path -p use_sim_time:=true"
+# tmux split-window -t $session:$window -h "ros2 run agent_struct_saver agent_struct_saver --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 tmux split-window -t $session:$window -h "ros2 run rviz2 rviz2 -d $rviz_to_use --ros-args -p use_sim_time:=true"
-
+# tmux split-window -t $session:$window -h "ros2 run steiner_tree_solver steiner_tree_solver --ros-args -p config_file:=$config_path"
 
 tmux attach-session -t $session -d
