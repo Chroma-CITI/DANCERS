@@ -1,0 +1,1 @@
+dancers_msgs/AgentStruct[] structs
