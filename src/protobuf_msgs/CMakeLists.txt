@@ -9,10 +9,10 @@ include_directories(
 )
 
 set(PROTO_FILES
-  protobuf/physics_update.proto
-  protobuf/network_update.proto
-  protobuf/robots_positions.proto
+  protobuf/dancers_update.proto
+  protobuf/pose_vector.proto
   protobuf/ordered_neighbors.proto
+  protobuf/velocity_heading_vector.proto
 )
 # creates custom commands in cmake to generate protobuf code, if included in a
 # target

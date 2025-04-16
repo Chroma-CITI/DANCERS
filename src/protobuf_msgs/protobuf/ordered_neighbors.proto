@@ -1,5 +1,6 @@
 syntax = "proto3";
-package ordered_neighbors_proto;
+
+package dancers_update_proto;
 
 message OrderedNeighborsList {
     repeated OrderedNeighbors ordered_neighbors = 1;

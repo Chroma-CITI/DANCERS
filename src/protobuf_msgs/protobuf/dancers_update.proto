@@ -1,13 +1,13 @@
 syntax = "proto3";
 
-package network_update_proto;
+package dancers_update_proto;
 
-message NetworkUpdate {
+message DancersUpdate {
     enum MsgType {
         BEGIN = 0;
         END = 1;
     }
 
     MsgType msg_type = 1;
-    bytes ordered_neighbors = 2;
+    bytes payload = 2;
 }

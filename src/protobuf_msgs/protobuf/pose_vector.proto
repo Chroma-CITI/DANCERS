@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-package robots_positions_proto;
+package dancers_update_proto;
 
-message RobotsPositions {
-    repeated RobotPose robot_pose = 1;
+message PoseVector {
+    repeated Pose pose = 1;
 }
 
-message RobotPose {
+message Pose {
     double x = 1;
     double y = 2;
     double z = 3;
@@ -14,4 +14,7 @@ message RobotPose {
     double qy = 5;
     double qz = 6;
     double qw = 7;
+    double vx = 8;
+    double vy = 9;
+    double vz = 10;
 }
