@@ -16,9 +16,8 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include <protobuf_msgs/physics_update.pb.h>
-#include <protobuf_msgs/network_update.pb.h>
-#include <protobuf_msgs/robots_positions.pb.h>
+#include <protobuf_msgs/dancers_update.pb.h>
+#include <protobuf_msgs/pose_vector.pb.h>
 
 #include <time_probe.hpp>
 
@@ -183,10 +182,10 @@ private:
     uint32_t phy_step_size; // us
     uint32_t net_step_size; // us
     uint32_t sync_window;
-    std::string compressed_robots_positions;
-    std::string compressed_ordered_neighbors;
-    std::mutex robots_positions_mutex;
-    std::mutex ordered_neighbors_mutex;
+    std::string compressed_physics_payload;
+    std::string compressed_network_payload;
+    std::mutex physics_payload_mutex;
+    std::mutex network_payload_mutex;
 
     bool phy_use_uds_socket;
     bool net_use_uds_socket;
@@ -247,17 +246,17 @@ void Coordinator::run_phy_protobuf_client_()
             {
 
                 // Send start request
-                network_update_proto::NetworkUpdate network_update_msg;
-                network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::BEGIN);
+                dancers_update_proto::DancersUpdate network_update_msg;
+                network_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::BEGIN);
 
                 // Add the neighbors list if we received one from the network simulator
-                this->ordered_neighbors_mutex.lock();
-                if (!this->compressed_ordered_neighbors.empty())
+                this->network_payload_mutex.lock();
+                if (!this->compressed_network_payload.empty())
                 {
-                    network_update_msg.set_ordered_neighbors(this->compressed_ordered_neighbors);
-                    this->compressed_ordered_neighbors.clear();
+                    network_update_msg.set_payload(this->compressed_network_payload);
+                    this->compressed_network_payload.clear();
                 }
-                this->ordered_neighbors_mutex.unlock();
+                this->network_payload_mutex.unlock();
 
                 std::string request = gzip_compress(network_update_msg.SerializeAsString());
 
@@ -272,15 +271,15 @@ void Coordinator::run_phy_protobuf_client_()
                     continue;
                 }
 
-                physics_update_proto::PhysicsUpdate physics_update_msg;
+                dancers_update_proto::DancersUpdate physics_update_msg;
                 physics_update_msg.ParseFromString(response);
 
-                robots_positions_proto::RobotsPositions robots_positions_msg;
-                robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
+                dancers_update_proto::PoseVector robots_positions_msg;
+                robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.payload()));
 
                 // RCLCPP_INFO(this->get_logger(), "Received robots positions from physics simulator: %s", robots_positions_msg.DebugString().c_str());
 
-                if (physics_update_msg.msg_type() != physics_update_proto::PhysicsUpdate::END)
+                if (physics_update_msg.msg_type() != dancers_update_proto::DancersUpdate::END)
                 {
                     throw "Coordinator received a non-END message from physics simulator !";
                 }
@@ -297,8 +296,8 @@ void Coordinator::run_phy_protobuf_client_()
                         this->clock_publisher_->publish(clock_msg);
                     }
 
-                    std::lock_guard<std::mutex> lock(this->robots_positions_mutex);
-                    this->compressed_robots_positions = physics_update_msg.robots_positions();
+                    std::lock_guard<std::mutex> lock(this->physics_payload_mutex);
+                    this->compressed_physics_payload = physics_update_msg.payload();
                 }
             }
 
@@ -359,17 +358,17 @@ void Coordinator::run_net_protobuf_client_()
             {
 
                 // Send start request
-                physics_update_proto::PhysicsUpdate physics_update_msg;
-                physics_update_msg.set_msg_type(physics_update_proto::PhysicsUpdate::BEGIN);
+                dancers_update_proto::DancersUpdate physics_update_msg;
+                physics_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::BEGIN);
 
                 // Add the positions of the robots only if we received them from the physics simulator !
-                this->robots_positions_mutex.lock();
-                if (!this->compressed_robots_positions.empty())
+                this->physics_payload_mutex.lock();
+                if (!this->compressed_physics_payload.empty())
                 {
-                    physics_update_msg.set_robots_positions(this->compressed_robots_positions);
-                    this->compressed_robots_positions.clear();
+                    physics_update_msg.set_payload(this->compressed_physics_payload);
+                    this->compressed_physics_payload.clear();
                 }
-                this->robots_positions_mutex.unlock();
+                this->physics_payload_mutex.unlock();
 
                 std::string request = gzip_compress(physics_update_msg.SerializeAsString());
 
@@ -382,10 +381,10 @@ void Coordinator::run_net_protobuf_client_()
                     continue;
                 }
                 
-                network_update_proto::NetworkUpdate network_update_msg;
+                dancers_update_proto::DancersUpdate network_update_msg;
                 network_update_msg.ParseFromString(response);
                 
-                if (network_update_msg.msg_type() != network_update_proto::NetworkUpdate::END)
+                if (network_update_msg.msg_type() != dancers_update_proto::DancersUpdate::END)
                 {
                     throw "Coordinator received a non-END message from network simulator !";
                 }
@@ -402,8 +401,8 @@ void Coordinator::run_net_protobuf_client_()
                         this->clock_publisher_->publish(clock_msg);
                     }
 
-                    std::lock_guard<std::mutex> lock(this->ordered_neighbors_mutex);
-                    this->compressed_ordered_neighbors = network_update_msg.ordered_neighbors();
+                    std::lock_guard<std::mutex> lock(this->network_payload_mutex);
+                    this->compressed_network_payload = network_update_msg.payload();
                 }
             }
         }
