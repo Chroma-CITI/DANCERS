@@ -3,6 +3,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "dancers_msgs/msg/agent_struct_array.hpp"
+#include <rosgraph_msgs/msg/clock.hpp>
 
 #include <boost/filesystem.hpp>
 
@@ -47,6 +48,8 @@ class AgentStructSaver : public rclcpp::Node
             // Parse the config file
             YAML::Node config = YAML::LoadFile(config_file_path);
 
+            this->simEndTime = rclcpp::Time(config["simulation_length"].as<double>(), 0);
+
             // ========================= ROBOT POSE SAVING =========================
 
             // Create a folder based on the experience name, if not existant already
@@ -89,7 +92,7 @@ class AgentStructSaver : public rclcpp::Node
                 out_file << "timestamp,agent_role,agent_id,x,y,z,vx,vy,vz,heading,";
                 for (int j=0; j < config["robots_number"].as<int>()-1; j++)
                 {
-                    out_file << "neighId" << j << ",neighPathloss" << j << ",";
+                    out_file << "neighId" << j << ",neighPathloss" << j << ",neighRole" << j << ",";
                 }
                 out_file << std::endl;
                 out_file.close();
@@ -101,6 +104,8 @@ class AgentStructSaver : public rclcpp::Node
             "/agent_structs", 
             10, 
             std::bind(&AgentStructSaver::agent_struct_array_callback, this, _1));
+        this->clock_sub_ = this->create_subscription<rosgraph_msgs::msg::Clock>("/clock", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
+                                                                    std::bind(&AgentStructSaver::clockCallback, this, _1));
 
     }
 
@@ -109,6 +114,12 @@ class AgentStructSaver : public rclcpp::Node
     std::string out_folder_name;
     std::string ros_ws_path;
     std::vector<std::string> agent_output_files;
+
+    rclcpp::Time simEndTime;
+    rclcpp::Subscription<rosgraph_msgs::msg::Clock>::SharedPtr clock_sub_;
+    bool shutdown_triggered_ = false;
+    void clockCallback(const rosgraph_msgs::msg::Clock::SharedPtr msg);
+
 
     rclcpp::Subscription<dancers_msgs::msg::AgentStructArray>::SharedPtr agent_struct_array_sub_;
 
@@ -124,34 +135,17 @@ void AgentStructSaver::agent_struct_array_callback(const dancers_msgs::msg::Agen
         std::ofstream out_file;
         out_file.open(this->agent_output_files[agent_struct.agent_id].c_str(), std::ios_base::app);
         
-        std::string role;
-        switch (agent_struct.agent_role)
+        std::string ROLES[4] = {"UNDEFINED", "MISSION", "POTENTIAL", "IDLE"};
+        if (agent_struct.agent_role > 3)
         {
-        case dancers_msgs::msg::AgentStruct::AGENT_ROLE_MISSION:
-            role = "MISSION";
-            break;
-        
-        case dancers_msgs::msg::AgentStruct::AGENT_ROLE_POTENTIAL:
-            role = "POTENTIAL";
-            break;
-
-        case dancers_msgs::msg::AgentStruct::AGENT_ROLE_IDLE:
-            role = "IDLE";
-            break;
-
-        case dancers_msgs::msg::AgentStruct::AGENT_ROLE_UNDEFINED:
-            role = "UNDEFINED";
-            break;
-
-        default:
-            role = "UNKNOWN";
-            break;
+            RCLCPP_ERROR(this->get_logger(), "Unknown agent role !");
+            exit(EXIT_FAILURE);
         }
 
         // get current ROS2 time
         rclcpp::Time ts = this->get_clock()->now();
         out_file << ts.seconds() << ",";
-        out_file << role << "," << agent_struct.agent_id << ",";
+        out_file << ROLES[agent_struct.agent_role] << "," << agent_struct.agent_id << ",";
         out_file << agent_struct.state.position.x << "," << agent_struct.state.position.y << "," << agent_struct.state.position.z << ",";
         out_file << agent_struct.state.velocity_heading.velocity.x << "," << agent_struct.state.velocity_heading.velocity.y << "," << agent_struct.state.velocity_heading.velocity.z << ",";
         out_file << agent_struct.state.velocity_heading.heading << ",";
@@ -159,7 +153,7 @@ void AgentStructSaver::agent_struct_array_callback(const dancers_msgs::msg::Agen
         dancers_msgs::msg::NeighborArray neighbor_array = agent_struct.neighbor_array;
         for (auto neighbor : neighbor_array.neighbors)
         {
-            out_file << neighbor.agent_id << "," << neighbor.link_quality << ",";
+            out_file << neighbor.agent_id << "," << neighbor.link_quality << "," << ROLES[neighbor.agent_role] << ",";
         }
 
         out_file << std::endl;
@@ -167,6 +161,19 @@ void AgentStructSaver::agent_struct_array_callback(const dancers_msgs::msg::Agen
 
     }
 
+}
+
+void AgentStructSaver::clockCallback(const rosgraph_msgs::msg::Clock::SharedPtr msg)
+{
+    rclcpp::Time current_time = msg->clock;
+    RCLCPP_INFO(this->get_logger(), "Simulation time: %f/%f", current_time.seconds(), this->simEndTime.seconds());
+
+    if (!shutdown_triggered_ && current_time.seconds() >= simEndTime.seconds())
+    {
+        RCLCPP_WARN(this->get_logger(), "ROS time exceeded shutdown threshold. Shutting down...");
+        shutdown_triggered_ = true;
+        rclcpp::shutdown();  // This stops the entire ROS node
+    }
 }
 
 int main(int argc, char * argv[])
