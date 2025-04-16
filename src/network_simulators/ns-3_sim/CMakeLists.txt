@@ -18,6 +18,8 @@ find_package(Boost REQUIRED iostreams filesystem system)
 find_package(ns3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(dancers_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 # add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp 
 #   include/${PROJECT_NAME}/wifi-application.cpp 
@@ -113,6 +115,23 @@ ament_target_dependencies(ns3_sim_pseudo_routing
   rclcpp
   dancers_msgs)
 
+add_executable(standard_wifi_network src/standard_wifi_network.cpp)
+target_link_libraries(standard_wifi_network
+  yaml-cpp
+  ns3::libcore
+  ns3::libwifi
+  ns3::libmobility
+  ns3::libinternet
+  ns3::libpropagation
+  ns3::libnetwork
+  ns3::libapplications
+)
+ament_target_dependencies(standard_wifi_network
+  Boost 
+  protobuf_msgs
+  rclcpp
+  dancers_msgs)
+
 
 add_executable(packet_success_exp src/packet_success_exp.cpp
   include/${PROJECT_NAME}/wifi-application.cpp 
@@ -146,6 +165,38 @@ ament_target_dependencies(packet_success_exp
   Boost 
   protobuf_msgs
   rclcpp)
+
+add_executable(wifi_flocking src/wifi_flocking.cpp
+  include/${PROJECT_NAME}/wifi-application.cpp 
+  include/${PROJECT_NAME}/wifi-application.h
+  include/${PROJECT_NAME}/flocking-application.cpp
+  include/${PROJECT_NAME}/flocking-application.h
+)
+target_link_libraries(wifi_flocking
+  yaml-cpp
+  ns3::libcore
+  ns3::libwifi
+  ns3::libmobility
+  ns3::libolsr
+  ns3::libaodv
+  ns3::libdsdv
+  ns3::libdsr
+  ns3::libinternet
+  ns3::libbuildings
+  ns3::libpropagation
+  ns3::libspectrum
+  ns3::libnetwork
+  ns3::libapplications
+  ns3::libcsma
+  ns3::libtap-bridge
+)
+ament_target_dependencies(wifi_flocking
+  Boost 
+  protobuf_msgs
+  rclcpp
+  dancers_msgs
+  nav_msgs
+  visualization_msgs)
 
 message("ns-3 version " ${ns3_VERSION})
 
@@ -204,6 +255,8 @@ INSTALL(
   adhoc_chain_flocking
   ns3_sim_pseudo_routing
   packet_success_exp
+  standard_wifi_network
+  wifi_flocking 
   # carousel-use-case
   DESTINATION lib/${PROJECT_NAME})
 

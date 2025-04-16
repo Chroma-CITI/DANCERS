@@ -4,12 +4,15 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/stats-module.h"
+#include "ns3/mobility-module.h"
 
 #include "pick-neighbors-header.h"
 
 #include <ostream>
 
 using namespace ns3;
+
+#define FLOCKING_HDR_SIZE 56
 
 NS_LOG_COMPONENT_DEFINE("WiFiFlockingApp");
 
@@ -109,7 +112,17 @@ FlockingBroadcaster::SendPacket()
     // NS_LOG_FUNCTION_NOARGS ();
     NS_LOG_INFO("Broadcasting packet at " << Simulator::Now());
 
-    Ptr<Packet> packet = Create<Packet>(m_pktSize);
+    Ptr<Packet> packet = Create<Packet>();
+
+    // Get the mobility model for the node that this application is running on.
+    Ptr<MobilityModel> mobility = GetNode()->GetObject<MobilityModel>();
+    Vector position = mobility->GetPosition();
+    Vector velocity = mobility->GetVelocity();
+
+    FlockingHeader flocking_header;
+    flocking_header.SetPosition(position);
+    flocking_header.SetVelocity(velocity);
+    packet->AddHeader(flocking_header);
 
     FlowIdTag flow_id;
     flow_id.SetFlowId(m_flowId);
@@ -258,7 +271,6 @@ FlockingReceiver::Receive(Ptr<Socket> socket)
             m_rxTrace(packet, peer_id);
             m_received++;
 
-
         }
 
         if (m_calc)
@@ -275,4 +287,115 @@ FlockingReceiver::Receive(Ptr<Socket> socket)
 uint64_t FlockingReceiver::GetReceived() const
 {
     return m_received;
+}
+
+
+
+/**
+ * FlockingHeader
+ */
+FlockingHeader::FlockingHeader()
+{
+    m_role = FlockingRole::Undefined;
+}
+
+FlockingHeader::~FlockingHeader()
+{
+}
+
+TypeId FlockingHeader::GetTypeId()
+{
+    static TypeId tid = TypeId("FlockingHeader")
+                            .SetParent<Header>()
+                            .AddConstructor<FlockingHeader>();
+    return tid;
+}
+
+TypeId
+FlockingHeader::GetInstanceTypeId() const
+{
+    return GetTypeId();
+}
+
+uint32_t FlockingHeader::GetSerializedSize() const
+{
+    return FLOCKING_HDR_SIZE;
+}
+
+void
+FlockingHeader::Print(std::ostream& os) const
+{
+    os << "Role: ";
+
+    switch (m_role)
+    {
+        case FlockingRole::Undefined:
+            os << "Undefined";
+            break;
+        case FlockingRole::Mission:
+            os << "Mission";
+            break;
+        case FlockingRole::Potential:
+            os << "Potential";
+            break;
+        case FlockingRole::Idle:
+            os << "Idle";
+            break;
+        default:
+            os << "Unknown";
+            break;
+    };
+    os << " Position: " << m_position;
+    os << " Velocity: " << m_velocity;
+}
+
+void
+FlockingHeader::Serialize(Buffer::Iterator start) const
+{
+    Buffer::Iterator i = start;
+    i.WriteU8(m_role);
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_position.x));
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_position.y));
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_position.z));
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_velocity.x));
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_velocity.y));
+    i.WriteHtonU64(std::bit_cast<uint64_t>(m_velocity.z));
+}
+
+uint32_t
+FlockingHeader::Deserialize(Buffer::Iterator start)
+{
+    Buffer::Iterator i = start;
+    m_role = static_cast<FlockingRole>(i.ReadU8());
+    m_position.x = std::bit_cast<double>(i.ReadNtohU64());
+    m_position.y = std::bit_cast<double>(i.ReadNtohU64());
+    m_position.z = std::bit_cast<double>(i.ReadNtohU64());
+    m_velocity.x = std::bit_cast<double>(i.ReadNtohU64());
+    m_velocity.y = std::bit_cast<double>(i.ReadNtohU64());
+    m_velocity.z = std::bit_cast<double>(i.ReadNtohU64());
+    return GetSerializedSize();
+}
+
+void
+FlockingHeader::SetPosition(Vector position)
+{
+    m_position = position;
+}
+
+void
+FlockingHeader::SetVelocity(Vector velocity)
+{
+    m_velocity = velocity;
+}
+
+Vector
+FlockingHeader::GetPosition() const
+{
+    return m_position;
+}
+
+Vector
+FlockingHeader::GetVelocity() const
+{
+    return m_velocity;
 }

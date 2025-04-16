@@ -15,49 +15,48 @@ using namespace ns3;
  */
 class FlockingBroadcaster : public Application
 {
-  public:
-    /**
-     * \brief Get the type ID.
-     * \return The object TypeId.
-     */
-    static TypeId GetTypeId();
-    FlockingBroadcaster();
-    ~FlockingBroadcaster() override;
+public:
+  /**
+   * \brief Get the type ID.
+   * \return The object TypeId.
+   */
+  static TypeId GetTypeId();
+  FlockingBroadcaster();
+  ~FlockingBroadcaster() override;
 
-    /**
-     * \brief Returns the number of received packets
-     * \return the number of received packets
-     */
-    uint64_t GetSent() const;
+  /**
+   * \brief Returns the number of received packets
+   * \return the number of received packets
+   */
+  uint64_t GetSent() const;
 
+protected:
+  void DoDispose() override;
 
-  protected:
-    void DoDispose() override;
+private:
+  void StartApplication() override;
+  void StopApplication() override;
 
-  private:
-    void StartApplication() override;
-    void StopApplication() override;
+  /**
+   * Send a packet.
+   */
+  void SendPacket();
 
-    /**
-     * Send a packet.
-     */
-    void SendPacket();
+  uint32_t m_pktSize;                     //!< The packet size.
+  uint32_t m_destPort;                    //!< Destination port.
+  Ptr<ConstantRandomVariable> m_interval; //!< Rng for sending packets.
+  uint32_t m_flowId;                      //!< Flow Id tagged in the packets
 
-    uint32_t m_pktSize;                     //!< The packet size.
-    uint32_t m_destPort;                    //!< Destination port.
-    Ptr<ConstantRandomVariable> m_interval; //!< Rng for sending packets.
-    uint32_t m_flowId;                      //!< Flow Id tagged in the packets
+  Ptr<Socket> m_socket; //!< Sending socket.
+  EventId m_sendEvent;  //!< Send packet event.
+  uint64_t m_sent;      //!< Number of packets sent.
 
-    Ptr<Socket> m_socket;                   //!< Sending socket.
-    EventId m_sendEvent;                    //!< Send packet event.
-    uint64_t m_sent;                        //!< Number of packets sent.
+  /// Tx TracedCallback.
+  TracedCallback<Ptr<const Packet>> m_txTrace;
 
-    /// Tx TracedCallback.
-    TracedCallback<Ptr<const Packet>> m_txTrace;
+  uint32_t m_count; //!< Number of packets sent.
 
-    uint32_t m_count;                       //!< Number of packets sent.
-
-    // end class Sender
+  // end class Sender
 };
 
 /**
@@ -65,60 +64,101 @@ class FlockingBroadcaster : public Application
  */
 class FlockingReceiver : public Application
 {
-  public:
-    /**
-     * \brief Get the type ID.
-     * \return The object TypeId.
-     */
-    static TypeId GetTypeId();
-    FlockingReceiver();
-    ~FlockingReceiver() override;
+public:
+  /**
+   * \brief Get the type ID.
+   * \return The object TypeId.
+   */
+  static TypeId GetTypeId();
+  FlockingReceiver();
+  ~FlockingReceiver() override;
 
-    /**
-     * Set the counter calculator for received packets.
-     * \param calc The CounterCalculator.
-     */
-    void SetCounter(Ptr<CounterCalculator<>> calc);
+  /**
+   * Set the counter calculator for received packets.
+   * \param calc The CounterCalculator.
+   */
+  void SetCounter(Ptr<CounterCalculator<>> calc);
 
-    /**
-     * Set the delay tracker for received packets.
-     * \param delay The Delay calculator.
-     */
-    void SetDelayTracker(Ptr<TimeMinMaxAvgTotalCalculator> delay);
+  /**
+   * Set the delay tracker for received packets.
+   * \param delay The Delay calculator.
+   */
+  void SetDelayTracker(Ptr<TimeMinMaxAvgTotalCalculator> delay);
 
-    /**
-     * \brief Returns the number of received packets
-     * \return the number of received packets
-     */
-    uint64_t GetReceived() const;    
+  /**
+   * \brief Returns the number of received packets
+   * \return the number of received packets
+   */
+  uint64_t GetReceived() const;
 
-  protected:
-    void DoDispose() override;
+protected:
+  void DoDispose() override;
 
-  private:
-    void StartApplication() override;
-    void StopApplication() override;
+private:
+  void StartApplication() override;
+  void StopApplication() override;
 
-    /**
-     * Receive a packet.
-     * \param socket The receiving socket.
-     */
-    void Receive(Ptr<Socket> socket);
+  /**
+   * Receive a packet.
+   * \param socket The receiving socket.
+   */
+  void Receive(Ptr<Socket> socket);
 
-    uint32_t m_port;                //!< Listening port.
-    uint32_t m_max_neighbors;       //!< Maximum number of neighbors
-    Time m_timeout;                 //!< Timeout after which an neighbor expires
-    
-    Ptr<Socket> m_socket;           //!< Receiving socket.
-    uint64_t m_received;            //!< Number of received packets
+  uint32_t m_port;          //!< Listening port.
+  uint32_t m_max_neighbors; //!< Maximum number of neighbors
+  Time m_timeout;           //!< Timeout after which an neighbor expires
 
-    Ptr<CounterCalculator<>> m_calc;           //!< Counter of the number of received packets.
-    Ptr<TimeMinMaxAvgTotalCalculator> m_delay; //!< Delay calculator.
+  Ptr<Socket> m_socket; //!< Receiving socket.
+  uint64_t m_received;  //!< Number of received packets
 
-    /// Rx TracedCallback.
-    TracedCallback<Ptr<const Packet>, int> m_rxTrace;
+  Ptr<CounterCalculator<>> m_calc;           //!< Counter of the number of received packets.
+  Ptr<TimeMinMaxAvgTotalCalculator> m_delay; //!< Delay calculator.
 
-    // end class Receiver
+  /// Rx TracedCallback.
+  TracedCallback<Ptr<const Packet>, int> m_rxTrace;
+
+  // end class Receiver
+};
+
+/**
+ * FlockingHeader
+ */
+class FlockingHeader : public Header
+{
+public:
+  enum FlockingRole
+  {
+    Undefined = 0,
+    Mission,
+    Potential,
+    Idle
+  };
+
+  FlockingHeader();
+  ~FlockingHeader() override;
+
+  /**
+   * \brief Get the type ID.
+   * \return The object TypeId.
+   */
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const override;
+  void Print(std::ostream& os) const override;
+  uint32_t GetSerializedSize() const override;
+  void Serialize(Buffer::Iterator start) const override;
+  uint32_t Deserialize(Buffer::Iterator start) override;
+
+  void SetPosition(Vector position);
+  void SetVelocity(Vector velocity);
+
+  Vector GetPosition() const;
+  Vector GetVelocity() const;
+
+private:
+  FlockingRole m_role;
+  Vector m_position;
+  Vector m_velocity;
+
 };
 
 #endif // FLOCKING_APPLICATION_H

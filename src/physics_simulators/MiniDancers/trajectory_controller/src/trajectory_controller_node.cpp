@@ -30,7 +30,9 @@ public:
         // Parse the config file
         YAML::Node config = YAML::LoadFile(config_file_path);
 
-        std::string trajectory_shape_str = config["trajectory_shape"].as<std::string>();
+        std::string trajectory_shape_str = config["planned_trajectory"]["name"].as<std::string>();
+
+        std::cout << "trajectory shape : " << trajectory_shape_str << std::endl;
 
         if (trajectory_shape_str == "CIRCULAR")
         {
@@ -50,9 +52,12 @@ public:
         }
         else
         {
-            RCLCPP_ERROR(this->get_logger(), "The trajectory shape is not valid.");
+            RCLCPP_ERROR(this->get_logger(), "The trajectory shape %s is not valid.", trajectory_shape_str);
             exit(EXIT_FAILURE);
         }
+
+        this->p1 = config["planned_trajectory"]["p1"].as<double>();
+        this->p2 = config["planned_trajectory"]["p2"].as<double>();
 
         // Create the service
         service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities",
@@ -68,6 +73,8 @@ private:
         SQUARE,
         TRIANGLE
     };
+
+    double p1, p2;
 
     TrajectoryShape trajectory_shape;
 
@@ -98,11 +105,11 @@ private:
         if (this->trajectory_shape == TrajectoryShape::CIRCULAR)
         {
             Eigen::Vector3d cmd;
-            cmd[0] = cos(w * t);
-            cmd[1] = sin(w * t);
+            cmd[0] = cos(this->p1 * t);
+            cmd[1] = sin(this->p1 * t);
             cmd[2] = 0.0;
             cmd.normalize();
-            cmd *= r * w;
+            cmd *= this->p2 * w;
 
             command.heading = 0.0;
             command.velocity.x = cmd[0];

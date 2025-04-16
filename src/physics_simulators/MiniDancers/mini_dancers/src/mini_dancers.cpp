@@ -17,10 +17,10 @@
 #include <dancers_msgs/msg/target.hpp>
 #include <dancers_msgs/msg/agent_struct_array.hpp>
 
-#include <protobuf_msgs/physics_update.pb.h>
-#include <protobuf_msgs/network_update.pb.h>
-#include <protobuf_msgs/robots_positions.pb.h>
+#include <protobuf_msgs/dancers_update.pb.h>
 #include <protobuf_msgs/ordered_neighbors.pb.h>
+#include <protobuf_msgs/pose_vector.pb.h>
+#include <protobuf_msgs/velocity_heading_vector.pb.h>
 
 #include "boost/filesystem.hpp"
 
@@ -137,15 +137,18 @@ class MiniDancers : public rclcpp::Node
                 this->obstacles.push_back(obs);
             }
             this->publish_agent_structs = config["publish_agent_structs"].as<bool>();
+            this->publish_network_markers = config["publish_network_markers"].as<bool>();
             this->n_uavs = config["robots_number"].as<int>();
+            this->start_position = std::make_tuple(config["start_position"]["x"].as<double>(), config["start_position"]["y"].as<double>(), config["start_position"]["z"].as<double>());
             this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
             this->it = 0;
             this->simulation_length = config["simulation_length"].as<double>();
+            this->print_sim_advancement_ = config["mini_dancers_print_advancement"].as<bool>();
             this->it_end_sim = uint64_t(simulation_length / this->step_size);
             this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
             this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
-            this->radius = 10.0;
-            this->omega = 0.005;
+            this->mode = config["cosimulation_mode"].as<std::string>();
+            this->communication_range = config["communication_range"].as<double>();
             for (auto goal : config["secondary_objectives"])
             {
                 this->secondary_objectives[goal.first.as<int>()].first = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
@@ -176,19 +179,7 @@ class MiniDancers : public rclcpp::Node
                 std::cerr << e.what() << '\n';
                 std::cerr << "Failed to read at least one VAT flocking parameter, using ALL default VAT params." << '\n';
             }
-            
-
-            try
-            {
-                this->circle_params.gain = config["circle_parameters"]["gain"].as<double>();
-                this->circle_params.omega = config["circle_parameters"]["omega"].as<double>();
-            }
-            catch(const std::exception& e)
-            {
-                std::cerr << e.what() << '\n';
-                std::cerr << "Failed to read at least one circle parameter, using ALL default circle params." << '\n';
-            }
-            
+                        
 
             this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
 
@@ -227,24 +218,26 @@ class MiniDancers : public rclcpp::Node
     private:
         std::vector<obstacle_t> obstacles;
         int n_uavs;
-        std::vector<agent_t> uavs;                          
+        std::vector<agent_t> uavs;
         std::vector<Eigen::Vector3d> desired_velocities;
         double step_size;
         double simulation_length;
         uint64_t it;
         uint64_t it_end_sim;
+        bool print_sim_advancement_;
         std::string phy_uds_server_address;
         std::map<int, std::pair<Eigen::Vector3d, bool>> secondary_objectives;
         std::string ros_ws_path;
         VAT_params_t vat_params;
-        circle_params_t circle_params;
         uint32_t mission_flow_id;
         uint32_t potential_flow_id;
         uint32_t routing_flow_id;
         bool cosim_mode;
+        double communication_range;
+        std::tuple<double, double, double> start_position;
 
-        double radius;
-        double omega;
+        std::string mode;
+
         double target_altitude;
         
         /* Methods */
@@ -252,7 +245,9 @@ class MiniDancers : public rclcpp::Node
         void InitUavs();
         void DisplayRviz();
         void UpdateCmds();
-        void GetNeighbors(network_update_proto::NetworkUpdate &network_update_msg);
+        void GetNeighbors(dancers_update_proto::DancersUpdate &network_update_msg);
+        void GetCommands(dancers_update_proto::DancersUpdate &network_update_msg);
+        void GenerateRolesAndNeighbors();
         std::string GenerateResponseProtobuf();
         void Loop();
 
@@ -283,8 +278,9 @@ class MiniDancers : public rclcpp::Node
         std::string m_computation_time_file;
         WallTimeProbe probe;
 
-        /* Publish agent Structs */
+        /* Publish options */
         bool publish_agent_structs;
+        bool publish_network_markers;
 };
 
 void MiniDancers::targets_clbk(dancers_msgs::msg::Target msg)
@@ -366,14 +362,15 @@ void MiniDancers::InitUavs()
 {
     int n_columns = (int)sqrt(this->n_uavs);
     double spacing = 5.0;
-    double grid_x_init = 0.0;
-    double grid_y_init = -((n_columns-1) * spacing)/2;
+    double grid_x_init = std::get<0>(this->start_position);
+    double grid_y_init = std::get<1>(this->start_position) - ((n_columns-1) * spacing)/2;
+    double grid_z_init = std::get<2>(this->start_position);
     for (int i = 0; i < this->n_uavs; i++)
     {
         // Grid spawn
         double spawn_x = grid_x_init + i / n_columns * spacing;
         double spawn_y = grid_y_init + spacing * (i% n_columns);
-        double spawn_z = 1.0;
+        double spawn_z = grid_z_init;
         double spawn_heading = 0.0;
 
         // Already in line robots
@@ -384,6 +381,8 @@ void MiniDancers::InitUavs()
 
         // Default ModelParams is the x500 configuration
         MultirotorModel::ModelParams x500_params = MultirotorModel::ModelParams();
+        // Enable ground
+        x500_params.ground_enabled = true;
         UavSystem uav_system = UavSystem(x500_params, Eigen::Vector3d(spawn_x, spawn_y, spawn_z), spawn_heading);
 
         agent_t agent;
@@ -537,87 +536,89 @@ void MiniDancers::DisplayRviz()
     }
 
 
-
-    // Display edges between neighbors
-    // mission neighbors
-    visualization_msgs::msg::Marker network_marker_mission{};
-    network_marker_mission.header.frame_id = "map";
-    network_marker_mission.id = 1010;
-    network_marker_mission.type = visualization_msgs::msg::Marker::LINE_LIST;
-    network_marker_mission.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_mission.scale.x = 0.2;
-    network_marker_mission.color.r = 1.0;  // Red color
-    network_marker_mission.color.g = 0.0;
-    network_marker_mission.color.b = 0.0;
-    network_marker_mission.color.a = 1.0;  // Fully opaque
-    network_marker_mission.lifetime = rclcpp::Duration::from_seconds(0.1);
-
-    // potential neighbors
-    visualization_msgs::msg::Marker network_marker_potential{};
-    network_marker_potential.header.frame_id = "map";
-    network_marker_potential.id = 1011;
-    network_marker_potential.type = visualization_msgs::msg::Marker::LINE_LIST;
-    network_marker_potential.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_potential.scale.x = 0.1;
-    network_marker_potential.color.r = 0.0;  
-    network_marker_potential.color.g = 0.0;
-    network_marker_potential.color.b = 1.0;  // Blue color
-    network_marker_potential.color.a = 1.0;  // Fully opaque
-    network_marker_potential.lifetime = rclcpp::Duration::from_seconds(0.1);
-
-    // idle neighbors
-    visualization_msgs::msg::Marker network_marker_idle{};
-    network_marker_idle.header.frame_id = "map";
-    network_marker_idle.id = 1012;
-    network_marker_idle.type = visualization_msgs::msg::Marker::LINE_LIST;
-    network_marker_idle.action = visualization_msgs::msg::Marker::ADD;
-    network_marker_idle.scale.x = 0.1;
-    network_marker_idle.color.r = 0.8;  
-    network_marker_idle.color.g = 0.8;
-    network_marker_idle.color.b = 0.8;
-    network_marker_idle.color.a = 1.0;  // Fully opaque
-    network_marker_idle.lifetime = rclcpp::Duration::from_seconds(0.1);
-
-    for (int i=0; i < this->n_uavs; i++)
+    if (this->publish_network_markers)
     {
-        Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-        for (size_t j=0; j < this->uavs[i].neighbors.size(); j++)
+        // Display edges between neighbors
+        // mission neighbors
+        visualization_msgs::msg::Marker network_marker_mission{};
+        network_marker_mission.header.frame_id = "map";
+        network_marker_mission.id = 1010;
+        network_marker_mission.type = visualization_msgs::msg::Marker::LINE_LIST;
+        network_marker_mission.action = visualization_msgs::msg::Marker::ADD;
+        network_marker_mission.scale.x = 0.2;
+        network_marker_mission.color.r = 1.0;  // Red color
+        network_marker_mission.color.g = 0.0;
+        network_marker_mission.color.b = 0.0;
+        network_marker_mission.color.a = 1.0;  // Fully opaque
+        network_marker_mission.lifetime = rclcpp::Duration::from_seconds(0.1);
+
+        // potential neighbors
+        visualization_msgs::msg::Marker network_marker_potential{};
+        network_marker_potential.header.frame_id = "map";
+        network_marker_potential.id = 1011;
+        network_marker_potential.type = visualization_msgs::msg::Marker::LINE_LIST;
+        network_marker_potential.action = visualization_msgs::msg::Marker::ADD;
+        network_marker_potential.scale.x = 0.1;
+        network_marker_potential.color.r = 0.0;  
+        network_marker_potential.color.g = 0.0;
+        network_marker_potential.color.b = 1.0;  // Blue color
+        network_marker_potential.color.a = 1.0;  // Fully opaque
+        network_marker_potential.lifetime = rclcpp::Duration::from_seconds(0.1);
+
+        // idle neighbors
+        visualization_msgs::msg::Marker network_marker_idle{};
+        network_marker_idle.header.frame_id = "map";
+        network_marker_idle.id = 1012;
+        network_marker_idle.type = visualization_msgs::msg::Marker::LINE_LIST;
+        network_marker_idle.action = visualization_msgs::msg::Marker::ADD;
+        network_marker_idle.scale.x = 0.1;
+        network_marker_idle.color.r = 0.8;  
+        network_marker_idle.color.g = 0.8;
+        network_marker_idle.color.b = 0.8;
+        network_marker_idle.color.a = 1.0;  // Fully opaque
+        network_marker_idle.lifetime = rclcpp::Duration::from_seconds(0.1);
+
+        for (int i=0; i < this->n_uavs; i++)
         {
-            int neighbor_id = this->uavs[i].neighbors[j].id;
-            if (i == neighbor_id)
-                continue; // (should never happen as we check this in GetNeighbors) 
-            Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
-
-            geometry_msgs::msg::Point p1{};
-            p1.x = agent_pose.x();
-            p1.y = agent_pose.y();
-            p1.z = agent_pose.z();
-            geometry_msgs::msg::Point p2{};
-            p2.x = other_agent_pose.x();
-            p2.y = other_agent_pose.y();
-            p2.z = other_agent_pose.z();
-
-            switch (this->uavs[i].role)
+            Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
+            for (size_t j=0; j < this->uavs[i].neighbors.size(); j++)
             {
-                case (AgentRoleType::Mission):
-                    network_marker_mission.points.push_back(p1);
-                    network_marker_mission.points.push_back(p2);
-                    break;
-                case (AgentRoleType::Potential):
-                    network_marker_potential.points.push_back(p1);
-                    network_marker_potential.points.push_back(p2);
-                    break;
-                case (AgentRoleType::Idle):
-                    network_marker_idle.points.push_back(p1);
-                    network_marker_idle.points.push_back(p2);
-                    break;
+                int neighbor_id = this->uavs[i].neighbors[j].id;
+                if (i == neighbor_id)
+                    continue; // (should never happen as we check this in GetNeighbors) 
+                Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
+
+                geometry_msgs::msg::Point p1{};
+                p1.x = agent_pose.x();
+                p1.y = agent_pose.y();
+                p1.z = agent_pose.z();
+                geometry_msgs::msg::Point p2{};
+                p2.x = other_agent_pose.x();
+                p2.y = other_agent_pose.y();
+                p2.z = other_agent_pose.z();
+
+                switch (this->uavs[i].role)
+                {
+                    case (AgentRoleType::Mission):
+                        network_marker_mission.points.push_back(p1);
+                        network_marker_mission.points.push_back(p2);
+                        break;
+                    case (AgentRoleType::Potential):
+                        network_marker_potential.points.push_back(p1);
+                        network_marker_potential.points.push_back(p2);
+                        break;
+                    case (AgentRoleType::Idle):
+                        network_marker_idle.points.push_back(p1);
+                        network_marker_idle.points.push_back(p2);
+                        break;
+                }
             }
         }
-    }
 
-    this->network_mission_pub_->publish(network_marker_mission);
-    this->network_potential_pub_->publish(network_marker_potential);
-    this->network_idle_pub_->publish(network_marker_idle);
+        this->network_mission_pub_->publish(network_marker_mission);
+        this->network_potential_pub_->publish(network_marker_potential);
+        this->network_idle_pub_->publish(network_marker_idle);
+    }
 
     // // routing neighbors
     // visualization_msgs::msg::Marker network_marker_routing{};
@@ -712,12 +713,23 @@ void MiniDancers::UpdateCmds()
             agent_struct.agent_role = agent_struct.AGENT_ROLE_IDLE;
         }
 
-
         for (NeighborInfo_t& neighbor: self_agent.neighbors)
         {
+            // Get the neighbor's position and velocity
+            agent_t& neighbor_agent = this->uavs[neighbor.id];
+            Eigen::Vector3d neighbor_position(neighbor_agent.uav_system.getState().x);
+            Eigen::Vector3d neighbor_velocity(neighbor_agent.uav_system.getState().v);
+
             dancers_msgs::msg::Neighbor neighbor_msg;
             neighbor_msg.agent_id = neighbor.id;
             neighbor_msg.link_quality = neighbor.link_quality;
+            neighbor_msg.agent_role = static_cast<uint8_t>(neighbor.role);
+            neighbor_msg.position.x = neighbor_position.x();
+            neighbor_msg.position.y = neighbor_position.y();
+            neighbor_msg.position.z = neighbor_position.z();
+            neighbor_msg.velocity.x = neighbor_velocity.x();
+            neighbor_msg.velocity.y = neighbor_velocity.y();
+            neighbor_msg.velocity.z = neighbor_velocity.z();
             
             agent_struct.neighbor_array.neighbors.push_back(neighbor_msg);
         }
@@ -767,13 +779,13 @@ void MiniDancers::UpdateCmds()
  * 
  * @param A Protobuf message of type PhysicsUpdate containing the neighbors lists for all agents
  */
-void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_update_msg)
+void MiniDancers::GetNeighbors(dancers_update_proto::DancersUpdate &network_update_msg)
 {
-    if(!network_update_msg.ordered_neighbors().empty())
+    if(!network_update_msg.payload().empty())
     {
-        ordered_neighbors_proto::OrderedNeighborsList neighbors_list_msg;
-        neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.ordered_neighbors()));
-
+        dancers_update_proto::OrderedNeighborsList neighbors_list_msg;
+        neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.payload()));
+        
         // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
         for (int i=0; i < this->n_uavs; i++)
@@ -786,24 +798,24 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
             int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
 
             // Select the right role
-            if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::UNDEFINED)
+            if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::UNDEFINED)
             {
                 this->uavs[i].role = AgentRoleType::Undefined;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::MISSION)
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::MISSION)
             {
                 this->uavs[i].role = AgentRoleType::Mission;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::POTENTIAL)
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::POTENTIAL)
             {
                 this->uavs[i].role = AgentRoleType::Potential;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == ordered_neighbors_proto::OrderedNeighbors::IDLE)
+            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::IDLE)
             {
                 this->uavs[i].role = AgentRoleType::Idle;
             }
 
-            ordered_neighbors_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
+            dancers_update_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
 
             if (my_neighbors.neighborid().empty())
             {
@@ -834,16 +846,16 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
                     neighbor_info.link_quality = my_neighbors.linkquality(j);
                     switch (my_neighbors.neighbortype(j))
                     {
-                        case ordered_neighbors_proto::OrderedNeighbors::UNDEFINED:
+                        case dancers_update_proto::OrderedNeighbors::UNDEFINED:
                             neighbor_info.role = AgentRoleType::Undefined;
                             break;
-                        case ordered_neighbors_proto::OrderedNeighbors::MISSION:
+                        case dancers_update_proto::OrderedNeighbors::MISSION:
                             neighbor_info.role = AgentRoleType::Mission;
                             break;
-                        case ordered_neighbors_proto::OrderedNeighbors::POTENTIAL:
+                        case dancers_update_proto::OrderedNeighbors::POTENTIAL:
                             neighbor_info.role = AgentRoleType::Potential;
                             break;
-                        case ordered_neighbors_proto::OrderedNeighbors::IDLE:
+                        case dancers_update_proto::OrderedNeighbors::IDLE:
                             neighbor_info.role = AgentRoleType::Idle;
                             break;
                         default:
@@ -862,6 +874,38 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
     }
 }
 
+void MiniDancers::GetCommands(dancers_update_proto::DancersUpdate &network_update_msg)
+{
+    if(!network_update_msg.payload().empty())
+    {
+        dancers_update_proto::VelocityHeadingVector velocity_headings_msg;
+        velocity_headings_msg.ParseFromString(gzip_decompress(network_update_msg.payload()));
+
+        // std::cout << velocity_headings_msg.DebugString() << std::endl;
+
+        for (auto& velocity_heading : velocity_headings_msg.velocity_heading())
+        {
+            uint32_t agent_id = velocity_heading.agentid();
+            if (agent_id >= this->n_uavs || agent_id < 0)
+            {
+                RCLCPP_FATAL(this->get_logger(), "Agent %d is out of range !", agent_id);
+                exit(EXIT_FAILURE);
+            }
+
+            reference::VelocityHdg controller;
+
+            controller.velocity[0] = velocity_heading.vx();
+            controller.velocity[1] = velocity_heading.vy();
+            controller.velocity[2] = velocity_heading.vz();
+            controller.heading = velocity_heading.heading();
+
+            this->desired_velocities[agent_id] = controller.velocity;
+            this->uavs[agent_id].uav_system.setInput(controller);
+        }
+    }
+}
+
+
 /**
  * \brief Generates the final protobuf message of protobuf_msgs/PhysicsUpdate.
  *
@@ -872,24 +916,28 @@ void MiniDancers::GetNeighbors(network_update_proto::NetworkUpdate &network_upda
 std::string MiniDancers::GenerateResponseProtobuf()
 {
     // Change message's type to END
-    physics_update_proto::PhysicsUpdate physics_update_msg;
-    physics_update_msg.set_msg_type(physics_update_proto::PhysicsUpdate::END);
+    dancers_update_proto::DancersUpdate physics_update_msg;
+    physics_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
 
-    robots_positions_proto::RobotsPositions robots_positions_msg;
+    dancers_update_proto::PoseVector robots_positions_msg;
     for (int i=0; i < this->n_uavs; i++)
     {
-        robots_positions_proto::RobotPose *robot_pose_msg = robots_positions_msg.add_robot_pose();
+        dancers_update_proto::Pose *robot_pose_msg = robots_positions_msg.add_pose();
         Eigen::Vector3d agent_position = this->uavs[i].uav_system.getState().x;
+        Eigen::Vector3d agent_velocity = this->uavs[i].uav_system.getState().v;
         robot_pose_msg->set_x(agent_position.x());
         robot_pose_msg->set_y(agent_position.y());
         robot_pose_msg->set_z(agent_position.z());
+        robot_pose_msg->set_vx(agent_velocity.x());
+        robot_pose_msg->set_vy(agent_velocity.y());
+        robot_pose_msg->set_vz(agent_velocity.z());
     }
 
     std::string robots_positions_string;
     robots_positions_msg.SerializeToString(&robots_positions_string);
 
     // Fill the channel_data field with the compressed data from the physics simulation
-    physics_update_msg.set_robots_positions(gzip_compress(robots_positions_string));
+    physics_update_msg.set_payload(gzip_compress(robots_positions_string));
 
     // Transform the response [protobuf] --> [string]
     std::string str_response;
@@ -897,6 +945,42 @@ std::string MiniDancers::GenerateResponseProtobuf()
     str_response = gzip_compress(str_response);
 
     return str_response;
+}
+
+/**
+ * @brief Locally generate neighbors information and role for agents based only on their positions. It ignores the network.
+ * 
+ * To be used when not in co-simulation mode, it defines neighborhood based on sphere-like communication range.
+ * Every agent is "Idle" and only have "Idle" neighbors.
+ */
+void MiniDancers::GenerateRolesAndNeighbors()
+{
+    for (int i=0; i < this->n_uavs; i++)
+    {
+        this->uavs[i].neighbors.clear();
+        this->uavs[i].role = AgentRoleType::Idle;
+    }
+
+    for (int i=0; i < this->n_uavs; i++)
+    {
+        for (int j=i+1; j < this->n_uavs; j++)
+        {
+            double distance = (this->uavs[i].uav_system.getState().x - this->uavs[j].uav_system.getState().x).norm();
+            if (distance < this->communication_range)
+            {
+                NeighborInfo_t neighbor_info_j;
+                neighbor_info_j.id = j;
+                neighbor_info_j.link_quality = distance;
+                neighbor_info_j.role = AgentRoleType::Idle;
+                this->uavs[i].neighbors.push_back(neighbor_info_j);
+                NeighborInfo_t neighbor_info_i;
+                neighbor_info_i.id = i;
+                neighbor_info_i.link_quality = distance;
+                neighbor_info_i.role = AgentRoleType::Idle;
+                this->uavs[j].neighbors.push_back(neighbor_info_i);
+            }
+        }
+    }
 }
 
 
@@ -922,7 +1006,7 @@ void MiniDancers::Loop()
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
             // Initialize empty protobuf message type [NetworkUpdate]
-            network_update_proto::NetworkUpdate network_update_msg;
+            dancers_update_proto::DancersUpdate network_update_msg;
             // Transform the message received from the UDS socket (string -> protobuf)
             network_update_msg.ParseFromString(received_data);
 
@@ -931,10 +1015,23 @@ void MiniDancers::Loop()
                 this->probe.start();
             }
 
-            this->GetNeighbors(network_update_msg);
+            if (this->mode == "exchange_neighbors")
+            {
+                this->GetNeighbors(network_update_msg);
 
-            // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
-            this->UpdateCmds();
+                // TODO: keep both ways of updating the commands, internally or from a ROS2 publisher 
+                this->UpdateCmds();
+            }
+            else if (this->mode == "exchange_commands")
+            {
+                this->GetCommands(network_update_msg);
+            }
+            else
+            {
+                RCLCPP_FATAL(this->get_logger(), "Unknown mode: %s", this->mode.c_str());
+                exit(EXIT_FAILURE);
+            }
+
 
             // We step the dynamics of each agents in separated thread, actually not 100% sure this is an optimization.
             std::vector<std::thread> workers;
@@ -947,11 +1044,6 @@ void MiniDancers::Loop()
                 workers[i].join();
             }
             workers.clear();
-
-            // for (int i=0; i < this->n_uavs; i++)
-            // {
-            //     this->MakeStep(i);
-            // }
 
             this->DisplayRviz();
             
@@ -969,6 +1061,11 @@ void MiniDancers::Loop()
             // Send the response in the UDS socket
             socket_coord->send_one_message(response);
 
+            if (this->print_sim_advancement_)
+            {
+                RCLCPP_INFO(this->get_logger(), "Iteration %d/%d", this->it, this->it_end_sim);
+            }
+
         }
     }
     else            // mini-dancers only mode
@@ -980,8 +1077,10 @@ void MiniDancers::Loop()
                 this->probe.start();
             }
 
+            this->GenerateRolesAndNeighbors();
+
             // Carefull, in "mini-dancers only" mode, we have no neighbor, so we need to have a command algorithm that does not use neighbor information in UpdateCmds !
-            // this->UpdateCmds();
+            this->UpdateCmds();
 
             std::vector<std::thread> workers;
             for (int i=0; i < this->n_uavs; i++)
@@ -1003,8 +1102,16 @@ void MiniDancers::Loop()
             {
                 this->probe.stop();
             }
+
+            if (this->print_sim_advancement_)
+            {
+                RCLCPP_INFO(this->get_logger(), "Iteration %d/%d", this->it, this->it_end_sim);
+            }
+
         }
     }
+
+    exit(EXIT_SUCCESS);
 }
 
 /**
