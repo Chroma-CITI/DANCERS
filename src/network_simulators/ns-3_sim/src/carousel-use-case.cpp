@@ -22,7 +22,7 @@
 #include "ns3/tap-bridge-module.h"
 #include "ns3/csma-module.h"
 
-#include "protobuf_msgs/network_update.pb.h"
+#include "protobuf_msgs/dancers_update.pb.h"
 #include "protobuf_msgs/robots_positions.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
@@ -444,14 +444,14 @@ public:
                 std::string received_data = gzip_decompress(socket->receive_one_message());
 
                 // Initialize empty protobuf message type [NetworkUpdate]
-                network_update_proto::NetworkUpdate NetworkUpdate_msg;
+                dancers_update_proto::NetworkUpdate NetworkUpdate_msg;
                 // Transform the message received from the UDS socket [string] -> [protobuf]
                 NetworkUpdate_msg.ParseFromString(received_data);
 
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
                 rclcpp::Clock clock;
-                robots_positions_proto::RobotsPositions robots_positions_msg;
+                dancers_update_proto::RobotsPositions robots_positions_msg;
 
                 // if (currTime % Seconds(0.1) == Time(0)){
                 //     uint64_t bytes_received_this_iteration = mission_server->GetReceived()*packet_size - bytes_received;
@@ -578,7 +578,7 @@ private:
     Ptr<PacketCounterCalculator> navEffectiveTx;
 
     // co-simulation specific methods
-    std::string generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg);
+    std::string generate_response(dancers_update_proto::NetworkUpdate &NetworkUpdate_msg);
 };
 
 void CarouselUseCase::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb)
@@ -600,10 +600,10 @@ void CarouselUseCase::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<co
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-CarouselUseCase::generate_response(network_update_proto::NetworkUpdate &NetworkUpdate_msg)
+CarouselUseCase::generate_response(dancers_update_proto::DancersUpdate &NetworkUpdate_msg)
 {
     // Change message type to "END"
-    NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
+    NetworkUpdate_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
     std::string str_response;
     NetworkUpdate_msg.SerializeToString(&str_response);
 

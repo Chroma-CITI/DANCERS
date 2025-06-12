@@ -12,7 +12,7 @@
 
 using namespace ns3;
 
-#define FLOCKING_HDR_SIZE 56
+#define FLOCKING_HDR_SIZE 49
 
 NS_LOG_COMPONENT_DEFINE("WiFiFlockingApp");
 
@@ -29,7 +29,7 @@ FlockingBroadcaster::GetTypeId()
                                           "The size of packets transmitted.",
                                           UintegerValue(64),
                                           MakeUintegerAccessor(&FlockingBroadcaster::m_pktSize),
-                                          MakeUintegerChecker<uint32_t>(1))
+                                          MakeUintegerChecker<uint32_t>())
                             .AddAttribute("Port",
                                           "Destination app port.",
                                           UintegerValue(4000),
@@ -112,7 +112,15 @@ FlockingBroadcaster::SendPacket()
     // NS_LOG_FUNCTION_NOARGS ();
     NS_LOG_INFO("Broadcasting packet at " << Simulator::Now());
 
-    Ptr<Packet> packet = Create<Packet>();
+    Ptr<Packet> packet;
+    if (this->m_pktSize > 0)
+    {
+        packet = Create<Packet>(this->m_pktSize);
+    }
+    else
+    {
+        packet = Create<Packet>();
+    }
 
     // Get the mobility model for the node that this application is running on.
     Ptr<MobilityModel> mobility = GetNode()->GetObject<MobilityModel>();

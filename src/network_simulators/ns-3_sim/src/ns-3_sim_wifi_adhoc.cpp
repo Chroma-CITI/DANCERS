@@ -50,8 +50,8 @@
 #include "wifi-application.h"
 #include "chain-flocking-application.h"
 
-#include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/robots_positions.pb.h"
+#include "protobuf_msgs/dancers_update.pb.h"
+#include "protobuf_msgs/pose_vector.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
 #include "udp_tcp_socket.hpp"
@@ -161,11 +161,11 @@ void send_one_message(boost::asio::local::stream_protocol::socket &sock, std::st
 std::string
 generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors)
 {
-    ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
+    dancers_update_proto::OrderedNeighborsList ordered_neighbors_msg;
     for (auto const &agent : neighbors)
     {
         std::vector<double> ordered_pathlosses;
-        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        dancers_update_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         neighbor_msg->set_agentid(agent.first);
         int num_neighbors = 0;
         // Sort the pathlosses to add them in the protobuf message in the right order.
@@ -195,20 +195,20 @@ generate_neighbors_msg(std::map<uint32_t, std::map<uint32_t, double>> neighbors,
 }
 
 /**
- * \brief Generates the final protobuf message of protobuf_msgs/NetworkUpdate.
+ * \brief Generates the final protobuf message of protobuf_msgs/DancersUpdate.
  *
- * Usually, this function will be passed the [NetworkUpdate] protobuf message with message-type BEGIN from the Network coordinator.
+ * Usually, this function will be passed the [DancersUpdate] protobuf message with message-type BEGIN from the Network coordinator.
  * It will fill the message with the Bit Error Rate (BER) of each packet ,
  * change the message-type to END, string-serialize the protobuf message and return it to the network coordinator.
  *
- * \param PhysicsUpdate_msg A protobuf message of type NetworkUpdate.
+ * \param PhysicsUpdate_msg A protobuf message of type DancersUpdate.
  * \return A string-serialized version of the updated protobuf message.
  */
 std::string
-generate_response(network_update_proto::NetworkUpdate NetworkUpdate_msg, std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors)
+generate_response(dancers_update_proto::DancersUpdate NetworkUpdate_msg, std::map<uint32_t, std::map<uint32_t, double>> neighbors, int max_neighbors)
 {
     // Change message type to "END"
-    NetworkUpdate_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
+    NetworkUpdate_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
     NetworkUpdate_msg.set_ordered_neighbors(gzip_compress(generate_neighbors_msg(neighbors, max_neighbors)));
     std::string str_response;
     NetworkUpdate_msg.SerializeToString(&str_response);
@@ -662,8 +662,8 @@ public:
                 // Wait until reception of a message on the UDS socket
                 std::string received_data = gzip_decompress(socket->receive_one_message());
 
-                // Initialize empty protobuf message type [NetworkUpdate]
-                network_update_proto::NetworkUpdate NetworkUpdate_msg;
+                // Initialize empty protobuf message type [DancersUpdate]
+                dancers_update_proto::DancersUpdate NetworkUpdate_msg;
                 // Transform the message received from the UDS socket [string] -> [protobuf]
                 NetworkUpdate_msg.ParseFromString(received_data);
 
@@ -672,7 +672,7 @@ public:
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
                 rclcpp::Clock clock;
-                robots_positions_proto::RobotsPositions robots_positions_msg;
+                robots_positions_proto::PoseVector robots_positions_msg;
 
                 // if (currTime % Seconds(0.1) == Time(0)){
                 //     uint64_t bytes_received_this_iteration = mission_server->GetReceived()*packet_size - bytes_received;
@@ -680,10 +680,10 @@ public:
                 //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
                 // }
 
-                if (!NetworkUpdate_msg.robots_positions().empty())
+                if (!NetworkUpdate_msg.payload().empty())
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                    robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.robots_positions()));
+                    robots_positions_msg.ParseFromString(gzip_decompress(NetworkUpdate_msg.payload()));
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
@@ -804,7 +804,7 @@ private:
     std::map<Mac48Address, uint32_t> mac_to_id;
     int max_neighbors;
 
-    ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_list_msg;
+    dancers_update_proto::OrderedNeighborsList ordered_neighbors_list_msg;
 
     void SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const SpectrumPhy> rxPhy, double lossDb);
     void MacRxTrace(Ptr<const Packet> packet);

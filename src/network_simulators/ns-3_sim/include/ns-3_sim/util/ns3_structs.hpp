@@ -16,6 +16,7 @@ struct ns3_configuration_t
     uint32_t num_nodes;
     std::string wifi_phy_type;
     std::string wifi_phy_mode;
+    std::string wifi_standard;
     std::string error_model;
     std::string propagation_loss_model;
     double frequency;
@@ -34,6 +35,7 @@ struct ns3_configuration_t
     uint32_t broadcast_interval;
     uint16_t broadcast_port;
     uint32_t broadcast_timeout;
+    uint8_t broadcast_flow_id;
 
     bool enable_mission_flow;
     std::vector<uint32_t> source_robots_ids;
