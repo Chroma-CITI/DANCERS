@@ -111,6 +111,12 @@ class VATController
             std::optional<float> desired_fixed_altitude = std::nullopt;
 
             /**
+             * @brief Optional minimal altitude that, if set, will add an upward force if the UAV drops below the minimal altitude. Above this threshold, the UAV moves in 3D.
+             * Default value is std::nullopt.
+             */
+            std::optional<float> desired_min_altitude = std::nullopt;
+
+            /**
              * @brief Objective point in space that attracts the agent, if defined.
              * Default value is std::nullopt.
              */
@@ -128,7 +134,7 @@ class VATController
          * @param obstacles Array of 3D obstacles in the environement.
          * @return Return the computed velocity command as a ROS message. 
          */
-        dancers_msgs::msg::VelocityHeading getVelocityHeading(std::vector<std::shared_ptr<const agent_util::AgentState_t>>& agent_list, const std::vector<cuboid::obstacle_t>& obstacles);
+        dancers_msgs::msg::VelocityHeading getVelocityHeading(const agent_util::AgentState_t& agent_list, const std::vector<cuboid::obstacle_t>& obstacles);
     
         /**
          * @brief Constructor of the VAT controller that initialize the internal states of the controller.
@@ -196,6 +202,11 @@ class VATController
         std::optional<float> desired_fixed_altitude_;
 
         /**
+         * @brief Optional minimal altitude that, if set, will add an upward force if the UAV drops below the minimal altitude. Above this threshold, the UAV moves in 3D.
+         */
+        std::optional<float> desired_min_altitude_;
+
+        /**
          * @brief Deadband used in the altitude controller if desired_fixed_altitude is defined. The deadband is applied above and below the target. 
          * Thus, the deadband is between "desired_fixed_altitude - altitude_deadband_" and "desired_fixed_altitude + altitude_deadband_"
          */
@@ -204,7 +215,7 @@ class VATController
         /**
          * @brief A list of neighbors that is a snapshot of the last known positions of our neighbors. It is used to navigate back to their position in case of complete lost of connectivity
          */
-        std::vector<std::shared_ptr<const agent_util::AgentState_t>> last_known_neighbors_;
+        std::vector<std::shared_ptr<const agent_util::NeighborInfo_t>> last_known_neighbors_;
 
         /* ----------- Flocking behaviors ----------- */
         /**
@@ -214,7 +225,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
+        Eigen::Vector3d alignmentTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::NeighborInfo_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that attracts the agent towards its neighbors of a given neighbor type.
@@ -223,7 +234,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
+        Eigen::Vector3d attractionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::NeighborInfo_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that repulse the agent from its neighbors of a given neighbor type.
@@ -232,7 +243,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const VATController::VAT_params_t& role_params);
+        Eigen::Vector3d repulsionTerm(const agent_util::AgentState_t& self_agent, std::vector<std::shared_ptr<const agent_util::NeighborInfo_t>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Flocking behavior that pushes the heading of the agent perpendicaly from the nearest obstacle surfaces.
@@ -269,7 +280,7 @@ class VATController
          * @param params Flocking parameters to use.
          * @return Velocity command of the behavior.
          */
-        Eigen::Vector3d losConservationTerm(const agent_util::AgentState_t& self_agent, const std::vector<std::shared_ptr<const agent_util::AgentState_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t& role_params);
+        Eigen::Vector3d losConservationTerm(const agent_util::AgentState_t& self_agent, const std::vector<std::shared_ptr<const agent_util::NeighborInfo_t>>& neighbors, const std::vector<cuboid::obstacle_t>& obstacles, const VATController::VAT_params_t& role_params);
 
         /**
          * @brief Function used for flocking computation, see curve in Vásárhelyi 2018 Fig.6. for parameters.

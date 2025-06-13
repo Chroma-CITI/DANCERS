@@ -64,20 +64,23 @@ class AgentStructSaver : public rclcpp::Node
             }
 
             // Define the output file name, based on the existing files in the experience folder (incremental)
-            std::string temp_path;
-            int i = 1;
-            while (this->out_folder_name.empty())
-            {
-                temp_path = ros_ws_path + "/data/" + experience_name + "/agent_structs_" + std::to_string(i);
-                if (boost::filesystem::exists(temp_path))
-                {
-                    i++;
-                }
-                else
-                {
-                    this->out_folder_name = temp_path;
-                }
-            }
+            // std::string temp_path;
+            // int i = 1;
+            // while (this->out_folder_name.empty())
+            // {
+            //     temp_path = ros_ws_path + "/data/" + experience_name + "/agent_structs_" + std::to_string(i);
+            //     if (boost::filesystem::exists(temp_path))
+            //     {
+            //         i++;
+            //     }
+            //     else
+            //     {
+            //         this->out_folder_name = temp_path;
+            //     }
+            // }
+            
+            // Defined the output file name, based on the run_id
+            this->out_folder_name = ros_ws_path + "/data/" + experience_name + "/agent_structs_" + config["run_id"].as<std::string>();
 
             // create directory
             boost::filesystem::create_directories(this->out_folder_name);
@@ -89,7 +92,7 @@ class AgentStructSaver : public rclcpp::Node
                 std::ofstream out_file;
                 // initialize the output file with headers
                 out_file.open(agent_file.c_str(), std::ios::out);
-                out_file << "timestamp,agent_role,agent_id,x,y,z,vx,vy,vz,heading,";
+                out_file << "timestamp,agent_role,agent_id,x,y,z,vx,vy,vz,heading,heartbeat_received,heartbeat_sent,";
                 for (int j=0; j < config["robots_number"].as<int>()-1; j++)
                 {
                     out_file << "neighId" << j << ",neighPathloss" << j << ",neighRole" << j << ",";
@@ -149,6 +152,8 @@ void AgentStructSaver::agent_struct_array_callback(const dancers_msgs::msg::Agen
         out_file << agent_struct.state.position.x << "," << agent_struct.state.position.y << "," << agent_struct.state.position.z << ",";
         out_file << agent_struct.state.velocity_heading.velocity.x << "," << agent_struct.state.velocity_heading.velocity.y << "," << agent_struct.state.velocity_heading.velocity.z << ",";
         out_file << agent_struct.state.velocity_heading.heading << ",";
+        out_file << agent_struct.heartbeat_received << ",";
+        out_file << agent_struct.heartbeat_sent << ",";
 
         dancers_msgs::msg::NeighborArray neighbor_array = agent_struct.neighbor_array;
         for (auto neighbor : neighbor_array.neighbors)

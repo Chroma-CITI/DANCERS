@@ -194,15 +194,19 @@ class MiniDancers : public rclcpp::Node
             }
             this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
             this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
-            this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
-            this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
-            this->network_idle_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_idle_links", 10);
+            if (this->publish_network_markers)
+            {
+                this->network_mission_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_mission_links", 10);
+                this->network_potential_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_potential_links", 10);
+                this->network_idle_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("network_idle_links", 10);
+            }
             this->target_areas_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("target_areas", 10);
             this->base_station_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("base_station", 10);
 
 
             /* ----------- Subscribers ----------- */
             this->targets_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&MiniDancers::targets_clbk, this, _1));
+            this->spawn_uav_ = this->create_subscription<dancers_msgs::msg::AgentStruct>("spawn_uav", 10, std::bind(&MiniDancers::spawn_uav_clbk, this, _1));
 
             /* ----------- Service client ----------- */
             command_client_ = this->create_client<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities");
@@ -247,11 +251,12 @@ class MiniDancers : public rclcpp::Node
         void UpdateCmds();
         void GetNeighbors(dancers_update_proto::DancersUpdate &network_update_msg);
         void GetCommands(dancers_update_proto::DancersUpdate &network_update_msg);
+        int GetAgentIndex(uint32_t agent_id);
         void GenerateRolesAndNeighbors();
         std::string GenerateResponseProtobuf();
         void Loop();
 
-        void MakeStep(int i);
+        void MakeStep(int agent_index);
 
         /* Publishers */
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obstacles_pub_;
@@ -269,6 +274,9 @@ class MiniDancers : public rclcpp::Node
         /* Subscribers */
         rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr targets_sub_;
         void targets_clbk(dancers_msgs::msg::Target msg);
+
+        rclcpp::Subscription<dancers_msgs::msg::AgentStruct>::SharedPtr spawn_uav_;
+        void spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg);
 
         /* Service client*/
         rclcpp::Client<dancers_msgs::srv::GetAgentVelocities>::SharedPtr command_client_;
@@ -289,18 +297,45 @@ void MiniDancers::targets_clbk(dancers_msgs::msg::Target msg)
     p.first = Eigen::Vector3d(msg.position.x, msg.position.y, msg.position.z);
     p.second = msg.target_type;
 
-    std::cout << "Agent " << msg.id << " has a new target : " << p.first.transpose() << std::endl;
-
     this->secondary_objectives[msg.id] = p;
     for (auto agent = this->uavs.begin(); agent != this->uavs.end(); ++agent)
     {
         if (agent->id == msg.id)
         {
             agent->secondary_objective = p.first;
-            std::cout << "Agent " << agent->id << " has a secondary objective : " << p.first.transpose() << std::endl;
+            RCLCPP_INFO_STREAM(this->get_logger(), "Agent " << agent->id << " has a secondary objective : " << p.first.transpose());
         }
     }
 }
+
+void MiniDancers::spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg)
+{
+    // Check that there is not already a UAV with the same ID
+    for (auto agent = this->uavs.begin(); agent != this->uavs.end(); ++agent)
+    {
+        if (agent->id == msg.agent_id)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Requested UAV spawn Agent with ID %d rejected: already exists.", msg.agent_id);
+            return;
+        }
+    }
+    // Create a new agent_t from the received AgentStruct message
+    agent_t new_agent;
+    new_agent.id = msg.agent_id;
+    new_agent.uav_system = UavSystem(MultirotorModel::ModelParams(), Eigen::Vector3d(msg.state.position.x, msg.state.position.y, msg.state.position.z), msg.state.velocity_heading.heading);
+    new_agent.neighbors = std::vector<NeighborInfo_t>();
+    if (this->secondary_objectives.find(new_agent.id) != this->secondary_objectives.end())
+    {
+        new_agent.secondary_objective = this->secondary_objectives[new_agent.id].first;
+    }
+    
+    this->desired_velocities.push_back(Eigen::Vector3d::Zero());
+    this->uavs.push_back(new_agent);
+    this->n_uavs += 1;
+
+    RCLCPP_INFO(this->get_logger(), "Spawned a new UAV with ID %d", new_agent.id);
+}
+
 
 
 /**
@@ -393,8 +428,8 @@ void MiniDancers::InitUavs()
         {
             agent.secondary_objective = this->secondary_objectives[i].first;
         }
+        
         this->desired_velocities.push_back(Eigen::Vector3d::Zero());
-
         this->uavs.push_back(agent);
     }
 }
@@ -413,10 +448,10 @@ void MiniDancers::DisplayRviz()
     pose_array.header.stamp = this->get_clock()->now();
     visualization_msgs::msg::MarkerArray id_marker_array{};
     visualization_msgs::msg::MarkerArray desired_velocities_marker_array{};
-    for (int i = 0; i < n_uavs ; i++)
+    for (int i = 0; i < this->uavs.size() ; i++)
     {
         // Display poses
-        MultirotorModel::State uav_state = uavs[i].uav_system.getState();
+        MultirotorModel::State uav_state = this->uavs[i].uav_system.getState();
         geometry_msgs::msg::Pose pose{};
         pose.position.x = uav_state.x.x();
         pose.position.y = uav_state.x.y();
@@ -430,7 +465,7 @@ void MiniDancers::DisplayRviz()
 
         // Display ID markers
         visualization_msgs::msg::Marker id_marker{};
-        id_marker.id = i;
+        id_marker.id = this->uavs[i].id;
         id_marker.header.frame_id = "map";
         id_marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
         id_marker.action = visualization_msgs::msg::Marker::ADD;
@@ -440,7 +475,7 @@ void MiniDancers::DisplayRviz()
         id_marker.color.a = 1.0;  // Fully opaque
         id_marker.scale.z = 2.0;
         id_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
-        id_marker.text = std::to_string(i);
+        id_marker.text = std::to_string(this->uavs[i].id);
         id_marker.pose.position.x = uav_state.x.x()-1;
         id_marker.pose.position.y = uav_state.x.y();
         id_marker.pose.position.z = uav_state.x.z();
@@ -578,15 +613,16 @@ void MiniDancers::DisplayRviz()
         network_marker_idle.color.a = 1.0;  // Fully opaque
         network_marker_idle.lifetime = rclcpp::Duration::from_seconds(0.1);
 
-        for (int i=0; i < this->n_uavs; i++)
+        for (int i=0; i < this->uavs.size(); i++)
         {
             Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
             for (size_t j=0; j < this->uavs[i].neighbors.size(); j++)
             {
                 int neighbor_id = this->uavs[i].neighbors[j].id;
-                if (i == neighbor_id)
+                int neighbor_index = this->GetAgentIndex(neighbor_id);
+                if (this->uavs[i].id == neighbor_id)
                     continue; // (should never happen as we check this in GetNeighbors) 
-                Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
+                Eigen::Vector3d other_agent_pose(this->uavs[neighbor_index].uav_system.getState().x);
 
                 geometry_msgs::msg::Point p1{};
                 p1.x = agent_pose.x();
@@ -619,43 +655,6 @@ void MiniDancers::DisplayRviz()
         this->network_potential_pub_->publish(network_marker_potential);
         this->network_idle_pub_->publish(network_marker_idle);
     }
-
-    // // routing neighbors
-    // visualization_msgs::msg::Marker network_marker_routing{};
-    // network_marker_routing.header.frame_id = "map";
-    // network_marker_routing.id = 1003;
-    // network_marker_routing.type = visualization_msgs::msg::Marker::LINE_LIST;
-    // network_marker_routing.action = visualization_msgs::msg::Marker::ADD;
-    // network_marker_routing.scale.x = 0.3;
-    // network_marker_routing.color.r = 0.0;  
-    // network_marker_routing.color.g = 1.0;   // green color
-    // network_marker_routing.color.b = 0.0;
-    // network_marker_routing.color.a = 1.0;   // Fully opaque
-    // network_marker_routing.lifetime = rclcpp::Duration::from_seconds(0.1);
-    // for (int i=0; i < this->n_uavs; i++)
-    // {
-    //     Eigen::Vector3d agent_pose(this->uavs[i].uav_system.getState().x);
-    //     for (size_t j=0; j < this->uavs[i].neighbors_routing.size(); j++)
-    //     {
-    //         int neighbor_id = this->uavs[i].neighbors_routing[j];
-    //         if (i == neighbor_id)
-    //             continue; // (should never happen as we check this in GetNeighbors) 
-    //         Eigen::Vector3d other_agent_pose(this->uavs[neighbor_id].uav_system.getState().x);
-
-    //         geometry_msgs::msg::Point p1{};
-    //         p1.x = agent_pose.x();
-    //         p1.y = agent_pose.y();
-    //         p1.z = agent_pose.z();
-    //         network_marker_routing.points.push_back(p1);
-    //         geometry_msgs::msg::Point p2{};
-    //         p2.x = other_agent_pose.x();
-    //         p2.y = other_agent_pose.y();
-    //         p2.z = other_agent_pose.z();
-    //         network_marker_routing.points.push_back(p2);
-    //     }
-    // }
-    // this->network_routing_pub_->publish(network_marker_routing);
-
 }
 
 /**
@@ -681,7 +680,7 @@ void MiniDancers::UpdateCmds()
  
     dancers_msgs::msg::AgentStructArray agent_structs;
 
-    for (int i=0; i < this->n_uavs; i++)
+    for (int i=0; i < this->uavs.size(); i++)
     {
         dancers_msgs::msg::AgentStruct agent_struct;
         agent_t& self_agent = this->uavs[i];
@@ -751,19 +750,33 @@ void MiniDancers::UpdateCmds()
         std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Response> request_msg = result.get();
         std::vector<dancers_msgs::msg::VelocityHeading>& velocity_headings = request_msg->velocity_headings.velocity_heading_array;
         
-        assert(velocity_headings.size() == this->n_uavs);
-
-        for (int i=0; i < this->n_uavs; i++)
+        
+        if (velocity_headings.size() != this->uavs.size())
         {
-            reference::VelocityHdg controller;
+            RCLCPP_WARN(this->get_logger(), "Controller answered with a number of commands (%d) that does not match the number of current UAVs (%d). Trying to modify only the UAVs for which we have a command.", velocity_headings.size(), this->uavs.size());
+        }
 
-            controller.velocity[0] = velocity_headings[i].velocity.x;
-            controller.velocity[1] = velocity_headings[i].velocity.y;
-            controller.velocity[2] = velocity_headings[i].velocity.z;
-            controller.heading = velocity_headings[i].heading;
+        for (int i=0; i < velocity_headings.size(); i++)
+        {
+            uint32_t agent_id = velocity_headings[i].agent_id;
+            int agent_index = this->GetAgentIndex(agent_id);
 
-            this->desired_velocities[i] = controller.velocity;
-            this->uavs[i].uav_system.setInput(controller);
+            if (agent_index != -1)
+            {
+                reference::VelocityHdg controller;
+    
+                controller.velocity[0] = velocity_headings[i].velocity.x;
+                controller.velocity[1] = velocity_headings[i].velocity.y;
+                controller.velocity[2] = velocity_headings[i].velocity.z;
+                controller.heading = velocity_headings[i].heading;
+    
+                this->desired_velocities[agent_index] = controller.velocity;
+                this->uavs[agent_index].uav_system.setInput(controller);
+            }
+            else
+            {
+                RCLCPP_WARN(this->get_logger(), "Controller answered with a command for an agent that is not in the current UAVs. Skipping this command.");
+            }
         }
     }
     else
@@ -778,6 +791,8 @@ void MiniDancers::UpdateCmds()
  * @brief Updates the internal state of the agents with neighbors lists received from the outside (typically received from the network simulator)
  * 
  * @param A Protobuf message of type PhysicsUpdate containing the neighbors lists for all agents
+ * 
+ * This function is not used together with the following function "GetCommands".
  */
 void MiniDancers::GetNeighbors(dancers_update_proto::DancersUpdate &network_update_msg)
 {
@@ -788,38 +803,45 @@ void MiniDancers::GetNeighbors(dancers_update_proto::DancersUpdate &network_upda
         
         // std::cout << neighbors_list_msg.DebugString() << std::endl;
 
-        for (int i=0; i < this->n_uavs; i++)
+        for (int i=0; i < this->uavs.size(); i++)
         {
             this->uavs[i].neighbors.clear();
         }
         
         for (int i=0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
         {
-            int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
+            uint32_t agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
+            
+            int agent_index = this->GetAgentIndex(agent_id);
+            if (agent_index == -1)
+            {
+                RCLCPP_WARN(this->get_logger(), "Received update infos for agent %d but we do not know the agent with this ID. Skipping this agent.", agent_id);
+                continue;
+            }
 
             // Select the right role
-            if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::UNDEFINED)
+            if (neighbors_list_msg.ordered_neighbors(agent_index).role() == dancers_update_proto::OrderedNeighbors::UNDEFINED)
             {
-                this->uavs[i].role = AgentRoleType::Undefined;
+                this->uavs[agent_index].role = AgentRoleType::Undefined;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::MISSION)
+            else if (neighbors_list_msg.ordered_neighbors(agent_index).role() == dancers_update_proto::OrderedNeighbors::MISSION)
             {
-                this->uavs[i].role = AgentRoleType::Mission;
+                this->uavs[agent_index].role = AgentRoleType::Mission;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::POTENTIAL)
+            else if (neighbors_list_msg.ordered_neighbors(agent_index).role() == dancers_update_proto::OrderedNeighbors::POTENTIAL)
             {
-                this->uavs[i].role = AgentRoleType::Potential;
+                this->uavs[agent_index].role = AgentRoleType::Potential;
             }
-            else if (neighbors_list_msg.ordered_neighbors(i).role() == dancers_update_proto::OrderedNeighbors::IDLE)
+            else if (neighbors_list_msg.ordered_neighbors(agent_index).role() == dancers_update_proto::OrderedNeighbors::IDLE)
             {
-                this->uavs[i].role = AgentRoleType::Idle;
+                this->uavs[agent_index].role = AgentRoleType::Idle;
             }
 
-            dancers_update_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(i);
+            dancers_update_proto::OrderedNeighbors my_neighbors = neighbors_list_msg.ordered_neighbors().at(agent_index);
 
             if (my_neighbors.neighborid().empty())
             {
-                if (this->uavs[i].role == AgentRoleType::Undefined)
+                if (this->uavs[agent_index].role == AgentRoleType::Undefined)
                 {
                     // Skip this agent, we don't want to erase its neighbors list
                     continue;
@@ -863,7 +885,7 @@ void MiniDancers::GetNeighbors(dancers_update_proto::DancersUpdate &network_upda
                             break;
                     } 
                     
-                    this->uavs[agent_id].neighbors.push_back(neighbor_info);
+                    this->uavs[agent_index].neighbors.push_back(neighbor_info);
                 }
             }
         }
@@ -874,6 +896,14 @@ void MiniDancers::GetNeighbors(dancers_update_proto::DancersUpdate &network_upda
     }
 }
 
+/**
+ * @brief Updates the internal state of the agents with the new input commands (called at every timestep)
+ * 
+ * @param A Protobuf message of type DancersUpdate containing the desired velocity vectors for each agent
+ * 
+ * This function is not used together with "GetNeighbors". Mini-dancers either receives neighborhood information and computes the desired velocities, 
+ * or receives the desired velocities directly
+ */
 void MiniDancers::GetCommands(dancers_update_proto::DancersUpdate &network_update_msg)
 {
     if(!network_update_msg.payload().empty())
@@ -886,10 +916,12 @@ void MiniDancers::GetCommands(dancers_update_proto::DancersUpdate &network_updat
         for (auto& velocity_heading : velocity_headings_msg.velocity_heading())
         {
             uint32_t agent_id = velocity_heading.agentid();
-            if (agent_id >= this->n_uavs || agent_id < 0)
+            int agent_index = this->GetAgentIndex(agent_id);
+
+            if (agent_index == -1)
             {
-                RCLCPP_FATAL(this->get_logger(), "Agent %d is out of range !", agent_id);
-                exit(EXIT_FAILURE);
+                RCLCPP_WARN(this->get_logger(), "MiniDancers received a velocity & heading command for agent %d but it does not know this agent! Discarding this command.", agent_id, this->uavs.size());
+                continue;
             }
 
             reference::VelocityHdg controller;
@@ -899,8 +931,8 @@ void MiniDancers::GetCommands(dancers_update_proto::DancersUpdate &network_updat
             controller.velocity[2] = velocity_heading.vz();
             controller.heading = velocity_heading.heading();
 
-            this->desired_velocities[agent_id] = controller.velocity;
-            this->uavs[agent_id].uav_system.setInput(controller);
+            this->desired_velocities[agent_index] = controller.velocity;
+            this->uavs[agent_index].uav_system.setInput(controller);
         }
     }
 }
@@ -920,11 +952,12 @@ std::string MiniDancers::GenerateResponseProtobuf()
     physics_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
 
     dancers_update_proto::PoseVector robots_positions_msg;
-    for (int i=0; i < this->n_uavs; i++)
+    for (int i=0; i < this->uavs.size(); i++)
     {
         dancers_update_proto::Pose *robot_pose_msg = robots_positions_msg.add_pose();
         Eigen::Vector3d agent_position = this->uavs[i].uav_system.getState().x;
         Eigen::Vector3d agent_velocity = this->uavs[i].uav_system.getState().v;
+        robot_pose_msg->set_agent_id(this->uavs[i].id);
         robot_pose_msg->set_x(agent_position.x());
         robot_pose_msg->set_y(agent_position.y());
         robot_pose_msg->set_z(agent_position.z());
@@ -969,12 +1002,12 @@ void MiniDancers::GenerateRolesAndNeighbors()
             if (distance < this->communication_range)
             {
                 NeighborInfo_t neighbor_info_j;
-                neighbor_info_j.id = j;
+                neighbor_info_j.id = this->uavs[j].id;
                 neighbor_info_j.link_quality = distance;
                 neighbor_info_j.role = AgentRoleType::Idle;
                 this->uavs[i].neighbors.push_back(neighbor_info_j);
                 NeighborInfo_t neighbor_info_i;
-                neighbor_info_i.id = i;
+                neighbor_info_i.id = this->uavs[i].id;
                 neighbor_info_i.link_quality = distance;
                 neighbor_info_i.role = AgentRoleType::Idle;
                 this->uavs[j].neighbors.push_back(neighbor_info_i);
@@ -1035,11 +1068,11 @@ void MiniDancers::Loop()
 
             // We step the dynamics of each agents in separated thread, actually not 100% sure this is an optimization.
             std::vector<std::thread> workers;
-            for (int i=0; i < this->n_uavs; i++)
+            for (int i=0; i < this->uavs.size(); i++)
             {
                 workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
             }
-            for (int i=0; i < this->n_uavs; i++)
+            for (int i=0; i < this->uavs.size(); i++)
             {
                 workers[i].join();
             }
@@ -1083,11 +1116,11 @@ void MiniDancers::Loop()
             this->UpdateCmds();
 
             std::vector<std::thread> workers;
-            for (int i=0; i < this->n_uavs; i++)
+            for (int i=0; i < this->uavs.size(); i++)
             {
                 workers.push_back(std::thread(&MiniDancers::MakeStep, this, i));
             }
-            for (int i=0; i < this->n_uavs; i++)
+            for (int i=0; i < this->uavs.size(); i++)
             {
                 workers[i].join();
             }
@@ -1114,12 +1147,24 @@ void MiniDancers::Loop()
     exit(EXIT_SUCCESS);
 }
 
+int MiniDancers::GetAgentIndex(uint32_t agent_id)
+{
+    for (int i=0; i < this->uavs.size(); i++)
+    {
+        if (this->uavs[i].id == agent_id)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /**
  * @brief Wrapper around UavSystem::makeStep() to be used in a thread
  */
-void MiniDancers::MakeStep(int i)
+void MiniDancers::MakeStep(int agent_index)
 {
-    this->uavs[i].uav_system.makeStep(this->step_size);
+    this->uavs[agent_index].uav_system.makeStep(this->step_size);
 }
 
 int main(int argc, char **argv)

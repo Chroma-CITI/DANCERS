@@ -15,9 +15,11 @@
 #include "dancers_msgs/msg/velocity_heading_array.hpp"
 #include "dancers_msgs/srv/get_agent_velocities.hpp"
 #include "dancers_msgs/msg/target.hpp"
+#include "dancers_msgs/msg/agent_struct.hpp"
 
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <rosgraph_msgs/msg/clock.hpp>
 
 #include <geometry_msgs/msg/pose_array.hpp>
 
@@ -47,12 +49,14 @@ class VATControllerNode : public rclcpp::Node
             }
 
             // Parse the config file
-            YAML::Node config = YAML::LoadFile(config_file_path);
+            this->config = YAML::LoadFile(config_file_path);
+
+            this->simEndTime = rclcpp::Time(config["simulation_length"].as<double>(), 0);
 
             // Initialize obstacles
             obstaclesInitialization(config);
 
-            std::map<int, Eigen::Vector3d> secondary_objectives = getAgentSecondaryObjective(config);
+            this->secondary_objectives = getAgentSecondaryObjective(config);
 
             // Initialize the 
             occupancyGridAndPlannerInitialization(config, obstacles_, secondary_objectives);
@@ -73,8 +77,14 @@ class VATControllerNode : public rclcpp::Node
 
             // Create the service
             service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agent_velocities", 
-                                                                                  std::bind(&VATControllerNode::commandCallback,this, _1, _2));
-            RCLCPP_INFO(this->get_logger(), "Flocking controller's service initialized.");
+                                                                                std::bind(&VATControllerNode::commandCallback,this, _1, _2));
+            clock_sub_ = this->create_subscription<rosgraph_msgs::msg::Clock>("/clock", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
+                                                                                std::bind(&VATControllerNode::clockCallback, this, _1));
+            spawn_uav_ = this->create_subscription<dancers_msgs::msg::AgentStruct>("spawn_uav", 10, 
+                                                                                std::bind(&VATControllerNode::spawnUavCallback, this, _1));
+
+
+            RCLCPP_DEBUG(this->get_logger(), "Flocking controller's service initialized.");
         }
 
     private:
@@ -92,6 +102,23 @@ class VATControllerNode : public rclcpp::Node
          * Mainly used for debugging. 
          */
         bool should_controller_publish_cmd_ = false;
+
+        /**
+         * @brief The YAML object holding the configuration of the simulation.
+         */
+        YAML::Node config;
+
+        /**
+         * @brief The secondary objectives of the agents. The key is the agent's id, the value is a 3D vector giving the global position off the target area.
+         */
+        std::map<int, Eigen::Vector3d> secondary_objectives;
+
+        rclcpp::Time simEndTime;
+        rclcpp::Subscription<rosgraph_msgs::msg::Clock>::SharedPtr clock_sub_;
+        rclcpp::Subscription<dancers_msgs::msg::AgentStruct>::SharedPtr spawn_uav_;
+        bool shutdown_triggered_ = false;
+        void clockCallback(const rosgraph_msgs::msg::Clock::SharedPtr msg);
+        void spawnUavCallback(const dancers_msgs::msg::AgentStruct agent);
 
         VATController::VAT_params_t default_vat_params_ = {
             .v_flock = 1.5,
@@ -182,23 +209,26 @@ class VATControllerNode : public rclcpp::Node
            
            if (request->agent_structs.size() != controllers_.size())
            {
-                RCLCPP_ERROR_STREAM(this->get_logger(), "The flocking_controller received a request with a agent number("<< request->agent_structs.size() <<") that is different from its expected number ("<<controllers_.size()<<"). Won't compute velocities.");
-           }
-           else
-           {
-                std::vector<std::shared_ptr<const agent_util::AgentState_t>> agent_states;
-
-                // Create a vector list of all the agent states.
-                for(const auto& agent_struct: request->agent_structs)
-                {
-                    agent_util::AgentState_t self_agent_state = agent_util::create_agent_state_from_ROS_message(agent_struct);
-                    agent_states.push_back(std::make_shared<agent_util::AgentState_t>(std::move(self_agent_state)));
-                }
+               RCLCPP_ERROR_STREAM(this->get_logger(), "The flocking_controller received a request with a agent number("<< request->agent_structs.size() <<") that is different from its expected number ("<<controllers_.size()<<"). Won't compute velocities.");
+            }
+            else
+            {
+                
+                // for debug only
+                // this->printCommandRequest(request);
                 
                 for(const auto& agent_struct: request->agent_structs)
                 {
-                    dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(agent_states, *obstacles_);
-                    response->velocity_headings.velocity_heading_array.push_back(std::move(agent_command));
+                    agent_util::AgentState_t self_agent_state = agent_util::create_agent_state_from_ROS_message(agent_struct);
+                    if (controllers_[agent_struct.agent_id])
+                    {
+                        dancers_msgs::msg::VelocityHeading agent_command = controllers_[agent_struct.agent_id]->getVelocityHeading(self_agent_state, *obstacles_);
+                        response->velocity_headings.velocity_heading_array.push_back(std::move(agent_command));
+                    }
+                    else
+                    {
+                        RCLCPP_WARN(this->get_logger(), "The flocking_controller received a request with a agent id that is not in the list of controllers. Won't compute velocities for this agent.");
+                    }
                 }
                 if(should_controller_publish_cmd_)
                 {
@@ -498,7 +528,21 @@ class VATControllerNode : public rclcpp::Node
             for (auto goal : config["secondary_objectives"])
             {
                 Eigen::Vector3d objective = Eigen::Vector3d(goal.second[0].as<double>(), goal.second[1].as<double>(), goal.second[2].as<double>());
-                secondary_objectives.insert({goal.first.as<int>(), objective});
+
+                // Check for global goal
+                if (goal.first.as<int>() == -1)
+                {
+                    for (int i = 0; i < config["robots_number"].as<int>(); i++)
+                    {
+                        secondary_objectives.insert({i, objective});
+                    }
+                    RCLCPP_INFO_STREAM(this->get_logger(), "Goal of all agents : " << objective.transpose() << std::endl);
+                    break;
+                }
+                else
+                {
+                    secondary_objectives.insert({goal.first.as<int>(), objective});
+                }
             }
             return  secondary_objectives;
         }
@@ -515,6 +559,13 @@ class VATControllerNode : public rclcpp::Node
             if (YAML::Node altitude_param = config["target_altitude"]) 
             {
                 fixed_altitude = altitude_param.as<float>();
+            }
+
+            // Get the min altitude option
+            std::optional<float> min_altitude;
+            if (YAML::Node min_altitude_param = config["min_altitude"]) 
+            {
+                min_altitude = min_altitude_param.as<float>();
             }
 
             // Verify if planner should be used.
@@ -541,8 +592,10 @@ class VATControllerNode : public rclcpp::Node
                     options.path_planner_params_.lookup_ahead_pursuit_distance_ = static_cast<float>(config["lookup_ahead_pursuit_distance"].as<double>());
                 }
 
-                // Get the altitude parameter
+                // Get the altitude parameters
                 options.desired_fixed_altitude = fixed_altitude;
+
+                options.desired_min_altitude = min_altitude;
 
                 // Look for a secondary objective for the agent
                 if (secondary_objectives.find(agent_id) != secondary_objectives.end())
@@ -569,7 +622,101 @@ class VATControllerNode : public rclcpp::Node
                 waypoint_publisher_ = this->create_publisher<geometry_msgs::msg::PoseArray>("waypoint_poses",5);
             }
         }
+
+        void printCommandRequest(const std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Request> request)
+        {
+            std::string ROLES[4] = {"Undefined", "Mission", "Potential", "Idle"};
+            std::cout << "Received command request for "<< request->agent_structs.size() << " agents: " << std::endl;
+            for (auto agent : request->agent_structs)
+            {
+                std::cout << agent.agent_id << "\t" << ROLES[static_cast<int>(agent.agent_role)] << std::endl;
+                for (const auto& neighbor: agent.neighbor_array.neighbors)
+                {
+                    std::cout << "\tid: " << neighbor.agent_id << "\trole: " << ROLES[static_cast<int>(neighbor.agent_role)] << "\tlinkQual: " << neighbor.link_quality << std::endl;
+                }
+                std::cout << std::endl;
+            }
+        }
 };
+
+void VATControllerNode::clockCallback(const rosgraph_msgs::msg::Clock::SharedPtr msg)
+{
+    rclcpp::Time current_time = msg->clock;
+    RCLCPP_DEBUG(this->get_logger(), "Simulation time: %f/%f", current_time.seconds(), this->simEndTime.seconds());
+
+    if (!shutdown_triggered_ && current_time.seconds() >= simEndTime.seconds())
+    {
+        RCLCPP_WARN(this->get_logger(), "ROS time exceeded shutdown threshold. Shutting down...");
+        shutdown_triggered_ = true;
+        rclcpp::shutdown();  // This stops the entire ROS node
+    }
+}
+
+void VATControllerNode::spawnUavCallback(const dancers_msgs::msg::AgentStruct agent)
+{
+        // Get the fixed altitude option
+    std::optional<float> fixed_altitude;
+    if (YAML::Node altitude_param = config["target_altitude"]) 
+    {
+        fixed_altitude = altitude_param.as<float>();
+    }
+
+    // Get the min altitude option
+    std::optional<float> min_altitude;
+    if (YAML::Node min_altitude_param = config["min_altitude"]) 
+    {
+        min_altitude = min_altitude_param.as<float>();
+    }
+
+    // Verify if planner should be used.
+    bool use_planner = config["use_planner"].as<bool>();
+    
+    // Initialize controllers
+    VATController::ControllerOptions_t options;
+    options.id = agent.agent_id;
+
+    // Get the flocking parameters
+    populateVATParametersFromConfig(config,"VAT_undefined_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Undefined]);
+    populateVATParametersFromConfig(config,"VAT_mission_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Mission]);
+    populateVATParametersFromConfig(config,"VAT_potential_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Potential]);
+    populateVATParametersFromConfig(config,"VAT_idle_flocking_parameters", options.VAT_params[agent_util::AgentRoleType::Idle]);
+
+    // Planner configuration
+    options.path_planner_params_.use_planner_ = use_planner;
+    if (options.path_planner_params_.use_planner_)
+    {
+        options.path_planner_params_.goal_radius_tolerance_ = static_cast<float>(config["goal_radius_tolerance"].as<double>());
+        options.path_planner_params_.distance_to_path_tolerance_ = static_cast<float>(config["distance_to_path_tolerance"].as<double>());
+        options.path_planner_params_.lookup_ahead_pursuit_distance_ = static_cast<float>(config["lookup_ahead_pursuit_distance"].as<double>());
+    }
+
+    // Get the altitude parameters
+    options.desired_fixed_altitude = fixed_altitude;
+
+    options.desired_min_altitude = min_altitude;
+
+    // Look for a secondary objective for the agent
+    if (secondary_objectives.find(agent.agent_id) != secondary_objectives.end())
+    {
+        options.secondary_objective = secondary_objectives[agent.agent_id];
+        RCLCPP_INFO_STREAM(this->get_logger(), "Goal of agent " << agent.agent_id << " : " << secondary_objectives[agent.agent_id].transpose() << std::endl);
+
+        if (options.path_planner_params_.use_planner_)
+        {
+            PlannerAndPublisher planner_and_publisher;
+            planner_and_publisher.path_planner_ = std::make_shared<GridPathPlanner>(occupancy_grid_ptr_);
+            std::string topic_prefix = "agent_path" + std::to_string(agent.agent_id);
+            planner_and_publisher.publisher_ = this->create_publisher<nav_msgs::msg::Path>(topic_prefix, 4);
+            
+            options.path_planner_params_.path_planner_ = planner_and_publisher.path_planner_;
+            path_planners_and_pub_.push_back(planner_and_publisher);
+        }
+    }
+
+    controllers_.push_back(std::make_unique<VATController>(options));
+
+    RCLCPP_DEBUG(this->get_logger(), "UAV %d flocking controller correctly initialized.", agent.agent_id);
+}
 
 
 int main(int argc, char* argv[])
