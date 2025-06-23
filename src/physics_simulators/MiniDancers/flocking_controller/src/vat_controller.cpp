@@ -39,6 +39,7 @@ void VATController::SetSecondaryObjective(const Eigen::Vector3d& secondary_objec
 dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(const agent_util::AgentState_t& agent_state, const std::vector<cuboid::obstacle_t>& obstacles)
 {
     dancers_msgs::msg::VelocityHeading velocity_heading;
+    velocity_heading.agent_id = id_;
     Eigen::Vector3d summed_velocity = Eigen::Vector3d::Zero();
 
     // The id of agent should match the id expected from the controller.

@@ -8,3 +8,6 @@ uint32 agent_id
 dancers_msgs/AgentState state
 
 dancers_msgs/NeighborArray neighbor_array
+
+uint32 heartbeat_received
+uint32 heartbeat_sent

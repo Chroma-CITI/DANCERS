@@ -173,8 +173,8 @@ public:
         // capacity_cost_out.close();
 
         /* ----------- ROS2 Subscribers ----------- */
-        this->targets_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&Ns3Sim::targets_clbk, this, _1));
-        if (this->targets_sub_ == nullptr)
+        this->update_target_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&Ns3Sim::update_target_clbk, this, _1));
+        if (this->update_target_sub_ == nullptr)
         {
             RCLCPP_FATAL(this->get_logger(), "Could not create the targets subscriber");
             exit(EXIT_FAILURE);
@@ -273,8 +273,8 @@ private:
     DataCollector data;
 
     /* Subscribers */
-    rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr targets_sub_;
-    void targets_clbk(dancers_msgs::msg::Target msg);
+    rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr update_target_sub_;
+    void update_target_clbk(dancers_msgs::msg::Target msg);
 
     Ptr<PropagationLossModel> m_propagationLossModel;
 
@@ -917,13 +917,13 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
 
 }
 
-void Ns3Sim::targets_clbk(dancers_msgs::msg::Target msg)
+void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
 {
-    std::cout << "Target received: " << msg.id << std::endl;
-    Ptr<ns3::Node> target_node = this->nodes.Get(msg.id);
+    std::cout << "Target received: " << msg.target_id << std::endl;
+    Ptr<ns3::Node> target_node = this->nodes.Get(msg.target_id);
     // Any Agent has a broadcast sender and receiver, prevent duplicate mission application by checking the number of applications.
     // We also do a double-check in case this agent was already considered a source agent
-    if (target_node->GetNApplications() < 3 && std::find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), msg.id) == this->ns3_config.source_robots_ids.end())
+    if (target_node->GetNApplications() < 3 && std::find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), msg.target_id) == this->ns3_config.source_robots_ids.end())
     {
         // add sender application
         Ptr<Sender> sender = CreateObject<Sender>();
@@ -940,13 +940,13 @@ void Ns3Sim::targets_clbk(dancers_msgs::msg::Target msg)
         sender->SetAttribute("Interval", PointerValue(rand));
         sender->TraceConnectWithoutContext("Tx", MakeCallback(&Ns3Sim::mission_flow_sender_clbk_2, this));
 
-        this->ns3_config.source_robots_ids.push_back(msg.id);
+        this->ns3_config.source_robots_ids.push_back(msg.target_id);
 
         RCLCPP_INFO(this->get_logger(), "Configured mission app (source) for node %d", target_node->GetId());
     }
     else
     {
-        RCLCPP_INFO(this->get_logger(), "Node %d already has 2 applications", msg.id);
+        RCLCPP_INFO(this->get_logger(), "Node %d already has 2 applications", msg.target_id);
     }
 }
 

@@ -14,6 +14,7 @@ find_package(dancers_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rosgraph_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(occupancy_grid 
             src/occupancy_grid.cpp
@@ -30,6 +31,7 @@ ament_target_dependencies(flocking_controller_vat
   geometry_msgs
   nav_msgs
   rosgraph_msgs
+  std_msgs
 )
 
 ament_target_dependencies(occupancy_grid 

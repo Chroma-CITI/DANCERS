@@ -53,4 +53,5 @@ struct agent_t
     std::map<int, NeighborInfo_t> neighbors;
     uint32_t heartbeat_received;
     uint32_t heartbeat_sent;
+    bool crashed = false;
 };
