@@ -22,9 +22,8 @@
 // #include "ns3/dsr-module.h"
 #include "ns3/dsdv-module.h"
 
-#include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/physics_update.pb.h"
-#include "protobuf_msgs/robots_positions.pb.h"
+#include "protobuf_msgs/dancers_update.pb.h"
+#include "protobuf_msgs/pose_vector.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
 #include <dancers_msgs/msg/target.hpp>
@@ -174,8 +173,8 @@ public:
         // capacity_cost_out.close();
 
         /* ----------- ROS2 Subscribers ----------- */
-        this->targets_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&Ns3Sim::targets_clbk, this, _1));
-        if (this->targets_sub_ == nullptr)
+        this->update_target_sub_ = this->create_subscription<dancers_msgs::msg::Target>("targets", 10, std::bind(&Ns3Sim::update_target_clbk, this, _1));
+        if (this->update_target_sub_ == nullptr)
         {
             RCLCPP_FATAL(this->get_logger(), "Could not create the targets subscriber");
             exit(EXIT_FAILURE);
@@ -263,6 +262,7 @@ private:
     bool cosim_mode;
     bool verbose;
 
+    // Thread running the co-simulation Loop
     std::thread loop_thread_;
 
     bool stats_enabled;
@@ -273,11 +273,8 @@ private:
     DataCollector data;
 
     /* Subscribers */
-    rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr targets_sub_;
-    void targets_clbk(dancers_msgs::msg::Target msg);
-
-    /* thread for spinning */
-    std::thread spin_thread_;
+    rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr update_target_sub_;
+    void update_target_clbk(dancers_msgs::msg::Target msg);
 
     Ptr<PropagationLossModel> m_propagationLossModel;
 
@@ -325,7 +322,7 @@ private:
 
     ns3_configuration_t ReadNs3Config(const YAML::Node& config);
     void ConfigureNs3(const ns3_configuration_t& ns3_config);
-    std::vector<int> RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name);
+    void RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name);
 };
 
 /**
@@ -416,7 +413,7 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t& ns3_config)
     for (AABB_t build : ns3_config.buildings)
     {
         Ptr<Building> ns3_building = CreateObject<Building>();
-        ns3_building->SetBoundaries(Box(build.x_min, build.y_min, build.z_min, build.x_max, build.y_max, build.z_max));
+        ns3_building->SetBoundaries(Box(build.x_min, build.x_max, build.y_min, build.y_max, build.z_min, build.z_max));
         ns3_building->SetBuildingType(Building::Office);
         ns3_building->SetExtWallsType(Building::ConcreteWithWindows);
         ns3_building->SetNFloors(1);
@@ -514,7 +511,7 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t& ns3_config)
         spectrumWifiPhy.SetErrorRateModel(ns3_config.error_model);
         spectrumWifiPhy.Set("TxPowerStart", DoubleValue(14)); // dBm
         spectrumWifiPhy.Set("TxPowerEnd", DoubleValue(14));
-        spectrumWifiPhy.Set("ChannelSettings", StringValue("{0, 20, BAND_2_4GHZ, 0}"));
+        spectrumWifiPhy.Set("ChannelSettings", StringValue("{0, 20, BAND_5GHZ, 0}"));
         spectrumWifiPhy.SetPcapDataLinkType(SpectrumWifiPhyHelper::DLT_IEEE802_11_RADIO);
 
         // Connect a callback that will save the pathloss value in an attribute every time it is calculated
@@ -529,6 +526,8 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t& ns3_config)
         RCLCPP_FATAL(this->get_logger(), "Unsupported WiFi type %s", ns3_config.wifi_phy_type.c_str());
         exit(EXIT_FAILURE);
     }
+
+    this->m_propagationLossModel = propagationLossModel;
 
     // Short guard interval = 400ns (vs 800ns otherwise)
     Config::Set(
@@ -765,7 +764,7 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t& ns3_config)
     
 }
 
-std::vector<int> Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name)
+void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name)
 {
 
     double bandwidth = DynamicCast<WifiNetDevice>(this->nodes.Get(0)->GetDevice(0))->GetPhy()->GetChannelWidth() * 1e6;
@@ -918,13 +917,13 @@ std::vector<int> Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_rout
 
 }
 
-void Ns3Sim::targets_clbk(dancers_msgs::msg::Target msg)
+void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
 {
-    std::cout << "Target received: " << msg.id << std::endl;
-    Ptr<ns3::Node> target_node = this->nodes.Get(msg.id);
+    std::cout << "Target received: " << msg.target_id << std::endl;
+    Ptr<ns3::Node> target_node = this->nodes.Get(msg.target_id);
     // Any Agent has a broadcast sender and receiver, prevent duplicate mission application by checking the number of applications.
     // We also do a double-check in case this agent was already considered a source agent
-    if (target_node->GetNApplications() < 3 && std::find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), msg.id) == this->ns3_config.source_robots_ids.end())
+    if (target_node->GetNApplications() < 3 && std::find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), msg.target_id) == this->ns3_config.source_robots_ids.end())
     {
         // add sender application
         Ptr<Sender> sender = CreateObject<Sender>();
@@ -941,13 +940,13 @@ void Ns3Sim::targets_clbk(dancers_msgs::msg::Target msg)
         sender->SetAttribute("Interval", PointerValue(rand));
         sender->TraceConnectWithoutContext("Tx", MakeCallback(&Ns3Sim::mission_flow_sender_clbk_2, this));
 
-        this->ns3_config.source_robots_ids.push_back(msg.id);
+        this->ns3_config.source_robots_ids.push_back(msg.target_id);
 
         RCLCPP_INFO(this->get_logger(), "Configured mission app (source) for node %d", target_node->GetId());
     }
     else
     {
-        RCLCPP_INFO(this->get_logger(), "Node %d already has 2 applications", msg.id);
+        RCLCPP_INFO(this->get_logger(), "Node %d already has 2 applications", msg.target_id);
     }
 }
 
@@ -961,7 +960,7 @@ void Ns3Sim::SpectrumPathLossTrace(Ptr<const SpectrumPhy> txPhy, Ptr<const Spect
     uint32_t txId = txPhy->GetDevice()->GetNode()->GetId();
     uint32_t rxId = rxPhy->GetDevice()->GetNode()->GetId();
     this->pathlosses[txId][rxId] = -lossDb;
-    // std::cout << "Tx: " << txId << " Rx: " << rxId << " Loss: " << lossDb << std::endl;
+    // std::cout << "Tx: " << txId <<  " Rx: " << rxId << " Loss: " << lossDb << std::endl;
 }
 
 /**
@@ -1124,9 +1123,9 @@ std::string
 Ns3Sim::generateNeighborsMsg()
 {
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
-    std::map<uint32_t, ordered_neighbors_proto::OrderedNeighbors_Role> agent_roles;
+    std::map<uint32_t, dancers_update_proto::OrderedNeighbors_Role> agent_roles;
 
-    ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
+    dancers_update_proto::OrderedNeighborsList ordered_neighbors_msg;
 
     // Assign roles based on their neighborhood type
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
@@ -1139,33 +1138,33 @@ Ns3Sim::generateNeighborsMsg()
             // Use mission neighbors
             // std::cout << "Using mission neighbors for node " << i << std::endl;
             neighbors[i] = this->mission_neighbors[i];
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_MISSION;
+            agent_roles[i] = dancers_update_proto::OrderedNeighbors_Role_MISSION;
         }
         else if (has_broadcast_neighbor)
         {
             // Use broadcast neighbors, we don't have any mission neighbors !
             // std::cout << "Using broadcast neighbors for node " << i << std::endl;
             neighbors[i] = this->broadcast_neighbors[i];
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL;
+            agent_roles[i] = dancers_update_proto::OrderedNeighbors_Role_POTENTIAL;
         }
         else if (!has_broadcast_neighbor)
         {
             // We don't have any neighbors !
             // std::cout << "No neighbors for node " << i << std::endl;
             neighbors[i] = std::map<uint32_t, std::pair<double, Time>>();
-            agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_UNDEFINED;
+            agent_roles[i] = dancers_update_proto::OrderedNeighbors_Role_UNDEFINED;
         }
     }
 
     // Separate "Idle" agents (no neighbor with the role "Mission") from the "Potential" pool
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
-        if (agent_roles[i] == ordered_neighbors_proto::OrderedNeighbors_Role_POTENTIAL)
+        if (agent_roles[i] == dancers_update_proto::OrderedNeighbors_Role_POTENTIAL)
         {
             bool has_neighbors_with_role_mission = false;
             for (auto const &agent : neighbors[i])
             {
-                if (agent_roles[agent.first] == ordered_neighbors_proto::OrderedNeighbors_Role_MISSION)
+                if (agent_roles[agent.first] == dancers_update_proto::OrderedNeighbors_Role_MISSION)
                 {
                     has_neighbors_with_role_mission = true;
                     break;
@@ -1173,7 +1172,7 @@ Ns3Sim::generateNeighborsMsg()
             }
             if (!has_neighbors_with_role_mission)
             {
-                agent_roles[i] = ordered_neighbors_proto::OrderedNeighbors_Role_IDLE;
+                agent_roles[i] = dancers_update_proto::OrderedNeighbors_Role_IDLE;
             }
         }
     }
@@ -1186,7 +1185,7 @@ Ns3Sim::generateNeighborsMsg()
         std::sort(ordered_neighbors.begin(), ordered_neighbors.end(), [](const auto &a, const auto &b)
                   { return a.second.first > b.second.first; });
 
-        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        dancers_update_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         neighbor_msg->set_agentid(agent.first);
         neighbor_msg->set_role(agent_roles[agent.first]);
         // Sort the pathlosses to add them in the protobuf message in the right order.
@@ -1221,9 +1220,9 @@ std::string
 Ns3Sim::generateResponseProtobuf()
 {
     // Change message type to "END"
-    network_update_proto::NetworkUpdate network_update_msg;
-    network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    network_update_msg.set_ordered_neighbors(gzip_compress(generateNeighborsMsg()));
+    dancers_update_proto::DancersUpdate network_update_msg;
+    network_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
+    network_update_msg.set_payload(gzip_compress(generateNeighborsMsg()));
     std::string str_response;
     network_update_msg.SerializeToString(&str_response);
 
@@ -1347,14 +1346,14 @@ void Ns3Sim::Loop()
             std::string received_data = gzip_decompress(socket->receive_one_message());
 
             // Initialize empty protobuf message type [PhysicsUpdate]
-            physics_update_proto::PhysicsUpdate physics_update_msg;
+            dancers_update_proto::DancersUpdate physics_update_msg;
             // Transform the message received from the UDS socket [string] -> [protobuf]
             physics_update_msg.ParseFromString(received_data);
 
             // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
             // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
             rclcpp::Clock clock;
-            robots_positions_proto::RobotsPositions robots_positions_msg;
+            dancers_update_proto::PoseVector robots_positions_msg;
 
             // if (currTime % Seconds(0.1) == Time(0)){
             //     uint64_t bytes_received_this_iteration = mission_server->GetReceived()*packet_size - bytes_received;
@@ -1362,14 +1361,14 @@ void Ns3Sim::Loop()
             //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
             // }
 
-            if (!physics_update_msg.robots_positions().empty())
+            if (!physics_update_msg.payload().empty())
             {
                 RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
+                robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.payload()));
 
                 // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                 // Then, update the node's positions (orientation is ignored for now)
-                if (this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size())
+                if (this->nodes.GetN() != (uint32_t)robots_positions_msg.pose_size())
                 {
                     if (verbose)
                     {
@@ -1377,7 +1376,7 @@ void Ns3Sim::Loop()
                                              clock,
                                              1000, // ms
                                              "Network simulator received position information of %i robots but NS-3 has %u nodes.",
-                                             robots_positions_msg.robot_pose_size(),
+                                             robots_positions_msg.pose_size(),
                                              this->nodes.GetN());
                     }
                 }
@@ -1386,9 +1385,9 @@ void Ns3Sim::Loop()
                     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
                     {
                         Vector pos;
-                        pos.x = robots_positions_msg.robot_pose(i).x();
-                        pos.y = robots_positions_msg.robot_pose(i).y();
-                        pos.z = robots_positions_msg.robot_pose(i).z();
+                        pos.x = robots_positions_msg.pose(i).x();
+                        pos.y = robots_positions_msg.pose(i).y();
+                        pos.z = robots_positions_msg.pose(i).z();
 
                         // ns-s don't like negative and 0 positions
                         if (pos.z <= 0)
@@ -1429,7 +1428,7 @@ void Ns3Sim::Loop()
 
             this->timeoutNeighbors();
 
-
+            this->RunPseudoRoutingAlgorithm(this->pseudoRoutingAlgo);
 
             // Create an object giving the neighborhood of each node, based on the packets received by their UDP server, neighbors lifetime is 1 second.
             // std::map<uint32_t, std::map<uint32_t, double>> neighbors = create_neighbors(neighbor_timeout_value);

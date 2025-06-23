@@ -51,4 +51,7 @@ struct agent_t
     Eigen::Vector3d cmd_velocity;
     double cmd_heading;
     std::map<int, NeighborInfo_t> neighbors;
+    uint32_t heartbeat_received;
+    uint32_t heartbeat_sent;
+    bool crashed = false;
 };

@@ -20,6 +20,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(dancers_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 # add_executable(ns-3_sim_wifi_adhoc src/ns-3_sim_wifi_adhoc.cpp 
 #   include/${PROJECT_NAME}/wifi-application.cpp 
@@ -196,7 +197,8 @@ ament_target_dependencies(wifi_flocking
   rclcpp
   dancers_msgs
   nav_msgs
-  visualization_msgs)
+  visualization_msgs
+  std_msgs)
 
 message("ns-3 version " ${ns3_VERSION})
 

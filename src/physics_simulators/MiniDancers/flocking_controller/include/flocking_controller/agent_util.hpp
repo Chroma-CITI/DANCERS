@@ -27,6 +27,9 @@ namespace agent_util
     {
         int id;
         float link_quality;
+        agent_util::AgentRoleType role_type;
+        Eigen::Vector3d position;
+        Eigen::Vector3d velocity;
     };
 
     /**
@@ -80,6 +83,35 @@ namespace agent_util
             NeighborInfo_t neighbor_info;
             neighbor_info.id = neighbor_msg.agent_id;
             neighbor_info.link_quality = neighbor_msg.link_quality;
+
+            if (neighbor_msg.agent_role == neighbor_msg.AGENT_ROLE_IDLE)
+            {
+                neighbor_info.role_type = AgentRoleType::Idle;
+            }
+            else if(neighbor_msg.agent_role == neighbor_msg.AGENT_ROLE_MISSION)
+            {
+                neighbor_info.role_type = AgentRoleType::Mission;
+            }
+            else if(neighbor_msg.agent_role == neighbor_msg.AGENT_ROLE_POTENTIAL)
+            {
+                neighbor_info.role_type = AgentRoleType::Potential;
+            }
+            else if(neighbor_msg.agent_role == neighbor_msg.AGENT_ROLE_UNDEFINED)
+            {
+                neighbor_info.role_type = AgentRoleType::Undefined;
+            }
+            else
+            {
+                // Default to Undefined if the role is not recognized 
+                neighbor_info.role_type = AgentRoleType::Undefined;
+            }
+
+            neighbor_info.position[0] = neighbor_msg.position.x;
+            neighbor_info.position[1] = neighbor_msg.position.y;
+            neighbor_info.position[2] = neighbor_msg.position.z;
+            neighbor_info.velocity[0] = neighbor_msg.velocity.x;
+            neighbor_info.velocity[1] = neighbor_msg.velocity.y;
+            neighbor_info.velocity[2] = neighbor_msg.velocity.z;
 
             agent_state.neighbors.push_back(neighbor_info);
         }

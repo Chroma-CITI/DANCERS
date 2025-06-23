@@ -1,2 +1,3 @@
 geometry_msgs/Vector3 velocity
 float64 heading
+uint32 agent_id

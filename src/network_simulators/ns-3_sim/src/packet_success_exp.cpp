@@ -20,9 +20,8 @@
 #include "ns3/dsr-module.h"
 #include "ns3/dsdv-module.h"
 
-#include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/physics_update.pb.h"
-#include "protobuf_msgs/robots_positions.pb.h"
+#include "protobuf_msgs/dancers_update.pb.h"
+#include "protobuf_msgs/pose_vector.pb.h"
 #include "protobuf_msgs/ordered_neighbors.pb.h"
 
 #include <yaml-cpp/yaml.h>
@@ -622,14 +621,14 @@ public:
                 std::string received_data = gzip_decompress(socket->receive_one_message());
 
                 // Initialize empty protobuf message type [PhysicsUpdate]
-                physics_update_proto::PhysicsUpdate physics_update_msg;
+                dancers_update_proto::DancersUpdate physics_update_msg;
                 // Transform the message received from the UDS socket [string] -> [protobuf]
                 physics_update_msg.ParseFromString(received_data);
 
                 // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
                 // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
                 rclcpp::Clock clock;
-                robots_positions_proto::RobotsPositions robots_positions_msg;
+                dancers_update_proto::PoseVector robots_positions_msg;
 
                 // if (currTime % Seconds(0.1) == Time(0)){
                 //     uint64_t bytes_received_this_iteration = mission_server->GetReceived()*packet_size - bytes_received;
@@ -637,14 +636,14 @@ public:
                 //     RCLCPP_INFO(this->get_logger(), "Mission flow throughput: %f Mbps", (float)(bytes_received_this_iteration * 10 / 1000000.0));
                 // }
 
-                if (!physics_update_msg.robots_positions().empty())
+                if (!physics_update_msg.payload().empty())
                 {
                     RCLCPP_DEBUG(this->get_logger(), "Received robots positions from Coordinator");
-                    robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.robots_positions()));
+                    robots_positions_msg.ParseFromString(gzip_decompress(physics_update_msg.payload()));
 
                     // Verify that the number of positions (vectors of 7 values [x, y, z, qw, qx, qy, qz]) sent by the robotics simulator corresponds to the number of existing nodes in NS-3
                     // Then, update the node's positions (orientation is ignored for now)
-                    if (this->nodes.GetN() != (uint32_t)robots_positions_msg.robot_pose_size())
+                    if (this->nodes.GetN() != (uint32_t)robots_positions_msg.pose_size())
                     {
                         if (verbose)
                         {
@@ -652,7 +651,7 @@ public:
                                                  clock,
                                                  1000, // ms
                                                  "Network simulator received position information of %i robots but NS-3 has %u nodes.",
-                                                 robots_positions_msg.robot_pose_size(),
+                                                 robots_positions_msg.pose_size(),
                                                  this->nodes.GetN());
                         }
                     }
@@ -661,9 +660,9 @@ public:
                         for (uint32_t i = 0; i < this->nodes.GetN(); i++)
                         {
                             Vector pos;
-                            pos.x = robots_positions_msg.robot_pose(i).x();
-                            pos.y = robots_positions_msg.robot_pose(i).y();
-                            pos.z = robots_positions_msg.robot_pose(i).z();
+                            pos.x = robots_positions_msg.pose(i).x();
+                            pos.y = robots_positions_msg.pose(i).y();
+                            pos.z = robots_positions_msg.pose(i).z();
 
                             // ns-s don't like negative and 0 positions
                             if(pos.z <= 0)
@@ -921,7 +920,7 @@ PacketSuccessExp::generateNeighborsMsg()
     std::map<uint32_t, std::map<uint32_t, std::pair<double, Time>>> neighbors;
     std::map<uint32_t, int> flow_ids;
 
-    ordered_neighbors_proto::OrderedNeighborsList ordered_neighbors_msg;
+    dancers_update_proto::OrderedNeighborsList ordered_neighbors_msg;
 
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
@@ -957,9 +956,9 @@ PacketSuccessExp::generateNeighborsMsg()
             return a.second.first > b.second.first;
         });
 
-        ordered_neighbors_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
+        dancers_update_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
         neighbor_msg->set_agentid(agent.first);
-        neighbor_msg->set_role(ordered_neighbors_proto::OrderedNeighbors_Role_MISSION);
+        neighbor_msg->set_role(dancers_update_proto::OrderedNeighbors_Role_MISSION);
 
         // Sort the pathlosses to add them in the protobuf message in the right order.
         for (auto const &neighbor : ordered_neighbors)
@@ -967,7 +966,7 @@ PacketSuccessExp::generateNeighborsMsg()
             uint32_t neighbor_id = neighbor.first;
             neighbor_msg->add_neighborid(neighbor_id);
             neighbor_msg->add_linkquality(neighbor.second.first);
-            neighbor_msg->add_neighbortype(ordered_neighbors_proto::OrderedNeighbors_Role_MISSION);
+            neighbor_msg->add_neighbortype(dancers_update_proto::OrderedNeighbors_Role_MISSION);
             neighbor_msg->add_time_val(neighbor.second.second.ToInteger(Time::US));
         }
 
@@ -993,9 +992,9 @@ std::string
 PacketSuccessExp::generateResponseProtobuf()
 {
     // Change message type to "END"
-    network_update_proto::NetworkUpdate network_update_msg;
-    network_update_msg.set_msg_type(network_update_proto::NetworkUpdate::END);
-    network_update_msg.set_ordered_neighbors(gzip_compress(generateNeighborsMsg()));
+    dancers_update_proto::DancersUpdate network_update_msg;
+    network_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
+    network_update_msg.set_payload(gzip_compress(generateNeighborsMsg()));
     std::string str_response;
     network_update_msg.SerializeToString(&str_response);
 

@@ -6,5 +6,6 @@
 #include "communication_util.hpp"
 #include "flocking_util.hpp"
 #include "obstacle_util.hpp"
+#include "target_util.hpp"
 
 #endif // UTIL_HPP

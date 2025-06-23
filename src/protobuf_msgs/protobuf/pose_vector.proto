@@ -17,4 +17,5 @@ message Pose {
     double vx = 8;
     double vy = 9;
     double vz = 10;
+    uint32 agent_id = 11;
 }
