@@ -142,11 +142,11 @@ public:
 
         // ========================= PARAMETERS FROM CONFIG FILE =========================
 
-        this->current_sim_time = rclcpp::Time(0);
+        this->current_sim_time = rclcpp::Time(0, 0, RCL_ROS_TIME);
         auto clock_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
         this->clock_publisher_ = this->create_publisher<rosgraph_msgs::msg::Clock>("/clock", clock_qos);
 
-        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9); // conversion from s ton ns
+        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9, RCL_ROS_TIME); // conversion from s ton ns
 
         this->phy_use_uds_socket = config["phy_use_uds"].as<bool>();
         this->net_use_uds_socket = config["net_use_uds"].as<bool>();
@@ -238,7 +238,7 @@ void Coordinator::run_phy_protobuf_client_()
         }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected PHY socket !\x1b[0m");
 
-        while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0))
+        while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0, RCL_ROS_TIME))
         {
             this->rendezvous_threads.wait();
 
@@ -350,7 +350,7 @@ void Coordinator::run_net_protobuf_client_()
         }
         RCLCPP_INFO(this->get_logger(), "\x1b[32m Connected NET socket !\x1b[0m");
 
-        while ((this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0)) && rclcpp::ok())
+        while ((this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0, RCL_ROS_TIME)) && rclcpp::ok())
         {
             this->rendezvous_threads.wait();
 
