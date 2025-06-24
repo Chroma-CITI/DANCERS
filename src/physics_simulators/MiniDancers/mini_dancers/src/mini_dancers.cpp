@@ -118,6 +118,43 @@ public:
             this->probe = WallTimeProbe(this->m_computation_time_file);
         }
 
+        this->save_collisions_number = config["save_collisions_number"].as<bool>();
+        if (this->save_collisions_number)
+        {
+
+            // Create a folder based on the experience name, if not existant already
+            std::string experience_name = config["experience_name"].as<std::string>();
+            if (boost::filesystem::create_directories(this->ros_ws_path + "/data/" + experience_name))
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Created a new data folder for this experience : %s", experience_name.c_str());
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Using existing data folder for this experiment");
+            }
+
+            // Define the output file name, based on the existing files in the experience folder (incremental)
+            std::string temp_path;
+            int i = 1;
+            while (this->m_collisions_file.empty())
+            {
+                temp_path = ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
+                if (boost::filesystem::exists(temp_path))
+                {
+                    i++;
+                }
+                else
+                {
+                    this->m_collisions_file = temp_path;
+                }
+            }
+            // initialize the output file with headers
+            std::ofstream file;
+            file.open(this->m_collisions_file.c_str(), std::ios::out);
+            file << "agentId,obstacleCollisions,uavCollisions" << std::endl;
+            file.close();
+        }
+
         /* ----------- Configuration file parsing ----------- */
 
         for (auto building : config["buildings"])
@@ -150,6 +187,11 @@ public:
         this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
         this->mode = config["cosimulation_mode"].as<std::string>();
         this->communication_range = config["communication_range"].as<double>();
+        this->K_penetration_force = config["K_penetration_force"].as<double>();
+        this->K_restitution_force = config["K_restitution_force"].as<double>();
+        this->K_agent_penetration_force = config["K_agent_penetration_force"].as<double>();
+        this->K_agent_restitution_force = config["K_agent_restitution_force"].as<double>();
+        this->agent_radius = config["agent_radius"].as<double>();
         for (auto goal : config["secondary_objectives"])
         {
             target_t target;
@@ -275,6 +317,11 @@ private:
     bool cosim_mode;
     double communication_range;
     std::tuple<double, double, double> start_position;
+    double K_penetration_force;
+    double K_restitution_force;
+    double K_agent_penetration_force;
+    double K_agent_restitution_force;
+    double agent_radius;
 
     std::string mode;
 
@@ -286,6 +333,8 @@ private:
     /* Methods */
     void InitObstacles();
     void InitUavs();
+    void ApplyObstacleCollisions();
+    void ApplyUavCollisions();
     void DisplayRviz();
     void UpdateCmds();
     void GetNeighbors(dancers_update_proto::DancersUpdate &network_update_msg);
@@ -321,6 +370,10 @@ private:
 
     /* Service client*/
     rclcpp::Client<dancers_msgs::srv::GetAgentVelocities>::SharedPtr command_client_;
+
+    /* Collisions number saving */
+    bool save_collisions_number;
+    std::string m_collisions_file;
 
     /* Compute time saving */
     bool save_compute_time;
@@ -495,6 +548,202 @@ void MiniDancers::InitUavs()
         this->uavs[i] = agent;
     }
 }
+
+void MiniDancers::ApplyUavCollisions()
+{
+    const double EPSILON = 1e-9;
+    const double restitution_coefficient = 1.0;
+    const double K_agent_penetration_force = this->K_agent_penetration_force;
+    const double K_agent_restitution_force = this->K_agent_restitution_force;
+
+    for (size_t i = 0; i < this->uavs.size(); i++)
+    {
+        for (size_t j = i+1 ; j < this->uavs.size(); j++)
+        {
+            agent_t& agent1 = this->uavs[i];
+            agent_t& agent2 = this->uavs[j];
+            const double agent_mass = 1.0;
+
+            // 1. Calculate the vector connecting the centers of the two agents.
+            Eigen::Vector3d delta_pos = agent1.uav_system.getState().x - agent2.uav_system.getState().x;
+
+            // 2. Calculate the squared distance between the agent centers.
+            double distance_sq = delta_pos.squaredNorm();
+            // Calculate the sum of their radii squared.
+            double sum_radii = this->agent_radius + this->agent_radius;
+            double sum_radii_sq = sum_radii * sum_radii;
+
+            // 3. Check for collision: Collision occurs if the squared distance between centers
+            //    is less than the squared sum of their radii.
+            if (distance_sq < sum_radii_sq) {
+                double distance = std::sqrt(distance_sq); // Actual distance between centers
+
+                // --- Determine the Collision Normal ---
+                // The collision normal points from agent2 to agent1.
+                Eigen::Vector3d collision_normal;
+                if (distance < EPSILON) {
+                    // If agents are exactly at the same position, use a default normal
+                    // or a more sophisticated method if needed (e.g., random, or based on relative velocity).
+                    // For simplicity, we'll use a unit X vector as a fallback, but this might not be ideal.
+                    collision_normal = Eigen::Vector3d::UnitX();
+                } else {
+                    collision_normal = delta_pos.normalized(); // Normalize the vector to get the direction
+                }
+
+                // --- Calculate Penetration Depth ---
+                // How far the agents are overlapping.
+                double penetration_depth = sum_radii - distance;
+
+                Eigen::Vector3d total_collision_force_on_agent1 = Eigen::Vector3d::Zero();
+                Eigen::Vector3d total_collision_force_on_agent2 = Eigen::Vector3d::Zero();
+
+                // --- Component 1: Penetration Force (Spring Force Model) ---
+                // Applies a force to push agents out of overlap, proportional to penetration depth.
+                // This replaces the direct position correction. The force is applied equally
+                // and oppositely, and the effect on each agent's acceleration will naturally
+                // be inversely proportional to its mass via agent.applyForce().
+                if (penetration_depth > EPSILON) {
+                    Eigen::Vector3d penetration_force = K_agent_penetration_force * penetration_depth * collision_normal;
+                    total_collision_force_on_agent1 += penetration_force;
+                    total_collision_force_on_agent2 -= penetration_force;
+                }
+
+                // --- Component 2: Restitution Force (for elastic bounce) ---
+                // This force modifies velocities to simulate a bounce.
+                // It aims to reverse the relative velocity along the collision normal.
+                Eigen::Vector3d relative_velocity = agent1.uav_system.getState().v - agent2.uav_system.getState().v;
+                double normal_relative_velocity = relative_velocity.dot(collision_normal);
+
+                // Only apply impulse if agents are moving towards each other.
+                if (normal_relative_velocity < 0) {
+                    // --- Calculate Impulse Magnitude ---
+                    // Impulse formula for elastic collision:
+                    // J = -(1 + e) * (v_rel . n) / (1/m1 + 1/m2)
+                    // Where:
+                    // e = coefficient of restitution (1.0 for perfectly elastic)
+                    // v_rel = relative velocity
+                    // n = collision normal
+                    // m1, m2 = masses of agents
+                    Eigen::Vector3d restitution_force_component =
+                        -(1.0 + restitution_coefficient) * K_agent_restitution_force * normal_relative_velocity * collision_normal;
+
+                    total_collision_force_on_agent1 += restitution_force_component;
+                    total_collision_force_on_agent2 -= restitution_force_component;
+
+                }
+                agent1.uavs_collisions += 1;
+                agent2.uavs_collisions += 1;
+
+                // Apply the impulse forces. Agent1 gets a force in the normal direction,
+                // Agent2 gets an equal and opposite force.
+                agent1.uav_system.applyForce(total_collision_force_on_agent1);
+                agent2.uav_system.applyForce(total_collision_force_on_agent2); // Newton's third law: equal and opposite reaction
+            }
+        }
+    }
+}
+
+void MiniDancers::ApplyObstacleCollisions()
+{
+    const double EPSILON = 1e-9;
+    const double AGENT_RADIUS = this->agent_radius;
+    const double K_penetration_force = this->K_penetration_force; // Force to push out of penetration
+    const double K_restitution_force = this->K_restitution_force; // Force to achieve elastic bounce
+
+    for (auto& [agent_id, agent] : this->uavs)
+    {
+
+        Eigen::Vector3d agent_position = agent.uav_system.getState().x;
+        Eigen::Vector3d agent_velocity = agent.uav_system.getState().v;
+
+        for (auto const& obstacle : this->obstacles)
+        {
+            // 1. Calculate the min and max corners of the current AABB obstacle.
+            Eigen::Vector3d min_corner = obstacle.getMinCorner();
+            Eigen::Vector3d max_corner = obstacle.getMaxCorner();
+
+            // 2. Find the closest point on the AABB to the agent's center.
+            // This is done by clamping the agent's position coordinates to the AABB's bounds.
+            Eigen::Vector3d closest_point;
+            closest_point.x() = std::max(min_corner.x(), std::min(agent_position.x(), max_corner.x()));
+            closest_point.y() = std::max(min_corner.y(), std::min(agent_position.y(), max_corner.y()));
+            closest_point.z() = std::max(min_corner.z(), std::min(agent_position.z(), max_corner.z()));
+
+            // 3. Calculate the vector from the closest point on the AABB to the agent's center.
+            // This vector points from the obstacle surface towards the agent.
+            Eigen::Vector3d delta = agent_position - closest_point;
+
+            // 4. Calculate the squared distance between the agent's center and the closest point.
+            double distance_sq = delta.squaredNorm();
+            // Calculate the squared radius for faster comparison, avoiding sqrt if not necessary.
+            double agent_radius_sq = AGENT_RADIUS * AGENT_RADIUS;
+
+            // 5. Check for collision: A collision occurs if the squared distance is less than
+            //    the squared radius of the agent.
+            if (distance_sq < agent_radius_sq) {
+                double distance = std::sqrt(distance_sq); // Actual distance for penetration calculation
+
+                // --- Determine the Collision Normal ---
+                // The collision normal is the direction perpendicular to the collision surface.
+                // It points from the obstacle towards the agent.
+                Eigen::Vector3d collision_normal;
+                if (distance < EPSILON) {
+                    // If the agent is exactly at the closest point (or very deeply inside),
+                    // 'delta' will be near zero, making normalization problematic.
+                    // In such cases, we approximate the normal. A robust solution might
+                    // involve finding the closest AABB face or using the agent's incoming velocity.
+                    // Here, if moving, use opposite velocity. If stuck, use +Z as a fallback.
+                    if (agent_velocity.norm() > EPSILON) {
+                        collision_normal = -agent_velocity.normalized();
+                    } else {
+                        // Fallback: If agent is completely stuck and not moving, push it up.
+                        // This might cause jitter but prevents division by zero.
+                        collision_normal = Eigen::Vector3d::UnitZ();
+                    }
+                } else {
+                    collision_normal = delta.normalized(); // Normalize the delta vector to get the direction
+                }
+
+                // --- Calculate Penetration Depth ---
+                // How far the agent has "sunk" into the obstacle.
+                double penetration_depth = AGENT_RADIUS - distance;
+
+                // --- Calculate Total Elastic Collision Force ---
+                // The total force is a sum of a repulsion force (to push the agent out)
+                // and a restitution force (to make it bounce).
+                Eigen::Vector3d total_collision_force = Eigen::Vector3d::Zero();
+
+                // Component 1: Repulsion force
+                // This force is proportional to the penetration depth and acts along the collision normal.
+                // It pushes the agent out of the obstacle.
+                total_collision_force += K_penetration_force * penetration_depth * collision_normal;
+
+                // Component 2: Restitution force (for elastic bounce)
+                // This force reverses the component of the agent's velocity that is directed
+                // towards the obstacle. Only apply if the agent is actually moving into the obstacle.
+                double normal_velocity_component = agent_velocity.dot(collision_normal);
+
+                // If the agent's normal velocity component is negative, it means it's moving towards
+                // (or into) the obstacle.
+                if (normal_velocity_component < 0) {
+                    // For a perfect elastic collision (coefficient of restitution = 1),
+                    // the change in normal velocity should be -2 * normal_velocity_component.
+                    // The force needed to achieve this velocity change over time 'dt' is:
+                    // F = mass * (delta_v / dt)
+                    // Here, we use K_restitution_force as a scaling factor that absorbs 'mass/dt'
+                    // for a simpler formulation, effectively making it an impulse-like force.
+                    total_collision_force += -2.0 * K_restitution_force * normal_velocity_component * collision_normal;
+                }
+
+                agent.obstacles_collisions += 1;
+                agent.uav_system.applyForce(total_collision_force);
+            }
+        }
+    }
+
+}
+
+
 
 /**
  * @brief Display every dynamic object in Rviz (UAVs, targets, network links)
@@ -1181,6 +1430,10 @@ void MiniDancers::Loop()
             // }
             // workers.clear();
 
+            this->ApplyObstacleCollisions();
+
+            this->ApplyUavCollisions();
+
             for (auto agent : this->uavs)
             {
                 this->MakeStep(agent.first);
@@ -1247,6 +1500,15 @@ void MiniDancers::Loop()
             }
         }
     }
+
+    // record total number of collisions for each agent
+    std::ofstream file;
+    file.open(this->m_collisions_file.c_str(), std::ios::app);
+    for (const auto& agent : this->uavs)
+    {
+        file << agent.first << "," << agent.second.obstacles_collisions << "," << agent.second.uavs_collisions << std::endl;
+    }
+    file.close();
 
     exit(EXIT_SUCCESS);
 }

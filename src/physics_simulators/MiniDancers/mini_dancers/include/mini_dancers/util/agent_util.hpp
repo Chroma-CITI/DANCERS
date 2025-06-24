@@ -40,4 +40,6 @@ struct agent_t
     // std::vector<int> neighbors_routing;
     // std::vector<double> link_qualities;
     std::optional<Eigen::Vector3d> secondary_objective;
+    uint16_t obstacles_collisions = 0;
+    uint16_t uavs_collisions = 0;
 };

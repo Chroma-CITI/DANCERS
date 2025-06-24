@@ -13,6 +13,16 @@ struct obstacle_t
     int id;
     Eigen::Vector3d center;
     double size_x, size_y, size_z;
+
+    // Helper method to calculate the minimum corner coordinates of the AABB.
+    Eigen::Vector3d getMinCorner() const {
+        return center - Eigen::Vector3d(size_x, size_y, size_z) * 0.5;
+    }
+
+    // Helper method to calculate the maximum corner coordinates of the AABB.
+    Eigen::Vector3d getMaxCorner() const {
+        return center + Eigen::Vector3d(size_x, size_y, size_z) * 0.5;
+    }
 };
 
 /**
