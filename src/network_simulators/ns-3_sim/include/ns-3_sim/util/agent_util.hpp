@@ -44,14 +44,15 @@ struct NeighborInfo_t
  */
 struct agent_t
 {
-    int id;
+    uint32_t id;
     AgentRoleType role;
     Eigen::Vector3d position;
     Eigen::Vector3d velocity;
     Eigen::Vector3d cmd_velocity;
     double cmd_heading;
-    std::map<int, NeighborInfo_t> neighbors;
+    std::map<uint32_t, NeighborInfo_t> neighbors;
     uint32_t heartbeat_received;
     uint32_t heartbeat_sent;
     bool crashed = false;
+    uint32_t node_container_index;
 };

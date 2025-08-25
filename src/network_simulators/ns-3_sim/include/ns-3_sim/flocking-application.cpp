@@ -62,6 +62,16 @@ FlockingBroadcaster::FlockingBroadcaster()
 
 FlockingBroadcaster::~FlockingBroadcaster()
 {
+    Ptr<ns3::Node> node = this->GetNode();
+    if (node)
+    {
+        uint32_t node_id = node->GetId();
+        std::cout << "Destroying a FlockingBroadcaster: " << node_id << std::endl;
+    }
+    else
+    {
+        std::cout << "Destroying a FlockingBroadcaster: Node is null" << std::endl;
+    }
     NS_LOG_FUNCTION_NOARGS();
 }
 
@@ -194,6 +204,16 @@ FlockingReceiver::FlockingReceiver()
 
 FlockingReceiver::~FlockingReceiver()
 {
+    Ptr<ns3::Node> node = this->GetNode();
+    if (node)
+    {
+        uint32_t node_id = node->GetId();
+        std::cout << "Destroying a FlockingReceiver: " << node_id << std::endl;
+    }
+    else
+    {
+        std::cout << "Destroying a FlockingReceiver: Node is null" << std::endl;
+    }
     NS_LOG_FUNCTION_NOARGS();
 }
 
@@ -273,7 +293,6 @@ FlockingReceiver::Receive(Ptr<Socket> socket)
             // Save the reception timestamp in the neighbors_last_received map
             // We consider /24 addresses with the last 8 bits corresponding to the peer ID + 1 ( e.g. agent 0 has address 10.0.0.1/24 )
             uint32_t peer_id = peer_address.CombineMask("0.0.0.255").Get() - 1;
-            uint32_t node_id = this->GetNode()->GetId();
 
             // Report the event to the trace.
             m_rxTrace(packet, peer_id);

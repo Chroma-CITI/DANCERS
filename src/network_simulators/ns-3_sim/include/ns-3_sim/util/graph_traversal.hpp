@@ -10,13 +10,15 @@
  * \param dist The distance vector
  * \param parent The parent vector
  */
-void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent)
+void dijkstra(int source, std::map<uint32_t, std::map<uint32_t, double>> &graph, std::map<uint32_t, double> &dist, std::map<uint32_t, uint32_t> &parent)
 {
     double inf = std::numeric_limits<double>::infinity();
-    int n = graph.size(); // Number of vertices in the graph
-    dist.assign(n, inf);  // Initialize distances with infinity
-    parent.assign(n, -1); // Initialize parent array with -1
-    dist[source] = 0;     // Distance to source is 0
+    // Iterate through the graph's keys to initialize distances and parents
+    for (const auto& pair : graph) {
+        dist[pair.first] = inf;
+        parent[pair.first] = -1;
+    }
+    dist[source] = 0; // Distance to source is 0
 
     // Priority queue to store (distance, vertex)
     std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> pq;
@@ -50,9 +52,9 @@ void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &grap
         }
     }
     // Print result with ROS2 log
-    for (int i = 0; i < n; ++i)
+    for (const auto& [i, d] : dist)
     {
-        RCLCPP_DEBUG(rclcpp::get_logger("Dijkstra algo"), "Node %d -> Node %d : %f", source, i, dist[i]);
+        RCLCPP_DEBUG(rclcpp::get_logger("Dijkstra algo"), "Node %d -> Node %d : %f", source, i, d);
     }
 }
 
@@ -64,13 +66,16 @@ void dijkstra(int source, std::vector<std::vector<std::pair<int, double>>> &grap
  * \param dist The distance vector (here, capacity)
  * \param parent The parent vector
  */
-void dijkstra_bottleneck(int source, std::vector<std::vector<std::pair<int, double>>> &graph, std::vector<double> &dist, std::vector<int> &parent)
+void dijkstra_bottleneck(int source, std::map<uint32_t, std::map<uint32_t, double>> &graph, std::map<uint32_t, double> &dist, std::map<uint32_t, uint32_t> &parent)
 {
-    // double inf = std::numeric_limits<double>::infinity();
+    double inf = std::numeric_limits<double>::infinity();
     int n = graph.size();    // Number of vertices in the graph
-    dist.assign(n, INT_MIN); // Initialize distances with infinity
-    parent.assign(n, -1);    // Initialize parent array with -1
-    dist[source] = INT_MAX;  // Distance to source is 0
+    // Iterate through the graph's keys to initialize distances and parents
+    for (const auto& pair : graph) {
+        dist[pair.first] = inf;
+        parent[pair.first] = -1;
+    }
+    dist[source] = inf;  // Distance to source is 0
 
     // Priority queue to store (distance, vertex)
     std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> pq;

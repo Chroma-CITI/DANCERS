@@ -33,6 +33,8 @@
 
 #include <ostream>
 
+#define MISSION_HDR_SIZE 5
+
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WiFiDistanceApps");
@@ -73,6 +75,16 @@ Sender::GetTypeId()
                                           UintegerValue(2),
                                           MakeUintegerAccessor(&Sender::m_flowId),
                                           MakeUintegerChecker<uint32_t>())
+                            .AddAttribute("TargetId",
+                                          "Target Id of this flow",
+                                          UintegerValue(1),
+                                          MakeUintegerAccessor(&Sender::m_target_id),
+                                          MakeUintegerChecker<uint32_t>())
+                            .AddAttribute("InTargetArea",
+                                          "Is this flow in target area",
+                                          BooleanValue(false),
+                                          MakeBooleanAccessor(&Sender::m_in_target_area),
+                                          MakeBooleanChecker())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&Sender::m_txTrace),
@@ -90,6 +102,16 @@ Sender::Sender()
 
 Sender::~Sender()
 {
+    Ptr<ns3::Node> node = this->GetNode();
+    if (node)
+    {
+        uint32_t node_id = node->GetId();
+        std::cout << "Destroying a Sender: " << node_id << std::endl;
+    }
+    else
+    {
+        std::cout << "Destroying a Sender: Node is null" << std::endl;
+    }
     NS_LOG_FUNCTION_NOARGS();
 }
 
@@ -138,11 +160,21 @@ Sender::SendPacket()
     // NS_LOG_FUNCTION_NOARGS ();
     NS_LOG_INFO("Sending packet at " << Simulator::Now() << " to " << m_destAddr);
 
-    Ptr<Packet> packet = Create<Packet>(m_pktSize);
+    if (m_pktSize < MISSION_HDR_SIZE)
+    {
+        NS_LOG_ERROR("Packet size is too small for mission header !");
+        exit(EXIT_FAILURE);
+    }
+    Ptr<Packet> packet = Create<Packet>(m_pktSize - MISSION_HDR_SIZE);
 
     myTimestampTag timestamp;
     timestamp.SetTimestamp(Simulator::Now());
     packet->AddByteTag(timestamp);
+
+    MissionHeader mission_header;
+    mission_header.SetInTargetArea(this->m_in_target_area);
+    mission_header.SetTargetId(this->m_target_id);
+    packet->AddHeader(mission_header);
 
     FlowIdTag flow_id;
     flow_id.SetFlowId(m_flowId);
@@ -203,6 +235,16 @@ Receiver::Receiver()
 
 Receiver::~Receiver()
 {
+    Ptr<ns3::Node> node = this->GetNode();
+    if (node)
+    {
+        uint32_t node_id = node->GetId();
+        std::cout << "Destroying a Receiver: " << node_id << std::endl;
+    }
+    else
+    {
+        std::cout << "Destroying a Receiver: Node is null" << std::endl;
+    }
     NS_LOG_FUNCTION_NOARGS();
 }
 
@@ -369,4 +411,80 @@ void
 myTimestampTag::Print(std::ostream& os) const
 {
     os << "t=" << m_timestamp;
+}
+
+
+/**
+ * MissionHeader
+ */
+MissionHeader::MissionHeader()
+{
+    m_in_target_area = false;
+}
+
+MissionHeader::~MissionHeader()
+{
+}
+
+TypeId MissionHeader::GetTypeId()
+{
+    static TypeId tid = TypeId("MissionHeader")
+                            .SetParent<Header>()
+                            .AddConstructor<MissionHeader>();
+    return tid;
+}
+
+TypeId
+MissionHeader::GetInstanceTypeId() const
+{
+    return GetTypeId();
+}
+
+uint32_t MissionHeader::GetSerializedSize() const
+{
+    return MISSION_HDR_SIZE;
+}
+
+void
+MissionHeader::Print(std::ostream& os) const
+{
+    os << " In target area: " << m_in_target_area;
+    os << " Target ID: " << m_target_id;
+}
+
+void
+MissionHeader::Serialize(Buffer::Iterator start) const
+{
+    Buffer::Iterator i = start;
+    i.WriteU8(m_in_target_area);
+    i.WriteHtonU32(std::bit_cast<uint32_t>(m_target_id));
+}
+
+uint32_t
+MissionHeader::Deserialize(Buffer::Iterator start)
+{
+    Buffer::Iterator i = start;
+    m_in_target_area = static_cast<bool>(i.ReadU8());
+    m_target_id = std::bit_cast<uint32_t>(i.ReadNtohU32());
+    return GetSerializedSize();
+}
+
+void MissionHeader::SetInTargetArea(bool in_target_area)
+{
+    m_in_target_area = in_target_area;
+}
+
+bool MissionHeader::GetInTargetArea() const
+{
+    return m_in_target_area;
+}
+
+void MissionHeader::SetTargetId(uint32_t target_id)
+{
+    m_target_id = target_id;
+}
+
+uint32_t MissionHeader::GetTargetId() const
+{
+    return m_target_id;
 }

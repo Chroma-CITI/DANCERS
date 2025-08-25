@@ -80,7 +80,7 @@ public:
         if (access(config_file_path.c_str(), F_OK) != 0)
         {
             RCLCPP_ERROR(this->get_logger(), "The config file was not found at : %s", config_file_path.c_str());
-            exit(EXIT_FAILURE);
+            return;
         }
 
         // get the name of the folder containing the config file
@@ -91,7 +91,7 @@ public:
         if (getenv("ROS_WS") == NULL)
         {
             RCLCPP_FATAL(this->get_logger(), "ROS_WS environment variable not set, aborting.");
-            exit(EXIT_FAILURE);
+            return;
         }
         else
         {
@@ -117,16 +117,16 @@ public:
         /* ----------- ROS2 Subscribers ----------- */
         std::string events_namespace = "/events/";
         this->update_target_sub_ = this->create_subscription<dancers_msgs::msg::Target>(
-            events_namespace+"update_target", 
-            reliable_qos, 
+            events_namespace + "update_target",
+            reliable_qos,
             std::bind(&Ns3Sim::update_target_clbk, this, _1));
         this->spawn_uav_ = this->create_subscription<dancers_msgs::msg::AgentStruct>(
-            events_namespace+"spawn_uav", 
-            reliable_qos, 
+            events_namespace + "spawn_uav",
+            reliable_qos,
             std::bind(&Ns3Sim::spawn_uav_clbk, this, _1));
         this->uav_failure_sub_ = this->create_subscription<std_msgs::msg::UInt32>(
-            events_namespace+"uav_failure", 
-            reliable_qos, 
+            events_namespace + "uav_failure",
+            reliable_qos,
             std::bind(&Ns3Sim::uav_failure_clbk, this, _1));
 
         /* ----------- ROS2 Publishers ----------- */
@@ -140,7 +140,9 @@ public:
 
         // ========================= NS3 =========================
 
+        this->ns3_config_mut.lock();
         this->ns3_config = this->ReadNs3Config(config);
+        this->ns3_config_mut.unlock();
 
         this->ConfigureNs3(this->ns3_config);
 
@@ -149,7 +151,6 @@ public:
         this->step_size = MicroSeconds(config["net_step_size"].as<uint32_t>()); // in microseconds
         this->currTime = MicroSeconds(0);                                       // us
         this->simEndTime = Seconds(config["simulation_length"].as<uint32_t>()); // simulation time (s)
-        int numNodes = this->agents.size();
         this->pseudoRoutingAlgo = config["pseudo_routing_algorithm"].as<std::string>();
         this->random_generator = std::mt19937(ns3_config.seed);
 
@@ -191,10 +192,12 @@ public:
 
 private:
     NodeContainer nodes; //!< ns-3 nodes container. This is our access to reconfigure the network (add application, etc.) on the go, during the simulation
+    std::mutex nodes_mutex_;
 
     std::string config_file_path;
     std::string ros_ws_path_;
     ns3_configuration_t ns3_config;
+    std::mutex ns3_config_mut;
     std::string mode;
 
     std::unique_ptr<WifiHelper> wifiHelper;
@@ -212,7 +215,10 @@ private:
     std::map<uint32_t, std::map<uint32_t, std::vector<Time>>> broadcast_received_packets;
     std::map<Mac48Address, uint32_t> mac_to_id;
 
-    std::vector<agent_t> agents;
+    std::map<uint32_t, agent_t> agents_;
+    std::mutex agents_mutex_;
+
+    std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Response> last_response_from_cmd_service_;
 
     // Co-simulation related variables
     Time step_size;  //!< The length of a ns-3 "step". An "iteration" can contain multiple "steps".
@@ -250,10 +256,9 @@ private:
     /* Subscribers */
     rclcpp::Subscription<dancers_msgs::msg::Target>::SharedPtr update_target_sub_;
     void update_target_clbk(dancers_msgs::msg::Target msg);
-
     rclcpp::Subscription<dancers_msgs::msg::AgentStruct>::SharedPtr spawn_uav_;
-    rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr uav_failure_sub_;
     void spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg);
+    rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr uav_failure_sub_;
     void uav_failure_clbk(std_msgs::msg::UInt32 msg);
 
     /* Publishers */
@@ -277,7 +282,7 @@ private:
     void MacRxTrace(std::string context, Ptr<const Packet> packet);
     void MacRxDropTrace(std::string context, Ptr<const Packet> packet);
     void mission_flow_receiver_clbk(Ptr<const Packet> packet);
-    void mission_flow_sender_clbk(Ptr<const Packet> packet);
+    void mission_flow_sender_clbk(std::string context, Ptr<const Packet> packet);
     void mission_flow_sender_clbk_2(Ptr<const Packet> packet);
     void flocking_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id);
     void flocking_broadcaster_clbk(std::string context, Ptr<const Packet> packet);
@@ -308,25 +313,32 @@ private:
     std::string generateNeighborsMsg();
     std::string generateCommandsMsg();
 
+    // Simulation-related methods
+    void SetupOutputFiles(const YAML::Node &config);
+    ns3_configuration_t ReadNs3Config(const YAML::Node &config);
+    void ConfigureNs3(const ns3_configuration_t &ns3_config);
+    void InitAgents();
     void timeoutNeighbors();
     void updateNeighborsPathloss();
-    double costFunction(double dist, double r1, double c1);
-    double hybrid_dist_error_rate_cost_function(double dist, double r1, double c1, double error_rate, double e1, double k1, double k2);
     void updateStaticIpv4Routes(const std::vector<int> path);
+    void updateLeadersApplications();
+    void UpdateRolesAndNeighbors();
+    void UpdateCmds();
     void AddWifiNetworkStack(Ptr<ns3::Node> node);
     void AddFlockingApplication(Ptr<ns3::Node> node);
     void AddMissionApplication(Ptr<ns3::Node> node);
-    int GetAgentIndex(uint32_t agent_id);
+    void RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name);
+    void DisplayNetworkRviz();
+    
+    // Simulation loop
     void Loop();
 
-    void SetupOutputFiles(const YAML::Node &config);
-    ns3_configuration_t ReadNs3Config(const YAML::Node &config);
-    void InitAgents();
-    void ConfigureNs3(const ns3_configuration_t &ns3_config);
-    void RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name);
-    void UpdateRolesAndNeighbors();
-    void UpdateCmds();
-    void DisplayNetworkRviz();
+    // util functions
+    double costFunction(double dist, double r1, double c1);
+    double hybrid_dist_error_rate_cost_function(double dist, double r1, double c1, double error_rate, double e1, double k1, double k2);
+    void printNodeAggregatedObjects(Ptr<ns3::Node> node);
+    uint32_t getNodeIndexFromId(uint32_t nodeId);
+    Ptr<ns3::Node> getNodePtrFromIndex(uint32_t nodeIndex);
 
     dancers_msgs::msg::AgentStruct agent_t_to_ROS_msg(agent_t agent);
     agent_t ROS_msg_to_agent_t(dancers_msgs::msg::AgentStruct agent);
@@ -374,7 +386,7 @@ agent_t Ns3Sim::ROS_msg_to_agent_t(dancers_msgs::msg::AgentStruct agent)
     a.velocity = Eigen::Vector3d(agent.state.velocity_heading.velocity.x, agent.state.velocity_heading.velocity.y, agent.state.velocity_heading.velocity.z);
     a.heartbeat_received = agent.heartbeat_received;
     a.heartbeat_sent = agent.heartbeat_sent;
-    a.neighbors = std::map<int, NeighborInfo_t>();
+    a.neighbors = std::map<uint32_t, NeighborInfo_t>();
 
     for (const auto &neighbor : agent.neighbor_array.neighbors)
     {
@@ -442,7 +454,7 @@ void Ns3Sim::SetupOutputFiles(const YAML::Node &config)
 
         // Write headers
         std::ofstream f(this->mission_packets_file_, std::ios::app);
-        f << "rcv_time(us),delay(us)" << std::endl;
+        f << "rcv_time(us),delay(us),target_id,in_target" << std::endl;
         f.close();
     }
 }
@@ -500,6 +512,21 @@ ns3_configuration_t Ns3Sim::ReadNs3Config(const YAML::Node &config)
     ns3_config.mission_port = config["mission_flow"]["port"].as<uint16_t>();
     ns3_config.mission_flow_id = config["mission_flow"]["flow_id"].as<uint8_t>();
     // ns3_config.mission_timeout = config["mission_flow"]["timeout"].as<uint32_t>();
+
+    for (auto target_area : config["secondary_objectives"])
+    {
+        TargetArea_t t;
+        t.id = target_area["id"].as<uint32_t>();
+        t.x = target_area["position"]["x"].as<float>();
+        t.y = target_area["position"]["y"].as<float>();
+        t.z = target_area["position"]["z"].as<float>();
+        t.is_sink = target_area["is_sink"].as<bool>();
+        for (auto assigned_agent : target_area["assigned_agents"])
+        {
+            t.assigned_agents.push_back(assigned_agent.as<uint32_t>());
+        }
+        ns3_config.target_areas.push_back(t);
+    }
 
     ns3_config.enable_stats_module = config["enable_stats"].as<bool>();
 
@@ -751,7 +778,7 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t &ns3_config)
         // Create a random variable to handle App. random start, otherwise agents all try to send their packet at the same instant.
         this->random_gen_start_app = CreateObject<UniformRandomVariable>();
         this->random_gen_start_app->SetAttribute("Min", DoubleValue(0.0));
-        this->random_gen_start_app->SetAttribute("Max", DoubleValue(1.0));
+        this->random_gen_start_app->SetAttribute("Max", DoubleValue(ns3_config.broadcast_interval * 1e-6));
     }
 
     /* **************** STATS MODULE **************** */
@@ -811,66 +838,86 @@ void Ns3Sim::ConfigureNs3(const ns3_configuration_t &ns3_config)
 
 void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_name)
 {
-
-    double bandwidth = DynamicCast<WifiNetDevice>(this->nodes.Get(0)->GetDevice(0))->GetPhy()->GetChannelWidth() * 1e6;
+    double bandwidth;
+    {
+        std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+        bandwidth = DynamicCast<WifiNetDevice>(this->nodes.Get(0)->GetDevice(0))->GetPhy()->GetChannelWidth() * 1e6;
+    }
 
     // Pseudo Routing algorithm
-    std::vector<std::vector<std::pair<int, double>>> graph;
+    std::map<uint32_t, std::map<uint32_t, double>> graph;
     // Create a graph object where the nodes are the agents, and the edges exist only if they received a broadcast message from the neighbor, and weighted according to a cost function
-    for (int16_t i = 0; i < this->agents.size(); i++)
+
+    this->agents_mutex_.lock();
+    for (const auto &[agent_id, agent_struct] : this->agents_)
     {
-        std::vector<std::pair<int, double>> neighbors;
-        for (int j = 0; j < this->agents.size(); j++)
+        // get agent index
+        int agent_index = agent_struct.node_container_index;
+        std::map<uint32_t, double> neighbors;
+        for (const auto &[neighbor_id, neighbor_struct] : agent_struct.neighbors)
         {
-            if (i == j)
+            int neighbor_index = this->agents_[neighbor_id].node_container_index;
+            if (agent_id == neighbor_id)
                 continue;
 
             // j is not a "broadcast neighbor" of i
-            if (this->agents[i].neighbors.find(j) == this->agents[i].neighbors.end())
+            if (agent_struct.neighbors.find(neighbor_id) == agent_struct.neighbors.end())
                 continue;
 
             if (pseudo_routing_algo_name == "shortest_dist")
             {
-                double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
+                this->agents_mutex_.unlock();
+                double distance;
+                {
+                    std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+                    distance = this->nodes.Get(agent_index)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor_index)->GetObject<MobilityModel>());
+                }
+                this->agents_mutex_.lock();
                 double cost = costFunction(distance, shortest_dist_r1, shortest_dist_c1);
-                neighbors.push_back(std::make_pair(j, cost));
-                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with cost %f", i, j, cost);
+                neighbors[neighbor_id] = cost;
+                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with cost %f", agent_id, neighbor_id, cost);
             }
 
             else if (pseudo_routing_algo_name == "capacity_bottleneck")
             {
-                double capacity = bandwidth * std::log2(1 + this->snrs[i][j]);
-                neighbors.push_back(std::make_pair(j, capacity));
-                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with capacity %f", i, j, capacity);
+                double capacity = bandwidth * std::log2(1 + this->snrs[agent_id][neighbor_id]);
+                neighbors[neighbor_id] = capacity;
+                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with capacity %f", agent_id, neighbor_id, capacity);
             }
 
             else if (pseudo_routing_algo_name == "minimize_error_rate")
             {
                 // purge old packets
-                while (Simulator::Now() - this->broadcast_received_packets[i][j][0] > this->broadcast_window_size)
+                while (Simulator::Now() - this->broadcast_received_packets[agent_id][neighbor_id][0] > this->broadcast_window_size)
                 {
-                    this->broadcast_received_packets[i][j].erase(this->broadcast_received_packets[i][j].begin());
+                    this->broadcast_received_packets[agent_id][neighbor_id].erase(this->broadcast_received_packets[agent_id][neighbor_id].begin());
                 }
                 // Compute error rate
                 uint32_t expected_packets_count = this->broadcast_window_size.ToInteger(Time::US) / ns3_config.broadcast_interval;
-                double success_prob = this->broadcast_received_packets[i][j].size() / expected_packets_count;
-                neighbors.push_back(std::make_pair(j, -std::log(success_prob)));
-                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with success rate %f (%d/%d)", i, j, success_prob, this->broadcast_received_packets[i][j].size(), expected_packets_count);
+                double success_prob = this->broadcast_received_packets[agent_id][neighbor_id].size() / expected_packets_count;
+                neighbors[neighbor_id] = -std::log(success_prob);
+                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with success rate %f (%d/%d)", agent_id, neighbor_id, success_prob, this->broadcast_received_packets[agent_id][neighbor_id].size(), expected_packets_count);
             }
             else if (pseudo_routing_algo_name == "hybrid_dist_error_rate")
             {
                 // purge old packets
-                while (Simulator::Now() - this->broadcast_received_packets[i][j][0] > this->broadcast_window_size)
+                while (Simulator::Now() - this->broadcast_received_packets[agent_id][neighbor_id][0] > this->broadcast_window_size)
                 {
-                    this->broadcast_received_packets[i][j].erase(this->broadcast_received_packets[i][j].begin());
+                    this->broadcast_received_packets[agent_id][neighbor_id].erase(this->broadcast_received_packets[agent_id][neighbor_id].begin());
                 }
                 // Compute error rate
                 uint32_t expected_packets_count = this->broadcast_window_size.ToInteger(Time::US) / ns3_config.broadcast_interval;
-                double error_rate = 1 - (this->broadcast_received_packets[i][j].size() / expected_packets_count);
-                double distance = this->nodes.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(j)->GetObject<MobilityModel>());
+                double error_rate = 1 - (this->broadcast_received_packets[agent_id][neighbor_id].size() / expected_packets_count);
+                this->agents_mutex_.unlock();
+                double distance;
+                {
+                    std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+                    distance = this->nodes.Get(agent_index)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighbor_index)->GetObject<MobilityModel>());
+                }
+                this->agents_mutex_.lock();
                 double cost = hybrid_dist_error_rate_cost_function(distance, hybrid_r1, hybrid_c1, error_rate, hybrid_e1, hybrid_k1, hybrid_k2);
-                neighbors.push_back(std::make_pair(j, cost));
-                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with error rate %f (%d/%d)", i, j, error_rate, this->broadcast_received_packets[i][j].size(), expected_packets_count);
+                neighbors[neighbor_id] = cost;
+                RCLCPP_DEBUG(this->get_logger(), "Adding edge from %d to %d with error rate %f (%d/%d)", agent_id, neighbor_id, error_rate, this->broadcast_received_packets[agent_id][neighbor_id].size(), expected_packets_count);
             }
             else if (pseudo_routing_algo_name == "predefined_chain")
             {
@@ -882,15 +929,30 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
                 exit(EXIT_FAILURE);
             }
         }
-        graph.push_back(neighbors);
+        graph[agent_id] = neighbors;
+    } // end for
+    this->agents_mutex_.unlock();
+
+    {
+        std::lock_guard<std::mutex> lock_agents(this->agents_mutex_);
+        // Downgrade all agents and all neighborhood relations to be "undefined"
+        for (auto &[agent_id, agent] : this->agents_)
+        {
+            agent.role = AgentRoleType::Undefined;
+            for (auto &neighbor : agent.neighbors)
+            {
+                neighbor.second.role = AgentRoleType::Undefined;
+                neighbor.second.link_type = LinkType::FlockingLink;
+            }
+        }
     }
 
     // Run the right graph traversal algorithm
-    for (uint32_t source_node_id : this->ns3_config.source_robots_ids)
+    for (const uint32_t source_node_id : this->ns3_config.source_robots_ids)
     {
         int source = source_node_id;
-        std::vector<double> dist;
-        std::vector<int> parent;
+        std::map<uint32_t, double> dist;
+        std::map<uint32_t, uint32_t> parent;
 
         if (pseudo_routing_algo_name == "shortest_dist" || pseudo_routing_algo_name == "minimize_error_rate")
         {
@@ -911,10 +973,20 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
         }
         else if (pseudo_routing_algo_name == "predefined_chain")
         {
-            for (int i = 0; i < this->nodes.GetN() - 1; i++)
+            // In predefined_chain, the agents are ordered by agent_id and the chain follows the strictly growing order
+            std::vector<uint32_t> ordered_agent_ids;
+            for (const auto &[agent_id, agent] : this->agents_)
             {
-                parent.push_back(i + 1);
+                ordered_agent_ids.push_back(agent_id);
             }
+            std::sort(ordered_agent_ids.begin(), ordered_agent_ids.end());
+            for (size_t i = 0; i < ordered_agent_ids.size() - 1; i++)
+            {
+                parent[ordered_agent_ids[i]] = ordered_agent_ids[i + 1];
+            }
+            // wraps around
+            parent[ordered_agent_ids.size() - 1] = parent[0];
+            // delete neighbor of the source (breaks the circle)
             parent[source] = -1;
         }
         else
@@ -924,17 +996,6 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
         }
 
         // Transfer the result of the graph traversal algorithm to the simulation structures
-
-        // Downgrade all agents and all neighborhood relations to be "undefined"
-        for (auto &agent : this->agents)
-        {
-            agent.role = AgentRoleType::Undefined;
-            for (auto &neighbor : agent.neighbors)
-            {
-                neighbor.second.role = AgentRoleType::Undefined;
-                neighbor.second.link_type = LinkType::FlockingLink;
-            }
-        }
 
         std::stack<int> path;
         std::vector<int> path_list;
@@ -967,50 +1028,64 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
 
             path.pop();
             int neighbor = path.top();
-
-            int currIndex = this->GetAgentIndex(curr);
-            int neighborIndex = this->GetAgentIndex(neighbor);
-            double distance = this->nodes.Get(currIndex)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(neighborIndex)->GetObject<MobilityModel>());
-
-            this->agents[currIndex].role = AgentRoleType::Mission;
-            this->agents[neighborIndex].role = AgentRoleType::Mission;
-
-            // The current agent and current neighbor are along the data route, so define their links as such.
-            if (this->agents[currIndex].neighbors.find(neighbor) != this->agents[currIndex].neighbors.end())
+            double distance;
             {
-                this->agents[currIndex].neighbors[neighbor].link_type = LinkType::DataLink;
-            }
-            else
-            {
-                // Technically, that should not happen since edge (i,j) is in the graph only if i and j are flocking neighbors
-                RCLCPP_WARN(this->get_logger(), "Pseudo routing defines that %d and %d should be mission neighbors but %d has no info on %d", curr, neighbor, curr, neighbor);
-            }
-            if (this->agents[neighborIndex].neighbors.find(curr) != this->agents[neighborIndex].neighbors.end())
-            {
-                this->agents[neighborIndex].neighbors[curr].link_type = LinkType::DataLink;
-            }
-            else
-            {
-                // Technically, that should not happen since edge (i,j) is in the graph only if i and j are flocking neighbors
-                RCLCPP_WARN(this->get_logger(), "Pseudo routing defines that %d and %d should be mission neighbors but %d has no info on %d", neighbor, curr, neighbor, curr);
+                std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+                distance = this->nodes.Get(this->agents_[curr].node_container_index)->GetObject<MobilityModel>()->GetDistanceFrom(this->nodes.Get(this->agents_[neighbor].node_container_index)->GetObject<MobilityModel>());
             }
 
-            // The current agent and neighbor agent are mission agent, so they should be considered as mission neighbors by all those that know about them
-            for (auto &agent : this->agents)
             {
-                if (agent.neighbors.find(curr) != agent.neighbors.end())
+                std::lock_guard<std::mutex> lock_agents(this->agents_mutex_);
+                this->agents_[curr].role = AgentRoleType::Mission;
+                this->agents_[neighbor].role = AgentRoleType::Mission;
+
+                // The current agent and current neighbor are along the data route, so define their links as such.
+                if (this->agents_[curr].neighbors.find(neighbor) != this->agents_[curr].neighbors.end())
                 {
-                    agent.neighbors[curr].role = AgentRoleType::Mission;
+                    this->agents_[curr].neighbors[neighbor].link_type = LinkType::DataLink;
                 }
-                if (agent.neighbors.find(neighbor) != agent.neighbors.end())
+                else
                 {
-                    agent.neighbors[neighbor].role = AgentRoleType::Mission;
+                    // Technically, that should not happen since edge (i,j) is in the graph only if i and j are flocking neighbors
+                    RCLCPP_WARN(this->get_logger(), "Pseudo routing defines that %d and %d should be mission neighbors but %d has no info on %d", curr, neighbor, curr, neighbor);
+                }
+                if (this->agents_[neighbor].neighbors.find(curr) != this->agents_[neighbor].neighbors.end())
+                {
+                    this->agents_[neighbor].neighbors[curr].link_type = LinkType::DataLink;
+                }
+                else
+                {
+                    // Technically, that should not happen since edge (i,j) is in the graph only if i and j are flocking neighbors
+                    RCLCPP_WARN(this->get_logger(), "Pseudo routing defines that %d and %d should be mission neighbors but %d has no info on %d", neighbor, curr, neighbor, curr);
+                }
+
+                // The current agent and neighbor agent are mission agent, so they should be considered as mission neighbors by all those that know about them
+                for (auto &[agent_id, agent] : this->agents_)
+                {
+                    if (agent.neighbors.find(curr) != agent.neighbors.end())
+                    {
+                        agent.neighbors[curr].role = AgentRoleType::Mission;
+                    }
+                    if (agent.neighbors.find(neighbor) != agent.neighbors.end())
+                    {
+                        agent.neighbors[neighbor].role = AgentRoleType::Mission;
+                    }
                 }
             }
-
             curr = neighbor;
         }
-        // std::cout << std::endl;
+        int next_hop;
+        {
+        std::lock_guard<std::mutex> lock_agents(this->agents_mutex_);
+            for (auto neigh : this->agents_[source].neighbors)
+            {
+                if (neigh.second.role == AgentRoleType::Mission)
+                {
+                    next_hop = neigh.second.id;
+                }
+            }
+        }
+        RCLCPP_DEBUG(this->get_logger(), "Ran the pseudo-routing algorithm for source agent %d. Next hop: %d.", source, next_hop);
     }
 }
 
@@ -1024,8 +1099,10 @@ void Ns3Sim::RunPseudoRoutingAlgorithm(const std::string pseudo_routing_algo_nam
  */
 void Ns3Sim::UpdateRolesAndNeighbors()
 {
+    // We are going to modify the agents_ object, so lock it
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
 
-    for (auto &agent : this->agents)
+    for (auto &[agent_id, agent] : this->agents_)
     {
         if (agent.role != AgentRoleType::Mission)
         {
@@ -1106,86 +1183,103 @@ void Ns3Sim::UpdateCmds()
         RCLCPP_WARN_STREAM(rclcpp::get_logger("rclcpp"), "Service " << command_client_->get_service_name() << " not available, waiting again...");
     }
 
+    
+    // Build the request message with the last known agents positions and velocities
+
     auto request = std::make_shared<dancers_msgs::srv::GetAgentVelocities::Request>();
-
     dancers_msgs::msg::AgentStructArray agent_structs;
-
-    for (agent_t &agent : this->agents)
     {
-        if (agent.crashed == false)
+        // We are going to modify the agents_ object, so lock it
+        std::lock_guard<std::mutex> lock(this->agents_mutex_);
+        for (auto &[agent_id, agent] : this->agents_)
         {
-            dancers_msgs::msg::AgentStruct agent_struct;
-            agent_struct.agent_id = agent.id;
-            agent_struct.state.position.x = agent.position.x();
-            agent_struct.state.position.y = agent.position.y();
-            agent_struct.state.position.z = agent.position.z();
-    
-            agent_struct.state.velocity_heading.velocity.x = agent.velocity.x();
-            agent_struct.state.velocity_heading.velocity.y = agent.velocity.y();
-            agent_struct.state.velocity_heading.velocity.z = agent.velocity.z();
-    
-            agent_struct.agent_role = static_cast<uint8_t>(agent.role);
-    
-            for (auto &neighbor : agent.neighbors)
+            if (agent.crashed == false)
             {
-                dancers_msgs::msg::Neighbor neighbor_msg;
-                neighbor_msg.agent_id = neighbor.second.id;
-                neighbor_msg.link_quality = neighbor.second.link_quality;
-                neighbor_msg.agent_role = static_cast<uint8_t>(neighbor.second.role);
-                neighbor_msg.position.x = neighbor.second.position.x();
-                neighbor_msg.position.y = neighbor.second.position.y();
-                neighbor_msg.position.z = neighbor.second.position.z();
-                neighbor_msg.velocity.x = neighbor.second.velocity.x();
-                neighbor_msg.velocity.y = neighbor.second.velocity.y();
-                neighbor_msg.velocity.z = neighbor.second.velocity.z();
-    
-                agent_struct.neighbor_array.neighbors.push_back(neighbor_msg);
-            }
-    
-            agent_struct.heartbeat_received = agent.heartbeat_received;
-            agent_struct.heartbeat_sent = agent.heartbeat_sent;
-    
-            request->agent_structs.push_back(agent_struct);
-    
-            if (publish_agent_structs)
-            {
-                agent_structs.structs.push_back(agent_struct);
+                dancers_msgs::msg::AgentStruct agent_struct;
+                agent_struct.agent_id = agent.id;
+                agent_struct.state.position.x = agent.position.x();
+                agent_struct.state.position.y = agent.position.y();
+                agent_struct.state.position.z = agent.position.z();
+                
+                agent_struct.state.velocity_heading.velocity.x = agent.velocity.x();
+                agent_struct.state.velocity_heading.velocity.y = agent.velocity.y();
+                agent_struct.state.velocity_heading.velocity.z = agent.velocity.z();
+                
+                agent_struct.agent_role = static_cast<uint8_t>(agent.role);
+                
+                for (auto &neighbor : agent.neighbors)
+                {
+                    dancers_msgs::msg::Neighbor neighbor_msg;
+                    neighbor_msg.agent_id = neighbor.second.id;
+                    neighbor_msg.link_quality = neighbor.second.link_quality;
+                    neighbor_msg.agent_role = static_cast<uint8_t>(neighbor.second.role);
+                    neighbor_msg.position.x = neighbor.second.position.x();
+                    neighbor_msg.position.y = neighbor.second.position.y();
+                    neighbor_msg.position.z = neighbor.second.position.z();
+                    neighbor_msg.velocity.x = neighbor.second.velocity.x();
+                    neighbor_msg.velocity.y = neighbor.second.velocity.y();
+                    neighbor_msg.velocity.z = neighbor.second.velocity.z();
+                    
+                    agent_struct.neighbor_array.neighbors.push_back(neighbor_msg);
+                }
+                
+                agent_struct.heartbeat_received = agent.heartbeat_received;
+                agent_struct.heartbeat_sent = agent.heartbeat_sent;
+                
+                request->agent_structs.push_back(agent_struct);
+                
+                if (publish_agent_structs)
+                {
+                    agent_structs.structs.push_back(agent_struct);
+                }
             }
         }
     }
 
+    // Publish the request, essentially for debugging
     if (publish_agent_structs)
     {
         agent_structs_pub_->publish(agent_structs);
     }
 
+    // Send the request
     auto result = command_client_->async_send_request(request);
 
+    // Get the response of the service, and 
     // if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result) == rclcpp::FutureReturnCode::SUCCESS)
     if (result.valid())
     {
-        // Can't get the reference directly of velocity heading directly since result becomes invalid after the get() call.
+        // Get the shared_ptr to the response (keeps ownership while we call get()).
         std::shared_ptr<dancers_msgs::srv::GetAgentVelocities::Response> response_msg = result.get();
-        std::vector<dancers_msgs::msg::VelocityHeading> &velocity_headings = response_msg->velocity_headings.velocity_heading_array;
 
-        RCLCPP_DEBUG(this->get_logger(), "Service answered with %d commands !", velocity_headings.size());
+        // We keep a copy of the response message in a shared_ptr. That is because UpdateCmds() is executed inside the thread running the "Loop()".
+        // Many segfaults happened here, because the pointer was deallocated even though this part of the code should still hold a reference to the shared_ptr. The reason is probably that executing a thread in parallel of ROS2 "main" thread (executor) is not the default way of doing things.  
+        this->last_response_from_cmd_service_ = response_msg;
 
-        // save the command vectors
-        for (auto vel_head : velocity_headings)
+        RCLCPP_DEBUG(this->get_logger(), "Service answered with %zu commands !", this->last_response_from_cmd_service_->velocity_headings.velocity_heading_array.size());
+
+        // save the command vectors safely using RAII lock
         {
-            uint32_t agent_id = vel_head.agent_id;
-            int agent_index = this->GetAgentIndex(agent_id);
-            if (agent_index == -1)
-            {
-                RCLCPP_WARN(this->get_logger(), "Agent %d not found, ignoring flocking command.", agent_id);
-                continue;
-            }
+            std::lock_guard<std::mutex> lock(this->agents_mutex_);
 
-            this->agents[agent_index].cmd_velocity[0] = vel_head.velocity.x;
-            this->agents[agent_index].cmd_velocity[1] = vel_head.velocity.y;
-            this->agents[agent_index].cmd_velocity[2] = vel_head.velocity.z;
-            this->agents[agent_index].cmd_heading = vel_head.heading;
-        }
+            for (const auto &vel_head : this->last_response_from_cmd_service_->velocity_headings.velocity_heading_array)
+            {
+                uint32_t agent_id = vel_head.agent_id;
+
+                // If agent may not exist, check or create safely -- this depends on your invariants.
+                // e.g. if agents_[agent_id] is valid:
+                auto it = this->agents_.find(agent_id);
+                if (it == this->agents_.end()) {
+                    RCLCPP_WARN(this->get_logger(), "Got command for unknown agent id %u", agent_id);
+                    continue;
+                }
+
+                it->second.cmd_velocity[0] = vel_head.velocity.x;
+                it->second.cmd_velocity[1] = vel_head.velocity.y;
+                it->second.cmd_velocity[2] = vel_head.velocity.z;
+                it->second.cmd_heading = vel_head.heading;
+            }
+        } // lock released here    
     }
     else
     {
@@ -1237,34 +1331,36 @@ void Ns3Sim::DisplayNetworkRviz()
     network_marker_idle.color.a = 1.0; // Fully opaque
     network_marker_idle.lifetime = rclcpp::Duration::from_seconds(0.1);
 
-    for (const auto &agent : this->agents)
+    // We are going to modify the agents_ object, so lock it
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
+    for (const auto &[agent_id, agent] : this->agents_)
     {
-        for (const auto &neighbor : agent.neighbors)
+        for (const auto &[neighbor_id, neighbor] : agent.neighbors)
         {
-            int neighbor_index = this->GetAgentIndex(neighbor.first);
             geometry_msgs::msg::Point p1{};
             p1.x = agent.position.x();
             p1.y = agent.position.y();
             p1.z = agent.position.z();
             geometry_msgs::msg::Point p2{};
-            p2.x = this->agents[neighbor_index].position.x();
-            p2.y = this->agents[neighbor_index].position.y();
-            p2.z = this->agents[neighbor_index].position.z();
+            p2.x = this->agents_[neighbor_id].position.x();
+            p2.y = this->agents_[neighbor_id].position.y();
+            p2.z = this->agents_[neighbor_id].position.z();
 
             // Red links are between two mission agents and carry data
-            if (neighbor.second.role == AgentRoleType::Mission && neighbor.second.link_type == LinkType::DataLink)
+            if (neighbor.role == AgentRoleType::Mission && neighbor.link_type == LinkType::DataLink)
             {
                 network_marker_mission.points.push_back(p1);
                 network_marker_mission.points.push_back(p2);
             }
             // Blue links are for potential neighbors
-            else if (neighbor.second.role == AgentRoleType::Potential)
+            else if (neighbor.role == AgentRoleType::Potential)
             {
                 network_marker_potential.points.push_back(p1);
                 network_marker_potential.points.push_back(p2);
             }
             // Gray links are for idle neighbors
-            else if (neighbor.second.role == AgentRoleType::Idle)
+            else if (neighbor.role == AgentRoleType::Idle)
             {
                 network_marker_idle.points.push_back(p1);
                 network_marker_idle.points.push_back(p2);
@@ -1284,12 +1380,33 @@ void Ns3Sim::DisplayNetworkRviz()
  */
 void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
 {
+    {
+        std::lock_guard<std::mutex> lock(this->ns3_config_mut);
+        for (auto &target : this->ns3_config.target_areas)
+        {
+            if (target.id == msg.target_id)
+            {
+                // Target already exists, update its position and type
+                RCLCPP_DEBUG(this->get_logger(), "Updating target %d position to (%f, %f, %f) and type %s", msg.target_id, msg.position.x, msg.position.y, msg.position.z, msg.is_sink ? "sink" : "source");
+                target.x = msg.position.x;
+                target.y = msg.position.y;
+                target.z = msg.position.z;
+                target.is_sink = msg.is_sink;
+                target.assigned_agents.clear();
+                for (const uint32_t concerned_agent : msg.concerned_agents)
+                {
+                    target.assigned_agents.push_back(concerned_agent);
+                }
+            }
+        }
+    }
+
     if (this->ns3_config.enable_mission_flow)
     {
 
         // When we receive an update for a target, add mission application for the concerned agents.
         bool all_agents_concerned = false;
-        for (uint32_t concerned_agent: msg.concerned_agents)
+        for (uint32_t concerned_agent : msg.concerned_agents)
         {
             if (concerned_agent == -1)
             {
@@ -1298,18 +1415,19 @@ void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
             }
             else
             {
-                int agent_index = this->GetAgentIndex(concerned_agent);
-                if (agent_index == -1)
-                {
-                    RCLCPP_WARN(this->get_logger(), "Agent %d not found, ignoring target update.", concerned_agent);
-                    continue;
-                }
-                
-                Ptr<ns3::Node> new_leader = this->nodes.Get(agent_index);
+                uint32_t idx = this->getNodeIndexFromId(concerned_agent);
+                Ptr<ns3::Node> new_leader = this->getNodePtrFromIndex(idx);
 
                 if (!msg.is_sink)
                 {
-                    this->ns3_config.source_robots_ids.push_back(concerned_agent);
+
+                    this->ns3_config_mut.lock();
+                    if (std::find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), concerned_agent) == this->ns3_config.source_robots_ids.end())
+                    {
+                        // There is a new "source" robot (i.e. leader)
+                        this->ns3_config.source_robots_ids.push_back(concerned_agent);
+                    }
+                    this->ns3_config_mut.unlock();
                 }
                 else if (msg.is_sink)
                 {
@@ -1321,24 +1439,28 @@ void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
                 this->AddMissionApplication(new_leader);
             }
         }
-        
+
         if (all_agents_concerned)
         {
-            for (auto &agent : this->agents)
+            // We are going to modify the agents_ object, so lock it
+            std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
+            for (auto &[agent_id, agent] : this->agents_)
             {
-                int agent_index = this->GetAgentIndex(agent.id);
-                Ptr<ns3::Node> new_leader = this->nodes.Get(agent_index);
-                
+                Ptr<ns3::Node> new_leader = this->getNodePtrFromIndex(agent.node_container_index);
+
                 if (!msg.is_sink)
                 {
-                    this->ns3_config.source_robots_ids.push_back(agent.id);
+                    this->ns3_config_mut.lock();
+                    this->ns3_config.source_robots_ids.push_back(agent_id);
+                    this->ns3_config_mut.unlock();
                 }
                 else if (!msg.is_sink)
                 {
                     // There is a single SINK agent and it is not dynamic for now.
                     RCLCPP_ERROR(this->get_logger(), "Received a target update that changes the SINK agent: Not supported! Update ignored.");
                 }
-                
+
                 // Effectively add the Application to the node.
                 this->AddMissionApplication(new_leader);
             }
@@ -1348,33 +1470,35 @@ void Ns3Sim::update_target_clbk(dancers_msgs::msg::Target msg)
 
 void Ns3Sim::spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg)
 {
-
-    int agent_index = this->GetAgentIndex(msg.agent_id);
-    if (agent_index != -1)
-    {
-        RCLCPP_WARN(this->get_logger(), "Agent %d already exists, skipping spawn.", msg.agent_id);
-        return;
-    }
-
     // Spawn a new UAV in the simulation
     RCLCPP_INFO(this->get_logger(), "Spawning UAV %d at position (%f, %f, %f)", msg.agent_id, msg.state.position.x, msg.state.position.y, msg.state.position.z);
 
-    // Add the new node to the agents vector
-    agent_t new_agent = this->ROS_msg_to_agent_t(msg);
-    new_agent.cmd_velocity = {0.0, 0.0, 0.0};
-    new_agent.cmd_heading = 0.0;
-    this->agents.push_back(new_agent);
+    // Abort if the agent already exists. 
+    // Otherwise, add it to agents_
+    {
+        std::lock_guard<std::mutex> lock(this->agents_mutex_);
+        if (this->agents_.find(msg.agent_id) != this->agents_.end())
+        {
+            RCLCPP_WARN(this->get_logger(), "Agent %d already exists, skipping spawn.", msg.agent_id);
+            return;
+        }
+    
+    
+        // Add the new node to the agents vector
+        agent_t new_agent = this->ROS_msg_to_agent_t(msg);
+        new_agent.cmd_velocity = {0.0, 0.0, 0.0};
+        new_agent.cmd_heading = 0.0;
+        new_agent.node_container_index = this->nodes.GetN();
+        this->agents_[new_agent.id] = new_agent;
+    }
 
     // Create a new ns-3 node
     Ptr<ns3::Node> new_node = CreateObject<ns3::Node>();
-    this->nodes.Add(new_node);
-
-    agent_index = this->GetAgentIndex(msg.agent_id);
-
-    // The idea is to keep the same indexing between this->agents and this->nodes
-    assert(agent_index == new_node->GetId());
-
-    RCLCPP_INFO(this->get_logger(), "Node %d created. There is currently %d nodes.", msg.agent_id, this->nodes.GetN());
+    {
+        std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+        this->nodes.Add(new_node);
+        RCLCPP_INFO(this->get_logger(), "Node %d created. There is currently %d nodes.", msg.agent_id, this->nodes.GetN());
+    }
 
     // Set the mobility model
     Ptr<MobilityModel> nodeMob;
@@ -1400,18 +1524,10 @@ void Ns3Sim::spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg)
         this->AddMissionApplication(new_node);
     }
 
-    // Print all the objects aggregated to the Node
-    Object::AggregateIterator it = new_node->GetAggregateIterator();
-    RCLCPP_DEBUG_STREAM(this->get_logger(), "Aggregated objects on Node " << new_node->GetId() << ":");
-    // Iterate through the aggregated objects
-    while (it.HasNext())
-    {
-        Ptr<const Object> aggregatedObject = it.Next();
-        RCLCPP_DEBUG_STREAM(this->get_logger(), "  - TypeId: " << aggregatedObject->GetInstanceTypeId().GetName());
-    }
+    this->printNodeAggregatedObjects(new_node);
 
     // Print all the applications aggregated to the Node
-    RCLCPP_DEBUG_STREAM(this->get_logger(), "Installed applications on Node" << new_node->GetId() << ":");
+    RCLCPP_DEBUG_STREAM(this->get_logger(), "Installed applications on Node " << new_node->GetId() << ":");
     // Iterate through the installed applications
     for (uint32_t i = 0; i < new_node->GetNApplications(); ++i)
     {
@@ -1424,14 +1540,20 @@ void Ns3Sim::spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg)
 
 void Ns3Sim::uav_failure_clbk(std_msgs::msg::UInt32 msg)
 {
-    int agent_index = this->GetAgentIndex(msg.data);
-    if (agent_index == -1)
-    {
-        RCLCPP_WARN(this->get_logger(), "Agent %d does not exist, skipping failure.", msg.data);
-        return;
-    }
 
-    Ptr<ns3::Node> node = this->nodes.Get(agent_index);
+    // Since we will manipulate the agents_ object, lock its mutex
+    // We access the nodes container, so lock it
+    
+    uint32_t idx;
+    {
+        std::lock_guard<std::mutex> lock(this->agents_mutex_);
+        idx = this->agents_[msg.data].node_container_index;
+    }
+    Ptr<ns3::Node> node;
+    {
+        std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+        node = this->nodes.Get(idx);
+    }
 
     // Stop all running applications
     for (uint32_t i = 0; i < node->GetNApplications(); ++i)
@@ -1448,7 +1570,10 @@ void Ns3Sim::uav_failure_clbk(std_msgs::msg::UInt32 msg)
     }
 
     // Set the agent to crashed
-    this->agents[agent_index].crashed = true;
+    {
+        std::lock_guard<std::mutex> lock(this->agents_mutex_);
+        this->agents_[msg.data].crashed = true;
+    }
 
     RCLCPP_INFO(this->get_logger(), "UAV %d failure ! Deactivated its applications and IPV4 interfaces.", msg.data);
 }
@@ -1456,8 +1581,26 @@ void Ns3Sim::uav_failure_clbk(std_msgs::msg::UInt32 msg)
 void Ns3Sim::AddWifiNetworkStack(Ptr<ns3::Node> node)
 {
     // The ns-3 Node Id can be different from "our" agent_id. In ns-3, node->GetId() happens to be the index of the node in the NodeList (see doc).
-    int node_index = node->GetId();
-    uint32_t agent_id = this->agents[node_index].id;
+    
+    // Find the node's ns-3 index
+    int node_index;
+    {
+        std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+        node_index = node->GetId();
+    }
+    // Find the corresponding node id
+    uint32_t agent_id;
+    {
+        std::lock_guard<std::mutex> lock_agents(this->agents_mutex_);
+        for (const auto &[id, agent] : this->agents_)
+        {
+            if (agent.node_container_index == node_index)
+            {
+                // We found the agent_id corresponding to the ns-3 node index
+                agent_id = id;
+            }
+        }
+    }
 
     // Verify that all the helpers pointers are initialized
     if (!this->wifiPhyHelper || !this->wifiMacHelper || !this->wifiHelper || !this->internetHelper)
@@ -1474,7 +1617,7 @@ void Ns3Sim::AddWifiNetworkStack(Ptr<ns3::Node> node)
     // Install the (already configured) internet helper on the node
     this->internetHelper->Install(node);
 
-    // Assign the right IPv4 address (10.0.0.<agent_id>) to the node
+    // Assign the right IPv4 address (10.0.0.<agent_id+1>) to the node
     Ipv4InterfaceAddress nodeIpv4AddressInterface(Ipv4Address(("10.0.0." + std::to_string(agent_id + 1)).c_str()), Ipv4Mask("255.255.255.0"));
     Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
     int32_t interfaceIndex = ipv4->AddInterface(new_net_device.Get(0)); // Get the first device
@@ -1483,12 +1626,6 @@ void Ns3Sim::AddWifiNetworkStack(Ptr<ns3::Node> node)
         RCLCPP_FATAL(this->get_logger(), "Couldn't assign IPv4 address to node %d", agent_id);
     }
     ipv4->SetUp(interfaceIndex);
-
-    // RCLCPP_INFO(this->get_logger(), "Node %d added to the wifi network with IPv4 address %s", agent_id, node->GetObject<Ipv4>()->GetAddress(interfaceIndex, 0).GetAddress().Get());
-
-    if (this->ns3_config.enable_mission_flow)
-    {
-    }
 
     // Enable pcap output for the NetDevice of thie node.
     this->wifiPhyHelper->EnablePcap("ns3_sim", new_net_device);
@@ -1510,9 +1647,20 @@ void Ns3Sim::AddWifiNetworkStack(Ptr<ns3::Node> node)
     wifi_mac->TraceConnect("MacRxDrop", std::to_string(agent_id), MakeCallback(&Ns3Sim::MacRxDropTrace, this));
 }
 
+/**
+ * @brief Add the two applications enabling flocking on the node. A FlockingBroadcaster and a FlockingReceiver.
+ */
 void Ns3Sim::AddFlockingApplication(Ptr<ns3::Node> node)
 {
-    uint32_t agent_id = this->agents[node->GetId()].id;
+    // Find the agent_id corresponding to the ns-3 node index
+    uint32_t agent_id;
+    for (const auto &[id, agent] : this->agents_)
+    {
+        if (agent.node_container_index == node->GetId())
+        {
+            agent_id = id;
+        }
+    }
 
     // Configure the flocking application broadcaster
     Ptr<FlockingBroadcaster> flocking_broadcaster = CreateObject<FlockingBroadcaster>();
@@ -1544,49 +1692,86 @@ void Ns3Sim::AddFlockingApplication(Ptr<ns3::Node> node)
     }
 }
 
+/**
+ * @brief Installs either the Sender or the Receiver application on the node, if necessary. 
+ * 
+ * The agent must be both in the "source_robots_ids" and in the "concerned_agents" of a target in the ns3_config
+ * To ensure no data race, always call AddMissionApplication while holding the agents_ mutex !
+ */
 void Ns3Sim::AddMissionApplication(Ptr<ns3::Node> node)
 {
-    uint32_t agent_id = this->agents[node->GetId()].id;
+    uint32_t agent_id;
+    for (const auto &[id, agent] : this->agents_)
+    {
+        if (agent.node_container_index == node->GetId())
+        {
+            agent_id = id;
+        }
+    }
+
+    uint32_t target_id;
+    int counter = 0;
+    for (auto &target : this->ns3_config.target_areas)
+    {
+        for (auto assigned_agent : target.assigned_agents)
+        {
+            if (assigned_agent == agent_id)
+            {
+                if (counter >= 1)
+                {
+                    RCLCPP_FATAL(this->get_logger(), "An agent can not be assigned to more than one target area! Exiting.");
+                    exit(EXIT_FAILURE);
+                }
+                target_id = target.id;
+                counter += 1;
+            }
+        }
+    }
 
     // Install Mission sender application on all the source robots
     // for (uint32_t source_node_id : ns3_config.source_robots_ids)
     if (find(this->ns3_config.source_robots_ids.begin(), this->ns3_config.source_robots_ids.end(), agent_id) != this->ns3_config.source_robots_ids.end())
     {
-        int sink_node_index = GetAgentIndex(ns3_config.sink_robot_id);
-        if (sink_node_index == -1)
-        {
-            RCLCPP_FATAL(this->get_logger(), "Sink node %d not found, cannot configure mission app", ns3_config.sink_robot_id);
-            return;
-        }
-
+        
+        // Check if the "Sender" application is already installed on the node
         for (uint32_t i = 0; i < node->GetNApplications(); ++i)
         {
             Ptr<Application> application = node->GetApplication(i);
-            if (application->GetInstanceTypeId().GetName() == "ns3::Sender")
+            if (application->GetInstanceTypeId().GetName() == "Sender")
             {
-                RCLCPP_WARN(this->get_logger(), "Sender application already installed on node %d, cannot configure mission source app", agent_id);
+                RCLCPP_DEBUG(this->get_logger(), "Sender application already installed on node %d.", agent_id);
                 return;
             }
         }
 
-        // Configure the sender mission application (will be installed on all source nodes)
+        // Find the index of the "sink" node, and the associated IPv4 address
+        uint32_t sink_node_index = this->agents_[ns3_config.sink_robot_id].node_container_index;
+        if (sink_node_index >= this->nodes.GetN())
+        {
+            RCLCPP_FATAL(this->get_logger(), "Sink node index %d is out of range (total number of nodes: %d)", sink_node_index, this->nodes.GetN());
+            return;
+        }
+        Ipv4Address sink_ip_address = this->nodes.Get(sink_node_index)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
+
+        // Configure the sender mission application and install it on the source node
         Ptr<Sender> mission_application = CreateObject<Sender>();
         mission_application->SetStartTime(Seconds(ns3_config.start_mission_time));
         mission_application->SetStopTime(Seconds(ns3_config.stop_mission_time));
-        mission_application->SetAttribute("Destination", Ipv4AddressValue(this->nodes.Get(sink_node_index)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal()));
+        mission_application->SetAttribute("Destination", Ipv4AddressValue(sink_ip_address));
         mission_application->SetAttribute("Port", UintegerValue(ns3_config.mission_port));
         mission_application->SetAttribute("PacketSize", UintegerValue(ns3_config.mission_packet_size));
         mission_application->SetAttribute("NumPackets", UintegerValue(4294967295)); // do not limit number of sent packets (infinite flow)
         mission_application->SetAttribute("FlowId", UintegerValue(ns3_config.mission_flow_id));
+        mission_application->SetAttribute("TargetId", UintegerValue(target_id));
         Ptr<ConstantRandomVariable> rand = CreateObject<ConstantRandomVariable>();
         rand->SetAttribute("Constant", DoubleValue(ns3_config.mission_interval / 1000000.0)); // from us to s (because custom class Sender uses Interval as Seconds)
         mission_application->SetAttribute("Interval", PointerValue(rand));
-        mission_application->TraceConnectWithoutContext("Tx", MakeCallback(&Ns3Sim::mission_flow_sender_clbk, this));
+        mission_application->TraceConnect("Tx", std::to_string(agent_id), MakeCallback(&Ns3Sim::mission_flow_sender_clbk, this));
 
         // App 2 is the Mission flow sender (unicast, only for leaders)
         node->AddApplication(mission_application);
 
-        RCLCPP_INFO(this->get_logger(), "Configured mission sender (source) for node %d", agent_id);
+        RCLCPP_INFO(this->get_logger(), "Configured mission sender (source) for node %d assigned to target %d", agent_id, target_id);
     }
     else if (agent_id == this->ns3_config.sink_robot_id)
     {
@@ -1594,9 +1779,9 @@ void Ns3Sim::AddMissionApplication(Ptr<ns3::Node> node)
         for (uint32_t i = 0; i < node->GetNApplications(); ++i)
         {
             Ptr<Application> application = node->GetApplication(i);
-            if (application->GetInstanceTypeId().GetName() == "ns3::Receiver")
+            if (application->GetInstanceTypeId().GetName() == "Receiver")
             {
-                RCLCPP_WARN(this->get_logger(), "Receiver application already installed on node %d, cannot configure mission sink app", agent_id);
+                RCLCPP_WARN(this->get_logger(), "Receiver application already installed on node %d.", agent_id);
                 return;
             }
         }
@@ -1657,16 +1842,19 @@ void Ns3Sim::PhyTxBeginTrace(std::string context, Ptr<const Packet> packet, doub
     double rxPow = this->pathlosses[nodeId][destId];
     Time txTime = Simulator::Now();
 
+    // Since we will manipulate the agents_ object, lock its mutex
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
     FlowIdTag nav_flow;
     if (packet->PeekPacketTag(nav_flow))
     {
         if (nav_flow.GetFlowId() == this->ns3_config.mission_flow_id)
         {
             // We are sending a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            if (this->agents[nodeId].neighbors.find(destId) != this->agents[nodeId].neighbors.end())
+            if (this->agents_[nodeId].neighbors.find(destId) != this->agents_[nodeId].neighbors.end())
             {
-                this->agents[nodeId].neighbors[destId].role = AgentRoleType::Mission;
-                this->agents[nodeId].neighbors[destId].link_type = LinkType::DataLink;
+                this->agents_[nodeId].neighbors[destId].role = AgentRoleType::Mission;
+                this->agents_[nodeId].neighbors[destId].link_type = LinkType::DataLink;
             }
             else
             {
@@ -1695,7 +1883,8 @@ void Ns3Sim::PhyTxEndTrace(std::string context, Ptr<const Packet> packet)
                 this->navEffectiveTx->PacketUpdate("", packet);
             }
 
-            this->agents[nodeId].heartbeat_sent++;
+            std::lock_guard<std::mutex> lock(agents_mutex_);
+            this->agents_[nodeId].heartbeat_sent++;
             // std::cout << "Heartbeat sent by " << nodeId << " : " << packet->GetSize() << " bytes." << std::endl;
         }
     }
@@ -1741,11 +1930,14 @@ void Ns3Sim::PhyRxEndTrace(std::string context, Ptr<const Packet> packet)
     {
         if (nav_flow.GetFlowId() == this->ns3_config.mission_flow_id && nodeId == destId)
         {
+            // Since we will manipulate the agents_ object, lock its mutex
+            std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
             // We are receiving a "mission" packet, link-layer destination should be our (outgoing) neighbor
-            if (this->agents[nodeId].neighbors.find(sourceId) != this->agents[nodeId].neighbors.end())
+            if (this->agents_[nodeId].neighbors.find(sourceId) != this->agents_[nodeId].neighbors.end())
             {
-                this->agents[nodeId].neighbors[sourceId].role = AgentRoleType::Mission;
-                this->agents[nodeId].neighbors[sourceId].link_type = LinkType::DataLink;
+                this->agents_[nodeId].neighbors[sourceId].role = AgentRoleType::Mission;
+                this->agents_[nodeId].neighbors[sourceId].link_type = LinkType::DataLink;
             }
             else
             {
@@ -1775,22 +1967,27 @@ void Ns3Sim::MacRxDropTrace(std::string context, Ptr<const Packet> packet)
  */
 void Ns3Sim::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 {
-    RCLCPP_DEBUG(this->get_logger(), "Mission flow packet received from.");
+    RCLCPP_DEBUG(this->get_logger(), "Mission flow packet received.");
 
     if (this->save_mission_packets)
     {
         // print packet to file
-        myTimestampTag timestamp;
+
         // Should never not be found since the sender is adding it, but
         // you never know.
-        if (packet->FindFirstMatchingByteTag(timestamp))
+        myTimestampTag timestamp;
+        MissionHeader missionHdr;
+        if (packet->FindFirstMatchingByteTag(timestamp) && packet->PeekHeader(missionHdr) > 0)
         {
             Time tx = timestamp.GetTimestamp();
             Time now = Simulator::Now();
             Time delay = now - tx;
 
+            uint32_t target_id = missionHdr.GetTargetId();
+            bool in_target_area = missionHdr.GetInTargetArea();
+
             std::ofstream f(this->mission_packets_file_, std::ios::app);
-            f << now.ToInteger(Time::US) << "," << delay.ToInteger(Time::US) << std::endl;
+            f << now.ToInteger(Time::US) << "," << delay.ToInteger(Time::US) << "," << target_id << "," << in_target_area << std::endl;
             f.close();
         }
     }
@@ -1799,9 +1996,9 @@ void Ns3Sim::mission_flow_receiver_clbk(Ptr<const Packet> packet)
 /**
  * @brief Callback for the mission flow sender
  */
-void Ns3Sim::mission_flow_sender_clbk(Ptr<const Packet> packet)
+void Ns3Sim::mission_flow_sender_clbk(std::string context, Ptr<const Packet> packet)
 {
-    RCLCPP_DEBUG(this->get_logger(), "Mission flow packet sent");
+    RCLCPP_DEBUG(this->get_logger(), "[%d] Mission flow packet sent", std::stoi(context));
 }
 
 /**
@@ -1818,7 +2015,6 @@ void Ns3Sim::mission_flow_sender_clbk_2(Ptr<const Packet> packet)
 void Ns3Sim::flocking_receiver_clbk(std::string context, Ptr<const Packet> packet, int peer_id)
 {
     uint32_t nodeId = std::stoi(context);
-    int nodeIndex = this->GetAgentIndex(nodeId);
 
     RCLCPP_DEBUG(this->get_logger(), "[%d] Flock packet received", nodeId);
 
@@ -1833,19 +2029,20 @@ void Ns3Sim::flocking_receiver_clbk(std::string context, Ptr<const Packet> packe
     Vector neighbor_velocity = fl_hdr.GetVelocity();
 
     // It might be the first time we see this agent, add it to the map
-    if (this->agents[nodeIndex].neighbors.find(peer_id) == this->agents[nodeIndex].neighbors.end())
+    std::lock_guard<std::mutex> lock(agents_mutex_);
+    if (this->agents_[nodeId].neighbors.find(peer_id) == this->agents_[nodeId].neighbors.end())
     {
-        this->agents[nodeIndex].neighbors[peer_id] = NeighborInfo_t();
+        this->agents_[nodeId].neighbors[peer_id] = NeighborInfo_t();
     }
 
-    this->agents[nodeIndex].neighbors[peer_id].position = Eigen::Vector3d(neighbor_position.x, neighbor_position.y, neighbor_position.z);
-    this->agents[nodeIndex].neighbors[peer_id].velocity = Eigen::Vector3d(neighbor_velocity.x, neighbor_velocity.y, neighbor_velocity.z);
-    this->agents[nodeIndex].neighbors[peer_id].id = peer_id;
-    this->agents[nodeIndex].neighbors[peer_id].last_seen = rxTime.ToInteger(Time::US);
-    this->agents[nodeIndex].neighbors[peer_id].link_quality = rxPow;
-    this->agents[nodeIndex].neighbors[peer_id].link_type = LinkType::FlockingLink;
+    this->agents_[nodeId].neighbors[peer_id].position = Eigen::Vector3d(neighbor_position.x, neighbor_position.y, neighbor_position.z);
+    this->agents_[nodeId].neighbors[peer_id].velocity = Eigen::Vector3d(neighbor_velocity.x, neighbor_velocity.y, neighbor_velocity.z);
+    this->agents_[nodeId].neighbors[peer_id].id = peer_id;
+    this->agents_[nodeId].neighbors[peer_id].last_seen = rxTime.ToInteger(Time::US);
+    this->agents_[nodeId].neighbors[peer_id].link_quality = rxPow;
+    this->agents_[nodeId].neighbors[peer_id].link_type = LinkType::FlockingLink;
 
-    this->agents[nodeIndex].heartbeat_received++;
+    this->agents_[nodeId].heartbeat_received++;
 
     this->broadcast_received_packets[nodeId][peer_id].push_back(rxTime);
 }
@@ -1876,14 +2073,17 @@ std::string Ns3Sim::generateCommandsMsg()
 {
     dancers_update_proto::VelocityHeadingVector velocity_headings_msg;
 
-    for (uint32_t i = 0; i < this->agents.size(); i++)
+    // Since we will manipulate the agents_ object, lock its mutex
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
+    for (const auto &[agent_id, agent] : this->agents_)
     {
         dancers_update_proto::VelocityHeading *velocity_heading_msg = velocity_headings_msg.add_velocity_heading();
-        velocity_heading_msg->set_agentid(this->agents[i].id);
-        velocity_heading_msg->set_vx(this->agents[i].cmd_velocity[0]);
-        velocity_heading_msg->set_vy(this->agents[i].cmd_velocity[1]);
-        velocity_heading_msg->set_vz(this->agents[i].cmd_velocity[2]);
-        velocity_heading_msg->set_heading(this->agents[i].cmd_heading);
+        velocity_heading_msg->set_agentid(agent.id);
+        velocity_heading_msg->set_vx(agent.cmd_velocity[0]);
+        velocity_heading_msg->set_vy(agent.cmd_velocity[1]);
+        velocity_heading_msg->set_vz(agent.cmd_velocity[2]);
+        velocity_heading_msg->set_heading(agent.cmd_heading);
     }
 
     // std::cout << velocity_headings_msg.DebugString() << std::endl;
@@ -1903,13 +2103,16 @@ Ns3Sim::generateNeighborsMsg()
 {
     dancers_update_proto::OrderedNeighborsList ordered_neighbors_msg;
 
+    // Since we will manipulate the agents_ object, lock its mutex
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
     // Assign roles based on their neighborhood type
-    for (uint32_t i = 0; i < this->nodes.GetN(); i++)
+    for (const auto &[agent_id, agent] : this->agents_)
     {
         std::vector<NeighborInfo_t> orderedNeighbors;
 
         // Sort neighbors by descending link quality
-        for (auto const &neighbor : this->agents[i].neighbors)
+        for (auto const &neighbor : agent.neighbors)
         {
             orderedNeighbors.push_back(neighbor.second);
         }
@@ -1918,8 +2121,8 @@ Ns3Sim::generateNeighborsMsg()
 
         // Create the message for agent i
         dancers_update_proto::OrderedNeighbors *neighbor_msg = ordered_neighbors_msg.add_ordered_neighbors();
-        neighbor_msg->set_agentid(this->agents[i].id);
-        neighbor_msg->set_role(static_cast<dancers_update_proto::OrderedNeighbors_Role>(this->agents[i].role)); // When doing these casts, ensure the order of the enum in the protobuf and the NeighborInfo_t are the same
+        neighbor_msg->set_agentid(agent.id);
+        neighbor_msg->set_role(static_cast<dancers_update_proto::OrderedNeighbors_Role>(agent.role)); // When doing these casts, ensure the order of the enum in the protobuf and the NeighborInfo_t are the same
         for (auto const &neighbor : orderedNeighbors)
         {
             neighbor_msg->add_neighborid(neighbor.id);
@@ -1980,10 +2183,13 @@ Ns3Sim::generateResponseProtobuf()
  */
 void Ns3Sim::timeoutNeighbors()
 {
-    for (uint32_t i = 0; i < this->agents.size(); i++)
+    // Since we will manipulate the agents_ object, lock its mutex
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+
+    for (auto &[agent_id, agent] : this->agents_)
     {
         std::vector<uint32_t> toRemove;
-        for (auto const &neighbor : this->agents[i].neighbors)
+        for (auto const &neighbor : agent.neighbors)
         {
             if ((Simulator::Now() - MicroSeconds(neighbor.second.last_seen)) > MicroSeconds(this->ns3_config.broadcast_timeout))
             {
@@ -1992,7 +2198,7 @@ void Ns3Sim::timeoutNeighbors()
         }
         for (auto const &neighbor : toRemove)
         {
-            this->agents[i].neighbors.erase(neighbor);
+            agent.neighbors.erase(neighbor);
         }
     }
 }
@@ -2004,6 +2210,11 @@ void Ns3Sim::timeoutNeighbors()
  */
 void Ns3Sim::updateNeighborsPathloss()
 {
+    // Since we will manipulate the agents_ object, lock its mutex
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+    // We access the nodes container, so lock it
+    std::lock_guard<std::mutex> lock_nodes(this->nodes_mutex_);
+
     for (uint32_t i = 0; i < this->nodes.GetN(); i++)
     {
         for (uint32_t j = 0; j < this->nodes.GetN(); j++)
@@ -2014,7 +2225,19 @@ void Ns3Sim::updateNeighborsPathloss()
                 Ptr<MobilityModel> mobilityB = this->nodes.Get(j)->GetObject<MobilityModel>();
 
                 double rxPow = this->m_propagationLossModel->CalcRxPower(18.0, mobilityA, mobilityB);
-                this->pathlosses[i][j] = rxPow; // it's not really a pathloss but it's the same with a constant difference
+                uint32_t agent_i_id, agent_j_id;
+                for (const auto &[id, agent] : this->agents_)
+                {
+                    if (agent.node_container_index == i)
+                    {
+                        agent_i_id = id;
+                    }
+                    if (agent.node_container_index == j)
+                    {
+                        agent_j_id = id;
+                    }
+                }
+                this->pathlosses[agent_i_id][agent_j_id] = rxPow; // it's not really a pathloss but it's the same with a constant difference
                 // std::cout << "Node " << i << " -> Node " << j << " : " << rxPow << std::endl;
             }
         }
@@ -2024,15 +2247,15 @@ void Ns3Sim::updateNeighborsPathloss()
 void Ns3Sim::updateStaticIpv4Routes(const std::vector<int> path)
 {
     int sink = path[0];
-    Ipv4Address sink_addr = this->nodes.Get(sink)->GetObject<Ipv4>()->GetAddress(1, 0).GetAddress();
+    Ipv4Address sink_addr = this->nodes.Get(this->agents_[sink].node_container_index)->GetObject<Ipv4>()->GetAddress(1, 0).GetAddress();
     for (int i = 1; i < path.size(); i++)
     {
         int source = path[i];
         int next_hop = path[i - 1];
 
-        Ipv4Address next_hop_addr = this->nodes.Get(next_hop)->GetObject<Ipv4>()->GetAddress(1, 0).GetAddress();
+        Ipv4Address next_hop_addr = this->nodes.Get(this->agents_[next_hop].node_container_index)->GetObject<Ipv4>()->GetAddress(1, 0).GetAddress();
 
-        Ptr<Ipv4StaticRouting> staticRouting = DynamicCast<Ipv4StaticRouting>(this->nodes.Get(source)->GetObject<Ipv4>()->GetRoutingProtocol());
+        Ptr<Ipv4StaticRouting> staticRouting = DynamicCast<Ipv4StaticRouting>(this->nodes.Get(this->agents_[source].node_container_index)->GetObject<Ipv4>()->GetRoutingProtocol());
         if (staticRouting == nullptr)
         {
             RCLCPP_ERROR(this->get_logger(), "Ipv4StaticRouting not found in node %d", source);
@@ -2046,6 +2269,66 @@ void Ns3Sim::updateStaticIpv4Routes(const std::vector<int> path)
         staticRouting->AddHostRouteTo(sink_addr, next_hop_addr, 1, 0);
 
         RCLCPP_DEBUG(this->get_logger(), "Added route %d -> %d via %d", source, sink, next_hop);
+    }
+}
+
+void Ns3Sim::updateLeadersApplications()
+{
+    if (this->ns3_config.enable_mission_flow == false)
+    {
+        // Nothing to do, the mission flow is disabled
+        return;
+    }
+    for (const auto &target : this->ns3_config.target_areas)
+    {
+        if (target.is_sink == true)
+        {
+            // Nothing to update, the sink is not sending data
+            continue;
+        }
+
+        for (auto assigned_agent : target.assigned_agents)
+        {
+            uint32_t idx = this->getNodeIndexFromId(assigned_agent);
+            Ptr<ns3::Node> node = this->getNodePtrFromIndex(idx);
+
+            Ptr<Application> application;
+            bool found = false;
+            for (uint32_t i = 0; i < node->GetNApplications(); ++i)
+            {
+                RCLCPP_INFO(this->get_logger(), "Searching Sender application, looking at app %d", i);
+                application = node->GetApplication(i);
+                if (application == nullptr)
+                {
+                    RCLCPP_FATAL(this->get_logger(), "Application %d on node %d is null, this should not happen!", i, assigned_agent);
+                    exit(EXIT_FAILURE);
+                }
+                RCLCPP_INFO_STREAM(this->get_logger(), "Found application "<< application->GetInstanceTypeId().GetName() <<" on node " << assigned_agent);
+                if (application->GetInstanceTypeId().GetName() == "Sender")
+                {
+                    found = true;
+                    double distance;
+                    {
+                        std::lock_guard<std::mutex> lock(this->agents_mutex_);
+                        distance = (Eigen::Vector3d(target.x, target.y, target.z) - this->agents_[assigned_agent].position).norm();
+                    }
+                    if (distance < 5.0)
+                    {
+                        application->SetAttribute("InTargetArea", BooleanValue(true));
+                        RCLCPP_DEBUG(this->get_logger(), "Leader %d is in its target area, switching its Sender application to in_target_area", assigned_agent);
+                    }
+                    else
+                    {
+                        application->SetAttribute("InTargetArea", BooleanValue(false));
+                        RCLCPP_DEBUG(this->get_logger(), "Leader %d is at %f meters of its assigned target area.", assigned_agent, distance);
+                    }
+                }
+            }
+            if (!found)
+            {
+                RCLCPP_WARN(this->get_logger(), "Could not find Sender application on node %d, cannot update its target area status", assigned_agent);
+            }
+        }
     }
 }
 
@@ -2085,7 +2368,6 @@ void Ns3Sim::Loop()
 
             // Read the "physical" information transmitted by the NetworkCoordinator, and update the node's positions
             // Also verifies that the number of nodes sent by the NetworkCoordinator corresponds to the number of existing nodes in NS-3
-            rclcpp::Clock clock;
             dancers_update_proto::PoseVector robots_positions_msg;
 
             // if (currTime % Seconds(0.1) == Time(0)){
@@ -2114,43 +2396,43 @@ void Ns3Sim::Loop()
                 // }
                 // else
                 // {
-                for (auto &robot_pose : robots_positions_msg.pose())
+                this->agents_mutex_.lock();
+                for (const auto &robot_pose : robots_positions_msg.pose())
                 {
-                    int agent_index = this->GetAgentIndex(robot_pose.agent_id());
-                    if (agent_index == -1)
-                    {
-                        RCLCPP_WARN(this->get_logger(), "Received position information for agent %i but this agent does not exist in NS-3", robot_pose.agent_id());
-                        continue;
-                    }
+                    this->agents_[robot_pose.agent_id()].position[0] = robot_pose.x();
+                    this->agents_[robot_pose.agent_id()].position[1] = robot_pose.y();
+                    this->agents_[robot_pose.agent_id()].position[2] = robot_pose.z();
 
-                    this->agents[agent_index].position[0] = robot_pose.x();
-                    this->agents[agent_index].position[1] = robot_pose.y();
-                    this->agents[agent_index].position[2] = robot_pose.z();
-
-                    this->agents[agent_index].velocity[0] = robot_pose.vx();
-                    this->agents[agent_index].velocity[1] = robot_pose.vy();
-                    this->agents[agent_index].velocity[2] = robot_pose.vz();
+                    this->agents_[robot_pose.agent_id()].velocity[0] = robot_pose.vx();
+                    this->agents_[robot_pose.agent_id()].velocity[1] = robot_pose.vy();
+                    this->agents_[robot_pose.agent_id()].velocity[2] = robot_pose.vz();
 
                     if (this->ns3_config.use_localization_noise)
                     {
                         std::normal_distribution<double> distribution(0.0, this->ns3_config.localization_noise_stddev);
-                        this->agents[agent_index].position[0] += distribution(this->random_generator);
-                        this->agents[agent_index].position[1] += distribution(this->random_generator);
-                        this->agents[agent_index].position[2] += distribution(this->random_generator);
+                        this->agents_[robot_pose.agent_id()].position[0] += distribution(this->random_generator);
+                        this->agents_[robot_pose.agent_id()].position[1] += distribution(this->random_generator);
+                        this->agents_[robot_pose.agent_id()].position[2] += distribution(this->random_generator);
                     }
 
                     // Set (ns-3) node position
                     Vector pos, vel;
-                    pos.x = this->agents[agent_index].position.x();
-                    pos.y = this->agents[agent_index].position.y();
-                    pos.z = this->agents[agent_index].position.z();
-                    vel.x = this->agents[agent_index].velocity.x();
-                    vel.y = this->agents[agent_index].velocity.y();
-                    vel.z = this->agents[agent_index].velocity.z();
-                    Ptr<ConstantVelocityMobilityModel> mobility = this->nodes.Get(agent_index)->GetObject<ConstantVelocityMobilityModel>();
+                    pos.x = this->agents_[robot_pose.agent_id()].position.x();
+                    pos.y = this->agents_[robot_pose.agent_id()].position.y();
+                    pos.z = this->agents_[robot_pose.agent_id()].position.z();
+                    vel.x = this->agents_[robot_pose.agent_id()].velocity.x();
+                    vel.y = this->agents_[robot_pose.agent_id()].velocity.y();
+                    vel.z = this->agents_[robot_pose.agent_id()].velocity.z();
+                    uint32_t node_index = this->agents_[robot_pose.agent_id()].node_container_index;
+                    Ptr<ConstantVelocityMobilityModel> mobility;
+                    {
+                        std::lock_guard<std::mutex> lock(this->nodes_mutex_);
+                        mobility = this->nodes.Get(node_index)->GetObject<ConstantVelocityMobilityModel>();
+                    }
                     mobility->SetPosition(pos);
                     mobility->SetVelocity(vel);
                 }
+                this->agents_mutex_.unlock();
             }
             else
             {
@@ -2161,6 +2443,9 @@ void Ns3Sim::Loop()
             {
                 this->updateNeighborsPathloss();
             }
+
+            // Update the applications installed on the Leaders. If a leader has reached its target area, it sends this information to the sink.
+            this->updateLeadersApplications();
 
             // Once all the events are scheduled, advance W time in the simulation and stop
             Simulator::Stop(step_size);
@@ -2194,6 +2479,16 @@ void Ns3Sim::Loop()
 
             RCLCPP_DEBUG(this->get_logger(), "Starting UpdateNetworkRviz.");
             this->DisplayNetworkRviz();
+
+            // // Print the current agents' IDs and corresponding ns-3 index, the real ns-3 index and the number of references to the pointer of the node:
+            // this->agents_mutex_.lock();
+            // RCLCPP_DEBUG(this->get_logger(), "Current agents:");
+            // for (const auto &[agent_id, agent] : this->agents_)
+            // {
+            //     RCLCPP_DEBUG(this->get_logger(), "Agent %d: ns-3 index %d ; real ns-3 index %d ; Refcount %d",
+            //                  agent_id, agent.node_container_index, this->nodes.Get(agent.node_container_index)->GetId(), this->nodes.Get(agent.node_container_index)->GetReferenceCount());
+            // }
+            // this->agents_mutex_.unlock();
 
             RCLCPP_DEBUG(this->get_logger(), "Generating response protobuf.");
             std::string response = gzip_compress(generateResponseProtobuf());
@@ -2266,23 +2561,6 @@ double Ns3Sim::costFunction(double dist, double r1, double c1)
     }
 }
 
-int Ns3Sim::GetAgentIndex(uint32_t agent_id)
-{
-    for (int i = 0; i < this->agents.size(); i++)
-    {
-        if (this->agents[i].id == agent_id)
-        {
-            if (!this->nodes.Get(i))
-            {
-                RCLCPP_FATAL(this->get_logger(), "Sink node %d exists in the simulation but has no associated ns-3 node. This should not happen!", agent_id);
-                exit(EXIT_FAILURE);
-            }
-            return i;
-        }
-    }
-    return -1;
-}
-
 /**
  * @brief Cost function
  *
@@ -2292,6 +2570,45 @@ double Ns3Sim::hybrid_dist_error_rate_cost_function(double dist, double r1, doub
 {
     return k1 * Ns3Sim::costFunction(dist, r1, c1) + k2 * exp(e1 * error_rate);
 }
+
+void Ns3Sim::printNodeAggregatedObjects(Ptr<ns3::Node> node)
+{
+    // Print all the objects aggregated to the Node
+    Object::AggregateIterator it = node->GetAggregateIterator();
+    RCLCPP_DEBUG_STREAM(this->get_logger(), "Aggregated objects on Node " << node->GetId() << ":");
+    // Iterate through the aggregated objects
+    while (it.HasNext())
+    {
+        Ptr<const Object> aggregatedObject = it.Next();
+        RCLCPP_DEBUG_STREAM(this->get_logger(), "  - TypeId: " << aggregatedObject->GetInstanceTypeId().GetName());
+    }
+}
+
+uint32_t Ns3Sim::getNodeIndexFromId(uint32_t nodeId)
+{
+    std::lock_guard<std::mutex> lock(this->agents_mutex_);
+    if (this->agents_.find(nodeId) == this->agents_.end())
+    {
+        RCLCPP_ERROR_STREAM(this->get_logger(), "Node " << nodeId << " not found in agents_");
+        return -1;
+    }
+    uint32_t idx = this->agents_[nodeId].node_container_index;
+    return idx;
+}
+
+Ptr<ns3::Node> Ns3Sim::getNodePtrFromIndex(uint32_t nodeIndex)
+{
+    std::lock_guard<std::mutex> lock(this->nodes_mutex_);
+    if (nodeIndex >= this->nodes.GetN())
+    {
+        RCLCPP_ERROR_STREAM(this->get_logger(), "Requested node index " << nodeIndex << " is out of bound for NodesContainer of size " << this->nodes.GetN() << ")");
+        return nullptr;
+    }
+    Ptr<ns3::Node> node_ptr = this->nodes.Get(nodeIndex);
+    return node_ptr;
+}
+
+
 
 /**
  * \brief The main function, spins the ROS2 Node

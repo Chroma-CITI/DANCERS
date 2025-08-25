@@ -10,6 +10,16 @@ struct AABB_t
     double z_max;
 };
 
+struct TargetArea_t
+{
+    int id;
+    float x;
+    float y;
+    float z;
+    bool is_sink;
+    std::vector<int> assigned_agents;
+};
+
 struct ns3_configuration_t
 {
     int seed;
@@ -47,6 +57,8 @@ struct ns3_configuration_t
     uint16_t mission_port;
     uint8_t mission_flow_id;
     uint32_t mission_timeout;
+
+    std::vector<TargetArea_t> target_areas;
 
     bool enable_stats_module;
 

@@ -71,6 +71,9 @@ class Sender : public Application
     uint32_t m_numPkts;                     //!< Number of packets to send.
     uint32_t m_flowId;                      //!< Flow Id tagged on the packet
 
+    uint32_t m_target_id;                   //!< The ID of the target assigned to this leader
+    bool m_in_target_area;                  //!< Flag indicating if the agent is in its target area
+
     Ptr<Socket> m_socket; //!< Sending socket.
     EventId m_sendEvent;  //!< Send packet event.
     uint64_t m_sent;      //!< Number of packets sent.
@@ -180,4 +183,34 @@ class myTimestampTag : public Tag
     Time m_timestamp; //!< Timestamp.
 
     // end class myTimestampTag
+};
+
+/**
+ * MissionHeader
+ */
+class MissionHeader : public Header
+{
+public:
+  MissionHeader();
+  ~MissionHeader() override;
+
+  /**
+   * \brief Get the type ID.
+   * \return The object TypeId.
+   */
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const override;
+  void Print(std::ostream& os) const override;
+  uint32_t GetSerializedSize() const override;
+  void Serialize(Buffer::Iterator start) const override;
+  uint32_t Deserialize(Buffer::Iterator start) override;
+
+  void SetInTargetArea(bool in_target_area);
+  bool GetInTargetArea() const;
+  void SetTargetId(uint32_t target_id);
+  uint32_t GetTargetId() const;
+
+private:
+  bool m_in_target_area;
+  uint32_t m_target_id;
 };
