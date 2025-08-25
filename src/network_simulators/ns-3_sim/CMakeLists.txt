@@ -39,13 +39,13 @@ ament_target_dependencies(standard_wifi_network
   rclcpp
   dancers_msgs)
 
-add_executable(wifi_flocking src/wifi_flocking.cpp
+add_executable(ns-3_sim src/ns-3_sim.cpp
   include/${PROJECT_NAME}/wifi-application.cpp 
   include/${PROJECT_NAME}/wifi-application.h
   include/${PROJECT_NAME}/flocking-application.cpp
   include/${PROJECT_NAME}/flocking-application.h
 )
-target_link_libraries(wifi_flocking
+target_link_libraries(ns-3_sim
   yaml-cpp
   ns3::libcore
   ns3::libwifi
@@ -63,7 +63,7 @@ target_link_libraries(wifi_flocking
   ns3::libcsma
   ns3::libtap-bridge
 )
-ament_target_dependencies(wifi_flocking
+ament_target_dependencies(ns-3_sim
   Boost 
   protobuf_msgs
   rclcpp
@@ -85,7 +85,7 @@ include_directories(../../_include_all)
 INSTALL(
   TARGETS 
   standard_wifi_network
-  wifi_flocking 
+  ns-3_sim 
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
