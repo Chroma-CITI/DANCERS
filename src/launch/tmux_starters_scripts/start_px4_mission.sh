@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# This file launches a tmux session that starts the right number of PX4 autopilots and corresponding Gazebo models (spawn_px4.bash) and 
+# a flocking control algorithm in the form of one ROS2 node by UAV (ROS2 package: multirobot_control ; node: VAT_neighbors)
+
 # FROM https://stackoverflow.com/questions/5014632/how-can-i-parse-a-yaml-file-from-a-linux-shell-script
 # I love people on the internet
 function parse_yaml {
