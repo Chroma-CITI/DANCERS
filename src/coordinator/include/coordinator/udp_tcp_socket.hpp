@@ -96,14 +96,15 @@ public:
     std::string receive_one_message() override
     {
         // Read Preamble
-        uint32_t data_preamble[4];
-        size_t length = socket_.receive(boost::asio::buffer(data_preamble, 4));
-        uint32_t receive_length = ntohl(*data_preamble);
+        uint32_t data_preamble;
+        boost::asio::read(socket_, boost::asio::buffer(&data_preamble, 4));
+        uint32_t receive_length = ntohl(data_preamble);
+
         // Read Message
-        char *data = new char[receive_length];
-        length = socket_.receive(boost::asio::buffer(data, receive_length));
-        std::string data_string(data, length);
-        return data_string;
+        std::string message(receive_length, 0); // Allocate string with correct size
+        boost::asio::read(socket_, boost::asio::buffer(&message[0], receive_length));
+
+        return message;
     }
     void close() override
     {
