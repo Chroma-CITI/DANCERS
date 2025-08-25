@@ -98,7 +98,7 @@ GridPathPlanner::Waypoint GridPathPlanner::getNextWaypoint(Eigen::Vector3d agent
     {
         // Return the agent position if the planner fails to produce a plan.
         // TODO add a mechanism to indicate the planner caller that the plan failed.
-        std::cout<<"Planning failed: path planning will give a stationnary command"<<std::endl;
+        std::cout<<"Planning failed: path planning will give a stationary command"<<std::endl;
         waypoint.position = agent_position;
     }
 

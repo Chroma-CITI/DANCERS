@@ -59,7 +59,7 @@ public:
 
         this->secondary_objectives = getAgentSecondaryObjective(config);
 
-        // Initialize the
+        // Initialize the occupancy grid and planner
         occupancyGridAndPlannerInitialization(config, obstacles_, secondary_objectives);
 
         for (auto i : this->secondary_objectives)

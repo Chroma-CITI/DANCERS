@@ -88,7 +88,7 @@ class AgentStructSaver : public rclcpp::Node
             for (int i=0; i < config["robots_number"].as<int>(); i++)
             {
                 std::string agent_file = this->out_folder_name + "/agent_"+std::to_string(i) + ".csv";
-                this->agent_output_files.push_back(agent_file);
+                this->agent_output_files[i] = agent_file;
                 std::ofstream out_file;
                 // initialize the output file with headers
                 out_file.open(agent_file.c_str(), std::ios::out);
@@ -116,7 +116,7 @@ class AgentStructSaver : public rclcpp::Node
     void agent_struct_array_callback(const dancers_msgs::msg::AgentStructArray & msg);
     std::string out_folder_name;
     std::string ros_ws_path;
-    std::vector<std::string> agent_output_files;
+    std::map<uint32_t, std::string> agent_output_files;
 
     rclcpp::Time simEndTime;
     rclcpp::Subscription<rosgraph_msgs::msg::Clock>::SharedPtr clock_sub_;
@@ -135,6 +135,26 @@ void AgentStructSaver::agent_struct_array_callback(const dancers_msgs::msg::Agen
 
     for (auto agent_struct : msg.structs)
     {
+        // Verify that we know the agent
+        if (this->agent_output_files.find(agent_struct.agent_id) == this->agent_output_files.end())
+        {
+            RCLCPP_WARN(this->get_logger(), "Unknown agent id : %d. Creating file for it.", agent_struct.agent_id);
+            // Create a file for this agent
+            std::string agent_file = this->out_folder_name + "/agent_" + std::to_string(agent_struct.agent_id) + ".csv";
+            this->agent_output_files[agent_struct.agent_id] = agent_file;
+
+            // Initialize the output file with headers
+            std::ofstream out_file;
+            out_file.open(agent_file.c_str(), std::ios::out);
+            out_file << "timestamp,agent_role,agent_id,x,y,z,vx,vy,vz,heading,heartbeat_received,heartbeat_sent,";
+            for (int j=0; j < msg.structs.size()-1; j++)
+            {
+                out_file << "neighId" << j << ",neighPathloss" << j << ",neighRole" << j << ",";
+            }
+            out_file << std::endl;
+            out_file.close();
+        }
+
         std::ofstream out_file;
         out_file.open(this->agent_output_files[agent_struct.agent_id].c_str(), std::ios_base::app);
         

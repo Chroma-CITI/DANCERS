@@ -55,6 +55,12 @@ class OccupancyGrid2D
         OccupancyGrid2D(const Eigen::Vector3d& origin, const Eigen::Vector3d& opposite_corner, const float cell_side_size, const float obstacle_inflation = 0.0f, CellStatus init_cell_status=CellStatus::Unknown);
 
         /**
+         * @brief Constructor that builds an occupancy grid from a nav_msgs::msg::OccupancyGrid message.
+         * @param occupancy_grid_msg The ROS message to convert to an occupancy grid.
+         */
+        OccupancyGrid2D(const nav_msgs::msg::OccupancyGrid& occupancy_grid_msg);
+
+        /**
          * @brief Returns the maximum x and y coordinatees of the occupancy grid.
          * @return Coordinates.
          */

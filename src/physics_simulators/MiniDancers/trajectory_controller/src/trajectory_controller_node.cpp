@@ -123,6 +123,11 @@ private:
             command.velocity.y = a * (cos(w * t) * cos(w * t) - sin(w * t) * sin(w * t));
             command.velocity.z = 0.0;
         }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "Trajectory shape not implemented yet.");
+            exit(EXIT_FAILURE);
+        }
 
         for (std::size_t i = 0; i < request->agent_structs.size(); i++)
         {

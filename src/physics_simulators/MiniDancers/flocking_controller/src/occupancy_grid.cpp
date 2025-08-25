@@ -29,6 +29,39 @@ OccupancyGrid2D::OccupancyGrid2D(const Eigen::Vector3d& origin,
     grid_ = std::vector<std::vector<Cell_t>>(cell_count_x, std::vector<Cell_t>(cell_count_y, init_cell));
 }
 
+OccupancyGrid2D::OccupancyGrid2D(const nav_msgs::msg::OccupancyGrid& occupancy_grid_msg)
+{
+    map_origin_ = Eigen::Vector3d(occupancy_grid_msg.info.origin.position.x, occupancy_grid_msg.info.origin.position.y, occupancy_grid_msg.info.origin.position.z);
+    cell_side_size_ = occupancy_grid_msg.info.resolution;
+
+    grid_ = std::vector<std::vector<Cell_t>>(occupancy_grid_msg.info.width, std::vector<Cell_t>(occupancy_grid_msg.info.height));
+
+    for (int x = 0; x < occupancy_grid_msg.info.width; x++)
+    {
+        for (int y = 0; y < occupancy_grid_msg.info.height; y++)
+        {
+            int index = x + y * occupancy_grid_msg.info.width;
+            if (occupancy_grid_msg.data[index] == 1)
+            {
+                grid_[x][y].status = CellStatus::Occupied;
+            }
+            else if (occupancy_grid_msg.data[index] == 0)
+            {
+                grid_[x][y].status = CellStatus::Free;
+            }
+            else if (occupancy_grid_msg.data[index] == 100)
+            {
+                grid_[x][y].status = CellStatus::Inflated;
+            }
+            else
+            {
+                grid_[x][y].status = CellStatus::Unknown;
+            }
+        }
+    }
+}
+
+
 std::optional<int> OccupancyGrid2D::getIndexFromDistance(const float distance, Axis axis)
 {
     int cell_index = static_cast<int>(distance/cell_side_size_);

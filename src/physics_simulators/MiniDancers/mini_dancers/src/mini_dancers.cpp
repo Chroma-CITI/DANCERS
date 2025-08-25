@@ -138,7 +138,7 @@ public:
             int i = 1;
             while (this->m_collisions_file.empty())
             {
-                temp_path = ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
+                temp_path = ros_ws_path + "/data/" + experience_name + "/collisions_run_" + std::to_string(i) + ".csv";
                 if (boost::filesystem::exists(temp_path))
                 {
                     i++;
@@ -413,7 +413,7 @@ void MiniDancers::update_target_clbk(dancers_msgs::msg::Target msg)
             RCLCPP_WARN(this->get_logger(), "Agent %d does not exist, skipping assignment of its secondary objective.", agent_id);
         }
     }
-    RCLCPP_INFO(this->get_logger(), "Updated target %d at (%f,%f,%f).", msg.target_id, target.position.x(), target.position.y(), target.position.z());
+    RCLCPP_DEBUG(this->get_logger(), "Updated target %d at (%f,%f,%f).", msg.target_id, target.position.x(), target.position.y(), target.position.z());
 }
 
 void MiniDancers::spawn_uav_clbk(dancers_msgs::msg::AgentStruct msg)
@@ -449,6 +449,12 @@ void MiniDancers::uav_failure_clbk(std_msgs::msg::UInt32 msg)
 {
     // CTU's uav_system has a "crash" feature, use it in case of failure.
     std::lock_guard<std::mutex> lock(this->uavs_mutex);
+    // verify that the UAV is known:
+    if (this->uavs.find(msg.data) == this->uavs.end())
+    {
+        RCLCPP_ERROR(this->get_logger(), "UAV with ID %d does not exist, cannot crash it.", msg.data);
+        return;
+    }
     this->uavs[msg.data].uav_system.crash();
     RCLCPP_INFO(this->get_logger(), "UAV %d has crashed.", msg.data);
 }
@@ -553,8 +559,6 @@ void MiniDancers::ApplyUavCollisions()
 {
     const double EPSILON = 1e-9;
     const double restitution_coefficient = 1.0;
-    const double K_agent_penetration_force = this->K_agent_penetration_force;
-    const double K_agent_restitution_force = this->K_agent_restitution_force;
 
     for (size_t i = 0; i < this->uavs.size(); i++)
     {
@@ -562,83 +566,73 @@ void MiniDancers::ApplyUavCollisions()
         {
             agent_t& agent1 = this->uavs[i];
             agent_t& agent2 = this->uavs[j];
-            const double agent_mass = 1.0;
+
+            const double agent_mass = agent1.uav_system.getParams().mass;
 
             // 1. Calculate the vector connecting the centers of the two agents.
-            Eigen::Vector3d delta_pos = agent1.uav_system.getState().x - agent2.uav_system.getState().x;
+            Eigen::Vector3d delta_pos = agent2.uav_system.getState().x - agent1.uav_system.getState().x;
 
-            // 2. Calculate the squared distance between the agent centers.
-            double distance_sq = delta_pos.squaredNorm();
-            // Calculate the sum of their radii squared.
-            double sum_radii = this->agent_radius + this->agent_radius;
-            double sum_radii_sq = sum_radii * sum_radii;
+            double distance = delta_pos.norm();
+            double minDist = this->agent_radius + this->agent_radius;
 
-            // 3. Check for collision: Collision occurs if the squared distance between centers
-            //    is less than the squared sum of their radii.
-            if (distance_sq < sum_radii_sq) {
-                double distance = std::sqrt(distance_sq); // Actual distance between centers
+            if (distance >= minDist) return; // No collision
 
-                // --- Determine the Collision Normal ---
-                // The collision normal points from agent2 to agent1.
-                Eigen::Vector3d collision_normal;
-                if (distance < EPSILON) {
-                    // If agents are exactly at the same position, use a default normal
-                    // or a more sophisticated method if needed (e.g., random, or based on relative velocity).
-                    // For simplicity, we'll use a unit X vector as a fallback, but this might not be ideal.
-                    collision_normal = Eigen::Vector3d::UnitX();
-                } else {
-                    collision_normal = delta_pos.normalized(); // Normalize the vector to get the direction
-                }
-
-                // --- Calculate Penetration Depth ---
-                // How far the agents are overlapping.
-                double penetration_depth = sum_radii - distance;
-
-                Eigen::Vector3d total_collision_force_on_agent1 = Eigen::Vector3d::Zero();
-                Eigen::Vector3d total_collision_force_on_agent2 = Eigen::Vector3d::Zero();
-
-                // --- Component 1: Penetration Force (Spring Force Model) ---
-                // Applies a force to push agents out of overlap, proportional to penetration depth.
-                // This replaces the direct position correction. The force is applied equally
-                // and oppositely, and the effect on each agent's acceleration will naturally
-                // be inversely proportional to its mass via agent.applyForce().
-                if (penetration_depth > EPSILON) {
-                    Eigen::Vector3d penetration_force = K_agent_penetration_force * penetration_depth * collision_normal;
-                    total_collision_force_on_agent1 += penetration_force;
-                    total_collision_force_on_agent2 -= penetration_force;
-                }
-
-                // --- Component 2: Restitution Force (for elastic bounce) ---
-                // This force modifies velocities to simulate a bounce.
-                // It aims to reverse the relative velocity along the collision normal.
-                Eigen::Vector3d relative_velocity = agent1.uav_system.getState().v - agent2.uav_system.getState().v;
-                double normal_relative_velocity = relative_velocity.dot(collision_normal);
-
-                // Only apply impulse if agents are moving towards each other.
-                if (normal_relative_velocity < 0) {
-                    // --- Calculate Impulse Magnitude ---
-                    // Impulse formula for elastic collision:
-                    // J = -(1 + e) * (v_rel . n) / (1/m1 + 1/m2)
-                    // Where:
-                    // e = coefficient of restitution (1.0 for perfectly elastic)
-                    // v_rel = relative velocity
-                    // n = collision normal
-                    // m1, m2 = masses of agents
-                    Eigen::Vector3d restitution_force_component =
-                        -(1.0 + restitution_coefficient) * K_agent_restitution_force * normal_relative_velocity * collision_normal;
-
-                    total_collision_force_on_agent1 += restitution_force_component;
-                    total_collision_force_on_agent2 -= restitution_force_component;
-
-                }
-                agent1.uavs_collisions += 1;
-                agent2.uavs_collisions += 1;
-
-                // Apply the impulse forces. Agent1 gets a force in the normal direction,
-                // Agent2 gets an equal and opposite force.
-                agent1.uav_system.applyForce(total_collision_force_on_agent1);
-                agent2.uav_system.applyForce(total_collision_force_on_agent2); // Newton's third law: equal and opposite reaction
+            // --- Determine the Collision Normal ---
+            // The collision normal points from agent2 to agent1.
+            Eigen::Vector3d collision_normal;
+            if (distance < EPSILON) {
+                // If agents are exactly at the same position, use a default normal
+                // For simplicity, we'll use a unit X vector as a fallback.
+                collision_normal = Eigen::Vector3d::UnitX();
+            } else {
+                collision_normal = delta_pos.normalized(); // Normalize the vector to get the direction
             }
+
+            // --- Calculate Penetration Depth ---
+            // How far the agents are overlapping.
+            double penetration_depth = minDist - distance;
+
+            Eigen::Vector3d penetration_force_1 = Eigen::Vector3d::Zero();
+            Eigen::Vector3d penetration_force_2 = Eigen::Vector3d::Zero();
+
+            // --- Component 1: Penetration Force (Spring Force Model) ---
+            // Applies a force to push agents out of overlap, proportional to penetration depth.
+            // This replaces the direct position correction. The force is applied equally
+            // and oppositely, and the effect on each agent's acceleration will naturally
+            // be inversely proportional to its mass via agent.applyForce().
+            if (penetration_depth > EPSILON) {
+                Eigen::Vector3d penetration_force = K_agent_penetration_force * penetration_depth * collision_normal;
+                penetration_force_1 += penetration_force;
+                penetration_force_2 -= penetration_force;
+            }
+    
+            double agent1_velocity_along_normal = agent1.uav_system.getState().v.dot(collision_normal);
+            double agent2_velocity_along_normal = agent2.uav_system.getState().v.dot(collision_normal);
+            
+            std::cout << "Agent1:\n  Velocity: " << agent1.uav_system.getState().v.transpose() << "\n  Velocity(normal): "  << agent1_velocity_along_normal << std::endl;
+            std::cout << "Agent2:\n  Velocity: " << agent2.uav_system.getState().v.transpose() << "\n  Velocity(normal): "  << agent2_velocity_along_normal << std::endl;
+
+            // Only process if spheres are moving toward each other
+            if (agent1_velocity_along_normal >= agent2_velocity_along_normal) return;
+
+            // Compute impulse assuming unit mass
+            double impulseMag = this->K_agent_restitution_force * (agent2_velocity_along_normal - agent1_velocity_along_normal);
+            Eigen::Vector3d impulse = impulseMag * collision_normal;
+
+            // Convert impulse to force: F = J / dt
+            Eigen::Vector3d force = impulse / this->step_size;
+
+            agent1.uavs_collisions += 1;
+            agent2.uavs_collisions += 1;
+
+            RCLCPP_INFO(this->get_logger(), "Agents %d and %d collide! (dist=%f)\n    [%d]: %d\n    [%d]: %d\n    (%f,%f,%f)", agent1.id, agent2.id, distance,
+            agent1.id, agent1.uavs_collisions, 
+            agent2.id, agent2.uavs_collisions,
+            force.x(), force.y(), force.z());
+            // Apply the impulse forces.
+            // Agent2 gets an equal and opposite force.
+            agent1.uav_system.applyForce(force  + penetration_force_1);
+            agent2.uav_system.applyForce(-force + penetration_force_2); // Newton's third law: equal and opposite reaction
         }
     }
 }
@@ -736,6 +730,7 @@ void MiniDancers::ApplyObstacleCollisions()
                 }
 
                 agent.obstacles_collisions += 1;
+                RCLCPP_INFO(this->get_logger(), "[%d] Obstacle collision! #collisions=%d", agent.id, agent.obstacles_collisions);
                 agent.uav_system.applyForce(total_collision_force);
             }
         }
@@ -1262,7 +1257,7 @@ void MiniDancers::GetCommands(dancers_update_proto::DancersUpdate &network_updat
     }
     else
     {
-        RCLCPP_WARN(this->get_logger(), "Received an empty DancersUpdate message !");
+        RCLCPP_DEBUG(this->get_logger(), "Received an empty DancersUpdate message !");
     }
 }
 
@@ -1429,6 +1424,12 @@ void MiniDancers::Loop()
             //     workers[i].join();
             // }
             // workers.clear();
+            
+            // reset the external force
+            for (auto& uav : this->uavs)
+            {        
+                uav.second.uav_system.applyForce(Eigen::Vector3d::Zero());
+            }
 
             this->ApplyObstacleCollisions();
 
