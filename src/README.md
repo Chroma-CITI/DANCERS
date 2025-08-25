@@ -21,8 +21,8 @@ Most of the important code of DANCERS is written as C++ ROS2 Nodes. If you are n
 - **network_simulators/ns-3_sim** : The code for the network part of the simulation, with ns-3.
 - **physics_simulators/Gazebo** : The code for the physics part of the simulation, with Gazebo.
 - **physics_simulators/MiniDancers** : The code for the physics part of the simulation, with MiniDancers.
-- **physics_simulators/RobotSim** : The code for the physics part of the simulation, with RobotSim.
 - **dancers_msgs** : A package with the custom ROS2 messages used in DANCERS. 
+- **\[UNMAINTAINED\] physics_simulators/RobotSim** : The code for the physics part of the simulation, with RobotSim.
 
 
 ## Installation and tutorial
