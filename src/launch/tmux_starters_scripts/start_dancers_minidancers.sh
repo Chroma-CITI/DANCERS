@@ -7,7 +7,7 @@
 # session_id=$((num_sessions + 1))
 
 if [[ $# -lt 5 ]]; then
-    echo -e "Illegal number of parameters.\nUsage :\n\t \e[35m./src/launch/tmux_scripts/start_dancers_minidancers.sh <path_to_config_file> <net_sim_pkg_name> <net_sim_node_name> <phy_sim_pkg_name> <phy_sim_node_name> <controller_pkg_name> <controller_node_name>\e[0m\n\nIf ROS2 nodes refuse to launch, verify that you have source'd your ROS2 ws : \"source install/setup.[bash,zsh]\""
+    echo -e "Illegal number of parameters.\nUsage :\n\t \e[35m./src/launch/tmux_starters_scripts/start_dancers_minidancers.sh <path_to_config_file> <net_sim_pkg_name> <net_sim_node_name> <phy_sim_pkg_name> <phy_sim_node_name> <controller_pkg_name> <controller_node_name>\e[0m\n\nIf ROS2 nodes refuse to launch, verify that you have source'd your ROS2 ws : \"source install/setup.[bash,zsh]\""
     exit 2
 fi
 

@@ -39,13 +39,13 @@ tmux set remain-on-exit on
 
 window=0
 tmux rename-window -t $session:$window 'dancers'
-tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim ns3_sim_pseudo_routing --ros-args -p config_file:=$config_path -p cosim_mode:=true -p use_sim_time:=true"
+tmux split-window -t $session:$window -v -d "ros2 run ns-3_sim ns-3_sim --ros-args -p config_file:=$config_path -p cosim_mode:=true -p use_sim_time:=true"
 tmux split-window -t $session:$window -h "ros2 run coordinator coordinator --ros-args -p config_file:=$config_path -p use_sim_time:=true"
 # tmux select-pane -t $session:$window.2
 # tmux split-window -t $session:$window -h -d "gz sim -g"
 
-gnome-terminal -- $path_to_ros2_ws/src/launch/tmux_scripts/start_px4_mission.sh $config_path
-pid_term=$!
+# gnome-terminal -- $path_to_ros2_ws/src/launch/tmux_starters_scripts/start_px4_mission.sh $config_path
+# pid_term=$!
 
 # window=1
 # tmux set remain-on-exit on
