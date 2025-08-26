@@ -23,10 +23,9 @@
 #include <gz/msgs.hh>
 #include <gz/transport.hh>
 
-#include "protobuf_msgs/physics_update.pb.h"
-#include "protobuf_msgs/network_update.pb.h"
-#include "protobuf_msgs/robots_positions.pb.h"
-#include "protobuf_msgs/ordered_neighbors.pb.h"
+#include <protobuf_msgs/dancers_update.pb.h>
+#include <protobuf_msgs/ordered_neighbors.pb.h>
+#include <protobuf_msgs/pose_vector.pb.h>
 
 // ROS2 messages
 #include <nav_msgs/msg/odometry.hpp>
@@ -38,6 +37,8 @@
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
+
+#include <time_probe.hpp>
 
 #include <yaml-cpp/yaml.h>
 
@@ -77,61 +78,6 @@ static std::string gzip_decompress(const std::string &data)
     boost::iostreams::copy(in, decompressed);
 
     return decompressed.str();
-}
-
-/**
- * \brief Generate a protobuf_msgs/ChannelData protobuf message holding information to be passed from the robotics to the network simulator.
- *
- * \param robot_poses A map of the robot's name and its absolute Pose in Gazebo.
- * \return A string-serialize [RobotsPositions] protobuf message holding positions of the robots.
- */
-std::string generate_robots_positions(const std::map<std::string, gz::msgs::Pose> robot_poses)
-{
-    robots_positions_proto::RobotsPositions RobotsPositions_msg;
-
-    for (const auto &robot : robot_poses)
-    {
-        gz::msgs::Vector3d pos = robot.second.position();
-        gz::msgs::Quaternion quat = robot.second.orientation();
-        robots_positions_proto::RobotPose *RobotPose_msg = RobotsPositions_msg.add_robot_pose();
-        RobotPose_msg->set_x(pos.x());
-        RobotPose_msg->set_y(pos.y());
-        RobotPose_msg->set_z(pos.z());
-        RobotPose_msg->set_qw(quat.w());
-        RobotPose_msg->set_qx(quat.x());
-        RobotPose_msg->set_qy(quat.y());
-        RobotPose_msg->set_qz(quat.z());
-    }
-
-    std::string RobotsPositions_string;
-    RobotsPositions_msg.SerializeToString(&RobotsPositions_string);
-
-    return RobotsPositions_string;
-}
-
-/**
- * \brief Generates the final protobuf message of protobuf_msgs/PhysicsUpdate.
- *
- * Usually, this function will be passed an empty [PhysicsUpdate] protobuf message with message-type BEGIN.
- * It will fill the message with the (compressed) robots_positions for the current simulation window,
- * change the message-type to END, string-serialize the protobuf message and return it.
- *
- * \param robots_positions A std::string which is a string-serialized ChannelData protobuf message.
- * \param physics_update_msg A protobuf message of type PhysicsUpdate. Usually it is an empty message with type BEGIN, this function will fill the message and
- */
-std::string GenerateResponseProtobuf(std::string robots_positions)
-{
-    // Change message's type to END
-    physics_update_proto::PhysicsUpdate physics_update_msg;
-    physics_update_msg.set_msg_type(physics_update_proto::PhysicsUpdate::END);
-    // Fill the channel_data field with the compressed data from the physics simulation
-    physics_update_msg.set_robots_positions(gzip_compress(robots_positions));
-    // Transform the response [protobuf] --> [string]
-    std::string str_response;
-    physics_update_msg.SerializeToString(&str_response);
-    str_response = gzip_compress(str_response);
-
-    return str_response;
 }
 
 /**
@@ -204,28 +150,29 @@ bool check_network_setup(std::string ip_address)
     return false;
 }
 
-class RoboticsCoordinator : public rclcpp::Node
+class GazeboConnector : public rclcpp::Node
 {
 public:
-    RoboticsCoordinator() : Node("robotics_coordinator")
+    GazeboConnector() : Node("gazebo_connector")
     {
-        // Declare two parameters for this ros2 node
+        /* ----------- Read Configuration file ----------- */
+
+        // Declare the config_file ROS2 parameter
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
         param_desc.description = "Path to the YAML configuration file.";
         this->declare_parameter("config_file", "", param_desc);
-        param_desc.description = "Executes in co-simulation or ns-3 only.";
+        param_desc.description = "Executes in co-simulation or mini-dancers only.";
         this->declare_parameter("cosim_mode", true, param_desc);
-        this->declare_parameter("verbose", false);
+
+        this->cosim_mode = this->get_parameter("cosim_mode").get_parameter_value().get<bool>();
 
         // Fetch the parameter path to the config file using ros2 parameter
         std::string config_file_path = this->get_parameter("config_file").get_parameter_value().get<std::string>();
-        bool cosim_mode = this->get_parameter("cosim_mode").get_parameter_value().get<bool>();
-        bool verbose = this->get_parameter("verbose").get_parameter_value().get<bool>();
 
         // Verify existence of the config file, abort if not found
         if (access(config_file_path.c_str(), F_OK) != 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "The config file was not found at : %s\nA config file must be given in the launch file.", config_file_path.c_str());
+            RCLCPP_ERROR(this->get_logger(), "The config file was not found at : %s", config_file_path.c_str());
             exit(EXIT_FAILURE);
         }
 
@@ -241,7 +188,7 @@ public:
         }
 
         // Parse the config file
-        YAML::Node config = YAML::LoadFile(config_file_path);
+        this->config = YAML::LoadFile(config_file_path);
 
         // ========================= COMPUTATION TIME SAVING =========================
         this->save_compute_time = config["save_compute_time"].as<bool>();
@@ -263,25 +210,29 @@ public:
             // Define the output file name, based on the existing files in the experience folder (incremental)
             std::string temp_path;
             int i = 1;
-            while (m_computation_time_file.empty())
+            while (this->m_computation_time_file.empty())
             {
-                temp_path = this->ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
+                temp_path = ros_ws_path + "/data/" + experience_name + "/physics" + std::to_string(i) + ".csv";
                 if (boost::filesystem::exists(temp_path))
                 {
                     i++;
                 }
                 else
                 {
-                    m_computation_time_file = temp_path;
+                    this->m_computation_time_file = temp_path;
                 }
             }
 
             // initialize the output file with headers
-            this->compute_time_output.open(m_computation_time_file.c_str(), std::ios::out);
-            this->compute_time_output << "Time[us]"
-                    << std::endl;
-            this->compute_time_output.close();
+            this->probe = WallTimeProbe(this->m_computation_time_file);
         }
+
+        /* ----------- Configuration file parsing ----------- */
+
+        this->it = 0;
+        this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
+        this->it_end_sim = uint64_t(simulation_length / this->step_size);
+
 
         // Store the names of the robots in gazebo in a vector
         std::vector<std::string> gazebo_models;
@@ -355,19 +306,20 @@ public:
 
 
         // Store the system values
-        this->sync_window = config["sync_window"].as<int>();
-        this->step_length = config["phy_step_size"].as<int>(); // us
         int update_rate = config["update_rate"].as<int>();
 
-        this->current_sim_time = rclcpp::Time(0);
-        this->simulation_length = rclcpp::Time(config["simulation_length"].as<int64_t>() * 1e9);    // from s to ns
-
-        if (sync_window % step_length != 0)
+        int sync_window_int = config["sync_window"].as<int>();
+        int step_size_int = config["phy_step_size"].as<int>();
+        if (sync_window_int % step_size_int != 0)
         {
-            RCLCPP_FATAL(this->get_logger(), "Sync window must be a multiple of the physics step size, aborting.");
+            RCLCPP_FATAL(this->get_logger(), "Sync window must be a multiple of the network step size, aborting.");
             exit(EXIT_FAILURE);
         }
-        uint64_t steps_per_window = sync_window / step_length;
+        this->sync_window = sync_window_int / 1000000.0f;   // us to s
+        this->step_size = step_size_int / 1000000.0f;       // us to s
+        this->it = 0;
+        this->simulation_length = config["simulation_length"].as<double>();
+        this->it_end_sim = uint64_t(simulation_length / this->step_size);
 
         /******** [Step 1] Set-up and start the Gazebo simulation server ********/
 
@@ -383,7 +335,7 @@ public:
         serverConfig.SetUpdateRate(update_rate); // in Hz
 
         // Instantiate server
-        gz::sim::Server server(serverConfig);
+        this->server_ptr = std::make_unique<gz::sim::Server>(serverConfig);
 
         RCLCPP_INFO(this->get_logger(), "Gazebo server started.");
 
@@ -460,10 +412,7 @@ public:
 
             req.set_sdf(buildingSdf);
 
-            if (verbose)
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
-            }
+            RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
 
             executed = node.Request(service, req, timeout, respo, result);
             check_service_results(service, executed, result);
@@ -475,10 +424,10 @@ public:
 
         for (auto secondary_objective : config["secondary_objectives"])
         {
-            std::string name = "objective_robot_" + std::to_string(secondary_objective.first.as<uint32_t>());
-            int32_t x = secondary_objective.second[0].as<int32_t>();
-            int32_t y = secondary_objective.second[1].as<int32_t>();
-            int32_t z = secondary_objective.second[2].as<int32_t>();
+            std::string name = "objective_robot_" + std::to_string(secondary_objective["id"].as<uint32_t>());
+            float x = secondary_objective["position"]["x"].as<float>();
+            float y = secondary_objective["position"]["y"].as<float>();
+            float z = secondary_objective["position"]["z"].as<float>();
             std::string objectiveSdf = R"(
                     <?xml version="1.0" ?>
                     <sdf version='1.7'>
@@ -507,10 +456,7 @@ public:
 
             req.set_sdf(objectiveSdf);
 
-            if (verbose)
-            {
-                RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
-            }
+            RCLCPP_DEBUG(this->get_logger(), "Request creation of entity : \n%s", req.DebugString().c_str());
 
             executed = node.Request(service, req, timeout, respo, result);
             check_service_results(service, executed, result);
@@ -526,15 +472,9 @@ public:
         service = "/world/" + world_name + "/set_physics";
         gz::msgs::Physics request;
         gz::msgs::Boolean res;
-        request.set_max_step_size((double)this->step_length * 0.000001); // step_length in us, converted to seconds
+        request.set_max_step_size(this->step_size); // step_size is in seconds
         executed = node.Request(service, request, timeout, res, result);
         check_service_results(service, executed, result);
-
-        // Map holding the robots' names and Pose information and associated mutex
-        std::map<std::string, gz::msgs::Pose> robot_poses;
-        std::map<std::string, gz::msgs::Odometry> robot_odom;
-        std::mutex rob_pos_mutex;
-        std::mutex rob_odom_mutex;
 
         // Callback to the pose/info subscriber. Its role is to fill the robot_poses map
         std::function<void(const gz::msgs::Pose_V &)> cbPoseInfo =
@@ -548,7 +488,13 @@ public:
                 // filter the entities given by the topic "/world/<world_name>/pose/info" with the gazebo_names given in the config file
                 if (std::find(gazebo_models.begin(), gazebo_models.end(), entity_name) != gazebo_models.end())
                 {
-                    robot_poses[entity_name] = _msg.pose(i);
+                    try{
+                        uint32_t robot_id = std::stoi(entity_name.substr(entity_name.find_last_of('_') + 1));
+                        this->robot_poses[robot_id] = _msg.pose(i);
+                    }
+                    catch (const std::invalid_argument& e) {
+                        RCLCPP_ERROR(this->get_logger(), "Failed to find the robot id in the entity name of the robot: %s", entity_name.c_str());
+                    }
                 }
             }
         };
@@ -560,144 +506,195 @@ public:
             RCLCPP_INFO(this->get_logger(), "Subscribed to /world/%s/pose/info", world_name.c_str());
         }
 
-        if (cosim_mode)
-        {
-            // **************** UDS SOCKET FOR PHYSICS COORDINATOR ****************
-            // Create and connect UDS Socket
-            Socket *socket;
-            boost::asio::io_context io_context;
-            if (config["phy_use_uds"].as<bool>())
-            {
-                socket = new UDSSocket(io_context);
-                socket->accept(config["phy_uds_server_address"].as<std::string>(), 0);
-            }
-            else
-            {
-                socket = new TCPSocket(io_context);
-                socket->accept(config["phy_ip_server_address"].as<std::string>(), config["phy_ip_server_port"].as<unsigned short>());
-            }
+        /******** [Step 3] Main simulation loop ********/
+        this->Loop();
 
-            /******** [Step 3] Main simulation loop ********/
-            double sim_time = 0.0;
-
-            while (this->current_sim_time < this->simulation_length || this->simulation_length == rclcpp::Time(0.0))
-            {
-                // std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-                // Wait until reception of a message on the UDS socket
-                std::string received_data = gzip_decompress(socket->receive_one_message());
-                // std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
-                // int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-                // if(wait != 0)
-                //     RCLCPP_WARN(this->get_logger(), "Received %li bytes in %li microseconds", received_data.size(), wait);
-
-                // Initialize empty protobuf message type [NetworkUpdate]
-                network_update_proto::NetworkUpdate network_update_msg;
-                // Transform the message received from the UDS socket (string -> protobuf)
-                network_update_msg.ParseFromString(received_data);
-
-                if(!network_update_msg.ordered_neighbors().empty())
-                {
-
-                    ordered_neighbors_proto::OrderedNeighborsList neighbors_list_msg;
-                    neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.ordered_neighbors()));
-
-                    // std::cout << neighbors_list_msg.DebugString() << std::endl;
-
-                    // convert the received protobuf message to ROS2 messages and publish them on separate topics
-                    for (int i = 0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
-                    {
-                        dancers_msgs::msg::NeighborArray msg{};
-                        int agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
-                        for (int j = 0; j < neighbors_list_msg.ordered_neighbors(i).neighborid_size(); j++)
-                        {
-                            dancers_msgs::msg::Neighbor neighbor{};
-                            neighbor.agent_id = neighbors_list_msg.ordered_neighbors(i).neighborid(j) + 1;                // ATTENTION: here we add 1 to the agent IDs because we want the IDs to start at 1 when using Gazebo, because the PX4 works with instance numbers starting at 1 !
-                            neighbor.link_quality = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
-                            msg.neighbors.push_back(neighbor);
-                        }
-                        this->neighbors_pub_vector_[agent_id]->publish(msg);
-                    }
-                }
-                else
-                {
-                    RCLCPP_DEBUG(this->get_logger(), "Received a BEGIN message but empty neighbor information from the network simulator.");
-                }
-
-                std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-                // Advance the server in this thread (blocking) for W iterations, pause at the end
-                server.Run(true /*blocking*/, 1 /*iterations*/, false /*paused*/);
-                if (this->save_compute_time)
-                {
-                    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
-                    int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(); // us
-                    this->compute_time_output.open(m_computation_time_file.c_str(), std::fstream::app);
-                    this->compute_time_output << wait << "\n";
-                    this->compute_time_output.close();
-                }
-
-                if (verbose)
-                {
-                    // 34 = Blue :)
-                    RCLCPP_INFO(this->get_logger(), "\x1b[34m[%f] Advanced %i milliseconds\x1b[0m", sim_time, this->sync_window / 1000);
-                }
-
-                // generate the channel_data message from the pose of the robots
-                rob_pos_mutex.lock();
-                std::string robots_positions = generate_robots_positions(robot_poses);
-                rob_pos_mutex.unlock();
-
-                // Generate the response message
-                std::string response = GenerateResponseProtobuf(robots_positions);
-
-                // Send the response in the UDS socket
-                socket->send_one_message(response);
-
-                this->current_sim_time += std::chrono::microseconds(this->step_length);
-
-            }
-        }
-        else 
-        {
-            std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-
-            server.Run();
-
-            if (this->save_compute_time)
-            {
-                std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
-                int64_t wait = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(); // us
-                this->compute_time_output.open(m_computation_time_file.c_str(), std::fstream::app);
-                this->compute_time_output << wait << "\n";
-                this->compute_time_output.close();
-            }
-        }
-        RCLCPP_INFO(this->get_logger(), "Simulation finished");
-        exit(EXIT_SUCCESS);
     }
 
 private:
-    // saving of computation time
-    bool save_compute_time;
-    std::chrono::system_clock::time_point previous_end_time;
-    std::string m_computation_time_file;
-    std::ofstream compute_time_output;
+    /* Time and iteration counters */
+    double sync_window;                     // s
+    double step_size;                       // s
+    double simulation_length;               // s
+    uint64_t it;
+    uint64_t it_end_sim;
 
-    int step_length;
-    int sync_window;
+    // Map holding the robots' names and Pose information and associated mutex
+    std::map<uint32_t, gz::msgs::Pose> robot_poses;
+    std::mutex rob_pos_mutex;
 
-    rclcpp::Time current_sim_time;
-    rclcpp::Time simulation_length;
-
-    // ros2 publishers
+    /* Publishers */
     std::vector< rclcpp::Publisher<dancers_msgs::msg::NeighborArray>::SharedPtr > neighbors_pub_vector_;
 
     std::string ros_ws_path;
+    bool cosim_mode;
+    YAML::Node config;
+
+    /* Compute time saving */
+    bool save_compute_time;
+    std::string m_computation_time_file;
+    WallTimeProbe probe;
+
+    /* Methods */
+    void Loop();
+    std::string GenerateResponseProtobuf();
+
+    std::unique_ptr<gz::sim::Server> server_ptr;
 };
+
+/**
+ * \brief Generates the final protobuf message of protobuf_msgs/PhysicsUpdate.
+ *
+ * It will fill the message with the (compressed) robots_positions for the current simulation window,
+ * change the message-type to END, string-serialize the protobuf message, compress it, and return it.
+ *
+ */
+std::string GazeboConnector::GenerateResponseProtobuf()
+{
+    // Change message's type to END
+    dancers_update_proto::DancersUpdate physics_update_msg;
+    physics_update_msg.set_msg_type(dancers_update_proto::DancersUpdate::END);
+
+    dancers_update_proto::PoseVector robots_positions_msg;
+    for (const auto& robot : this->robot_poses)
+    {
+        gz::msgs::Vector3d pos = robot.second.position();
+        gz::msgs::Quaternion quat = robot.second.orientation();
+        dancers_update_proto::Pose *robot_pose_msg = robots_positions_msg.add_pose();
+        robot_pose_msg->set_agent_id(robot.first);
+        robot_pose_msg->set_x(pos.x());
+        robot_pose_msg->set_y(pos.y());
+        robot_pose_msg->set_z(pos.z());
+        robot_pose_msg->set_qw(quat.w());
+        robot_pose_msg->set_qx(quat.x());
+        robot_pose_msg->set_qy(quat.y());
+        robot_pose_msg->set_qz(quat.z());
+    }
+
+    std::string robots_positions_string;
+    robots_positions_msg.SerializeToString(&robots_positions_string);
+
+    // Fill the channel_data field with the compressed data from the physics simulation
+    physics_update_msg.set_payload(gzip_compress(robots_positions_string));
+
+    // Transform the response [protobuf] --> [string]
+    std::string str_response;
+    physics_update_msg.SerializeToString(&str_response);
+    str_response = gzip_compress(str_response);
+
+    return str_response;
+}
+
+/**
+ * @brief Main simulation loop
+ *
+ * This function should be called only once at the end of the ROS2 node's constructor. If the co-simulation mode is used, it connects to the Coordinator node via an UDS Socket and them loop until the end off the
+ */
+void GazeboConnector::Loop()
+{
+    if (this->cosim_mode)
+    {
+        // **************** UDS SOCKET FOR PHYSICS COORDINATOR ****************
+        // Create and connect UDS Socket
+        Socket *socket;
+        boost::asio::io_context io_context;
+        if (this->config["phy_use_uds"].as<bool>())
+        {
+            socket = new UDSSocket(io_context);
+            socket->accept(this->config["phy_uds_server_address"].as<std::string>(), 0);
+        }
+        else
+        {
+            socket = new TCPSocket(io_context);
+            socket->accept(this->config["phy_ip_server_address"].as<std::string>(), this->config["phy_ip_server_port"].as<unsigned int>());
+        }
+        RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
+
+        while (rclcpp::ok() && (this->it < this->it_end_sim || this->simulation_length == 0.0))
+        {
+            // Wait until reception of a message on the socket
+            std::string received_data = gzip_decompress(socket->receive_one_message());
+
+            // Initialize empty protobuf message type [DancersUpdate]
+            dancers_update_proto::DancersUpdate network_update_msg;
+
+            // Transform the message received from the UDS socket (string -> protobuf)
+            network_update_msg.ParseFromString(received_data);
+
+            if(!network_update_msg.payload().empty())
+            {
+
+                dancers_update_proto::OrderedNeighborsList neighbors_list_msg;
+                neighbors_list_msg.ParseFromString(gzip_decompress(network_update_msg.payload()));
+
+                // std::cout << neighbors_list_msg.DebugString() << std::endl;
+
+                // convert the received protobuf message to ROS2 messages and publish them on separate topics
+                for (int i = 0; i < neighbors_list_msg.ordered_neighbors_size(); i++)
+                {
+                    uint32_t agent_id = neighbors_list_msg.ordered_neighbors(i).agentid();
+
+                    dancers_msgs::msg::NeighborArray msg{};
+                    for (int j = 0; j < neighbors_list_msg.ordered_neighbors(i).neighborid_size(); j++)
+                    {
+                        dancers_msgs::msg::Neighbor neighbor{};
+                        neighbor.agent_id = neighbors_list_msg.ordered_neighbors(i).neighborid(j) + 1;                // ATTENTION: here we add 1 to the agent IDs because we want the IDs to start at 1 when using Gazebo, because the PX4 works with instance numbers starting at 1 !
+                        neighbor.link_quality = neighbors_list_msg.ordered_neighbors(i).linkquality(j);
+                        msg.neighbors.push_back(neighbor);
+                    }
+                    this->neighbors_pub_vector_[agent_id]->publish(msg);
+                }
+            }
+            else
+            {
+                RCLCPP_DEBUG(this->get_logger(), "Received a BEGIN message but empty neighbor information from the network simulator.");
+            }
+
+            if (this->save_compute_time)
+            {
+                this->probe.start();
+            }                
+            
+            // Advance the server in this thread (blocking) for W iterations, pause at the end
+            this->server_ptr->Run(true /*blocking*/, 1 /*iterations*/, false /*paused*/);
+
+            if (this->save_compute_time)
+            {
+                this->probe.stop();
+            }
+
+            // Generate the response message
+            std::string response = GenerateResponseProtobuf();
+
+            // Send the response in the UDS socket
+            socket->send_one_message(response);
+
+            this->it++;
+
+        }
+    }
+    else 
+    {
+        if (this->save_compute_time)
+        {
+            this->probe.start();
+        }
+
+        server_ptr->Run();
+
+        if (this->save_compute_time)
+        {
+            this->probe.stop();
+        }
+    }
+
+}
+
 
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<RoboticsCoordinator>());
+    rclcpp::spin(std::make_shared<GazeboConnector>());
     rclcpp::shutdown();
     return 0;
 }
