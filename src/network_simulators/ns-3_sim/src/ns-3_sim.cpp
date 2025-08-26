@@ -60,7 +60,7 @@ using namespace std::chrono_literals;
 class Ns3Sim : public rclcpp::Node
 {
 public:
-    Ns3Sim() : Node("wifi_flocking")
+    Ns3Sim() : Node("ns3_sim")
     {
         RCLCPP_INFO(this->get_logger(), "wifi_flocking Node Created");
 
@@ -2296,14 +2296,12 @@ void Ns3Sim::updateLeadersApplications()
             bool found = false;
             for (uint32_t i = 0; i < node->GetNApplications(); ++i)
             {
-                RCLCPP_INFO(this->get_logger(), "Searching Sender application, looking at app %d", i);
                 application = node->GetApplication(i);
                 if (application == nullptr)
                 {
                     RCLCPP_FATAL(this->get_logger(), "Application %d on node %d is null, this should not happen!", i, assigned_agent);
                     exit(EXIT_FAILURE);
                 }
-                RCLCPP_INFO_STREAM(this->get_logger(), "Found application "<< application->GetInstanceTypeId().GetName() <<" on node " << assigned_agent);
                 if (application->GetInstanceTypeId().GetName() == "Sender")
                 {
                     found = true;
