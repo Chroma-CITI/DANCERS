@@ -178,11 +178,19 @@ public:
         this->publish_network_markers = config["publish_network_markers"].as<bool>();
         this->n_uavs = config["robots_number"].as<int>();
         this->start_position = std::make_tuple(config["start_position"]["x"].as<double>(), config["start_position"]["y"].as<double>(), config["start_position"]["z"].as<double>());
-        this->step_size = config["phy_step_size"].as<int>() / 1000000.0f; // us to s
+        int sync_window_int = config["sync_window"].as<int>();
+        int step_size_int = config["phy_step_size"].as<int>();
+        if (sync_window_int % step_size_int != 0)
+        {
+            RCLCPP_FATAL(this->get_logger(), "Sync window must be a multiple of the network step size, aborting.");
+            exit(EXIT_FAILURE);
+        }
+        this->sync_window = sync_window_int / 1000000.0f; // us to s
+        this->step_size = step_size_int / 1000000.0f; 
         this->it = 0;
         this->simulation_length = config["simulation_length"].as<double>();
-        this->print_sim_advancement_ = config["mini_dancers_print_advancement"].as<bool>();
         this->it_end_sim = uint64_t(simulation_length / this->step_size);
+        this->print_sim_advancement_ = config["mini_dancers_print_advancement"].as<bool>();
         this->mission_flow_id = config["mission_flow"]["flow_id"].as<uint32_t>();
         this->potential_flow_id = config["broadcast_flow"]["flow_id"].as<uint32_t>();
         this->mode = config["cosimulation_mode"].as<std::string>();
@@ -229,7 +237,10 @@ public:
             std::cerr << "Failed to read at least one VAT flocking parameter, using ALL default VAT params." << '\n';
         }
 
+        this->phy_use_uds = config["phy_use_uds"].as<bool>();
         this->phy_uds_server_address = config["phy_uds_server_address"].as<std::string>();
+        this->phy_ip_server_address = config["phy_ip_server_address"].as<std::string>();
+        this->phy_ip_server_port = config["phy_ip_server_port"].as<unsigned int>();
 
         rclcpp::QoS qos_persistent = rclcpp::QoS(rclcpp::KeepAll()).reliable().transient_local();
 
@@ -297,24 +308,21 @@ public:
     }
 
 private:
+    /* Time and iteration counters */
+    double sync_window;             // s
+    double step_size;               // s
+    double simulation_length;       // s
+    uint64_t it;                    // -
+    uint64_t it_end_sim;            // -
+
+    /* Obstacles */
     std::vector<obstacle_t> obstacles;
+    
+    /* UAV-related */
     int n_uavs;
     std::map<uint32_t, agent_t> uavs;
     std::mutex uavs_mutex;
     std::map<uint32_t, Eigen::Vector3d> desired_velocities;
-    double step_size;
-    double simulation_length;
-    uint64_t it;
-    uint64_t it_end_sim;
-    bool print_sim_advancement_;
-    std::string phy_uds_server_address;
-    std::map<int, target_t> target_areas;
-    std::string ros_ws_path;
-    VAT_params_t vat_params;
-    uint32_t mission_flow_id;
-    uint32_t potential_flow_id;
-    uint32_t routing_flow_id;
-    bool cosim_mode;
     double communication_range;
     std::tuple<double, double, double> start_position;
     double K_penetration_force;
@@ -322,12 +330,26 @@ private:
     double K_agent_penetration_force;
     double K_agent_restitution_force;
     double agent_radius;
-
+    VAT_params_t vat_params;
+    std::map<int, target_t> target_areas;
+    double target_altitude;
+    
+    /* Software machinery */
+    bool print_sim_advancement_;
+    bool phy_use_uds;
+    std::string phy_uds_server_address;
+    std::string phy_ip_server_address;
+    unsigned int phy_ip_server_port;
+    std::string ros_ws_path;
+    bool cosim_mode;
     std::string mode;
 
-    double target_altitude;
+    /* Network related */
+    uint32_t mission_flow_id;
+    uint32_t potential_flow_id;
+    uint32_t routing_flow_id;
 
-    // Thread running the co-simulation Loop
+    /* Thread running the co-simulation Loop */
     std::thread loop_thread_;
 
     /* Methods */
@@ -1377,8 +1399,16 @@ void MiniDancers::Loop()
         /* ---- Create socket (server) with Coordinator ---- */
         Socket *socket_coord;
         boost::asio::io_context io_context;
-        socket_coord = new UDSSocket(io_context);
-        socket_coord->accept(this->phy_uds_server_address, 0);
+        if (this->phy_use_uds)
+        {
+            socket_coord = new UDSSocket(io_context);
+            socket_coord->accept(this->phy_uds_server_address, 0);
+        }
+        else
+        {
+            socket_coord = new TCPSocket(io_context);
+            socket_coord->accept(this->phy_ip_server_address, this->phy_ip_server_port);
+        }
         RCLCPP_INFO(this->get_logger(), "\x1b[32mSocket connected with Coordinator \x1b[0m");
 
         // Main simulation loop
@@ -1386,8 +1416,9 @@ void MiniDancers::Loop()
         {
             std::string received_data = gzip_decompress(socket_coord->receive_one_message());
 
-            // Initialize empty protobuf message type [NetworkUpdate]
+            // Initialize empty protobuf message type [DancersUpdate]
             dancers_update_proto::DancersUpdate network_update_msg;
+
             // Transform the message received from the UDS socket (string -> protobuf)
             network_update_msg.ParseFromString(received_data);
 
