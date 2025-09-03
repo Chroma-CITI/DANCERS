@@ -30,7 +30,7 @@ start_position:
   z: 10.0
 
 # Parameter to configure the format of the exchanged messages between the 
-cosimulation_mode: 'exchange_neighbors' # [exchange_neighbors, exchange_commands]
+cosimulation_mode: 'exchange_commands' # [exchange_neighbors, exchange_commands]
 
 # If true, the module that invokes the controller will also publish the structs of the agents, for data recording 
 publish_agent_structs: true
