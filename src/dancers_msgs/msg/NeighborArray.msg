@@ -1,1 +1,0 @@
-dancers_msgs/Neighbor[] neighbors

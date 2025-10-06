@@ -1,1 +1,0 @@
-dancers_msgs/VelocityHeading[] velocity_heading_array
