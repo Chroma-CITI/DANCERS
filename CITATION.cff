@@ -1,0 +1,23 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: DANCERS
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Théotime
+    family-names: BALAGUER
+    email: theotime.balaguer@gmail.com
+    orcid: 'https://orcid.org/0009-0009-4179-770X'
+    affiliation: 'INSA Lyon, INRIA, CITI, UMR 3720'
+repository-code: 'https://github.com/Chroma-CITI/DANCERS'
+repository: 'https://github.com/Chroma-CITI/DANCERS-docker'
+abstract: >-
+  DANCERS is a co-simulator suited for multi-robot
+  simulation. It merges any multi-robot simulator with any
+  network simulator to enable the study of networked fleet
+  of robots.
+license: GPL-3.0
