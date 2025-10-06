@@ -1,0 +1,10 @@
+# ROS2 build system files
+build/
+log/
+install/
+
+# vscode configuration
+.vscode
+
+# Folder for DANCERS configuration files and results, should be regenerated every time
+dancers_data/

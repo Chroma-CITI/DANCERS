@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package dancers_update_proto;
+
+message DancersUpdate {
+    enum MsgType {
+        BEGIN = 0;
+        END = 1;
+        CLOSE = 2;
+    }
+
+    MsgType msg_type = 1;
+    bytes payload = 2;
+}

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package dancers_update_proto;
+
+message VelocityHeadingVector {
+    repeated VelocityHeading velocity_heading = 1;
+}
+
+message VelocityHeading {
+    uint32 agentId = 1;
+    double vx = 2;
+    double vy = 3;
+    double vz = 4;
+    double heading = 5;
+}
