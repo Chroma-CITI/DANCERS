@@ -42,7 +42,6 @@ public:
         reliable_qos.history(RMW_QOS_POLICY_HISTORY_KEEP_LAST);
         this->pose_array_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("agent_poses", 10);
         this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
-        this->desired_velocities_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("desired_velocities", 10);
 
         // Start Loop() in a separate thread so constructor can finish
         loop_thread_ = std::thread(&MiniDancers::Loop, this);
@@ -82,10 +81,12 @@ private:
      */
     dancers_update_proto::DancersUpdate StepSimulation(dancers_update_proto::DancersUpdate update_msg) override
     {
+        // Receive a list of waypoints and control the UAVs in position
         if (!update_msg.payload().empty())
         {
             dancers_update_proto::PoseVector waypoint_messages;
             waypoint_messages.ParseFromString(gzip_decompress(update_msg.payload()));
+            // For each waypoint received, update the position controller of the associated agent
             for (const auto& waypoint : waypoint_messages.pose())
             {
                 std::unique_lock lock(this->agents_mutex_);
@@ -114,7 +115,6 @@ private:
         std::vector<std::thread> workers;
         for (auto& [id, agent] : this->agents_)
         {
-            // // Lock guard ?
             workers.push_back(std::thread([&agent, this]() {
                 agent->uav_system->makeStep(this->step_size);
             }));
@@ -173,7 +173,6 @@ private:
     // Publishers
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr id_markers_pub_;
-    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr desired_velocities_markers_pub_;
 
     std::map<uint32_t, std::unique_ptr<Agent>> agents_;
     mutable std::shared_mutex agents_mutex_;
@@ -287,39 +286,9 @@ void MiniDancers::DisplayRviz()
         id_marker.pose.position.y = uav_state.x.y();
         id_marker.pose.position.z = uav_state.x.z();
         id_marker_array.markers.push_back(id_marker);
-
-        // Display desired velocities
-        visualization_msgs::msg::Marker desired_velocity_marker{};
-        desired_velocity_marker.header.frame_id = "map";
-        desired_velocity_marker.id = 2000 + agent_id;
-        desired_velocity_marker.type = visualization_msgs::msg::Marker::ARROW;
-        desired_velocity_marker.action = visualization_msgs::msg::Marker::ADD;
-        desired_velocity_marker.scale.x = 0.3;
-        desired_velocity_marker.scale.y = 0.5;
-        desired_velocity_marker.scale.z = 0.0;
-        desired_velocity_marker.color.r = 0.0;
-        desired_velocity_marker.color.g = 1.0;
-        desired_velocity_marker.color.b = 0.0;
-        desired_velocity_marker.color.a = 0.8;
-        desired_velocity_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
-        desired_velocity_marker.pose.position.x = 0.0;
-        desired_velocity_marker.pose.position.y = 0.0;
-        desired_velocity_marker.pose.position.z = 0.0;
-        geometry_msgs::msg::Point p1, p2;
-        p1.x = uav_state.x.x();
-        p1.y = uav_state.x.y();
-        p1.z = uav_state.x.z();
-        p2.x = uav_state.x.x() + agent_struct->cmd_velocity.x();
-        p2.y = uav_state.x.y() + agent_struct->cmd_velocity.y();
-        p2.z = uav_state.x.z() + agent_struct->cmd_velocity.z();
-        desired_velocity_marker.points.push_back(p1);
-        desired_velocity_marker.points.push_back(p2);
-        desired_velocities_marker_array.markers.push_back(desired_velocity_marker);
     }
     this->pose_array_pub_->publish(pose_array);
     this->id_markers_pub_->publish(id_marker_array);
-    this->desired_velocities_markers_pub_->publish(desired_velocities_marker_array);
-
 }
 
 

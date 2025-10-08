@@ -34,25 +34,24 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "BasicWifiAdhoc (NET) started");
 
+        // Read relevant information from the configuration file
         this->ReadConfigFile();
 
+        // Configure global ns-3 objects
         this->ConfigureNs3();
 
+        // Initialize the agents and the ad-hoc Wi-Fi network
         this->InitAgents();
-
-        // print agents
-        {
-            std::shared_lock lock(this->agents_mutex_);
-            RCLCPP_INFO(this->get_logger(), "Initialized %ld agents", this->agents_.size());
-            for (const auto &pair : this->agents_)
-            {
-                const Agent &a = *(pair.second);
-                RCLCPP_INFO(this->get_logger(), "Agent %d at position (%.2f, %.2f, %.2f)", a.id, a.position.x(), a.position.y(), a.position.z());
-            }
-        }
-
         
+        // Add a waypoint broadcaster to the leader (arbitrarily, agent 0)
         auto broadcast_app = this->AddWaypointBroadcaster(this->nodes.Get(0));
+        // Add a waypoint receiver to the followers
+        for (uint32_t i = 1; i < this->nodes.GetN(); i++)
+        {
+            this->AddWaypointReceiver(this->nodes.Get(i));
+        }
+        
+        // Initiate the random waypoint generation procedure for the leader
         // verify random_waypoint exists in config
         if (this->config_["random_waypoint"].IsDefined())
         {
@@ -73,11 +72,6 @@ public:
         {
             RCLCPP_FATAL(this->get_logger(), "random_waypoint section not found in config file, aborting.");
             exit(EXIT_FAILURE);
-        }
-
-        for (uint32_t i = 1; i < this->nodes.GetN(); i++)
-        {
-            this->AddWaypointReceiver(this->nodes.Get(i));
         }
 
         // Start Loop() in a separate thread so constructor can finish
