@@ -4,7 +4,7 @@ class EmptyConnector : public Connector
 {
 public:
     EmptyConnector()
-    : Connector("net_connector")
+    : Connector("empty_connector_net")
     {
         RCLCPP_INFO(this->get_logger(), "EmptyConnector (NET) started");
 
@@ -54,7 +54,7 @@ private:
         // Sleep 1 sec
         std::this_thread::sleep_for(std::chrono::microseconds(this->sleep_time_));
 
-        RCLCPP_INFO(this->get_logger(), "Finished iteration %ld", this->it);
+        RCLCPP_INFO(this->get_logger(), "Finished iteration %ld (time = %f s)", this->it, this->it*this->step_size);
         
         return this->GenerateResponseProtobuf();
     }

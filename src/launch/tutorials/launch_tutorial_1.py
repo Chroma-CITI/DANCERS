@@ -36,7 +36,7 @@ def configs_match_except_seed(cfg1, cfg2):
     return c1 == c2
 
 
-def generate_config_file(params, instance_id, filename="experiment.yaml"):
+def generate_config_file(params, instance_id, filename="configuration.yaml"):
     """
     Generate a YAML configuration file for a given parameter dictionary.
     Saves under:
@@ -249,13 +249,13 @@ def run_additional_commands_in_tmux(session_id, commands, attach=False):
 
 
 def main():
-    # --- User parameters (easy to edit) ---
+    # --- User parameters ---
     base_params = {
         "experiment_name": "tutorial_1",
-        "simulation_length": 1,
-        "sync_window": 100000,       # in us | the duration between two position exchange and clock synchronization between physics and network simulators
-        "phy_step_size": 100000,     # in us | the duration of 1 physics simulator simulation loop
-        "net_step_size": 100000,     # in us
+        "simulation_length": 1,         # in s
+        "sync_window": 100000,          # in us | the duration between two position exchange and clock synchronization between physics and network simulators
+        "phy_step_size": 100000,        # in us | the duration of 1 physics simulator simulation loop
+        "net_step_size": 100000,        # in us
         
         "net_use_uds": True,
         "net_uds_server_address": "/tmp/net_server_socket",
