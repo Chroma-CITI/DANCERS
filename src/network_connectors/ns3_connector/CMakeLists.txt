@@ -71,6 +71,7 @@ target_link_libraries(basic_wifi_adhoc_with_controller
   ns3::libnetwork
   ns3::libapplications
   ns3::libbuildings
+  ns3::libspectrum
 )
 
 target_include_directories(basic_wifi_adhoc_with_controller PRIVATE

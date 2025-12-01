@@ -42,6 +42,8 @@ public:
         reliable_qos.history(RMW_QOS_POLICY_HISTORY_KEEP_LAST);
         this->pose_array_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("agent_poses", 10);
         this->id_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("id_markers", 10);
+        this->obstacles_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("obstacles", 10);
+        this->targets_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("targets", 10);
 
         // Start Loop() in a separate thread so constructor can finish
         loop_thread_ = std::thread(&MiniDancers::Loop, this);
@@ -52,7 +54,7 @@ private:
      * @brief Read config file and set variables
      * 
      * It is mandatory to set the socket variables to enable the connector
-     * to communicate with the simulator !
+     * to communicate with the simulator
      */
     void ReadConfigFile() override
     {
@@ -71,8 +73,6 @@ private:
         }
         this->step_size = step_size_int / 1000000.0f;
         this->it_end_sim = uint64_t(this->simulation_length / this->step_size);
-
-
     }
 
     /**
@@ -175,6 +175,8 @@ private:
     // Publishers
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr id_markers_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacles_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr targets_pub_;
 
     std::map<uint32_t, std::unique_ptr<Agent>> agents_;
     mutable std::shared_mutex agents_mutex_;
@@ -289,8 +291,88 @@ void MiniDancers::DisplayRviz()
         id_marker.pose.position.z = uav_state.x.z();
         id_marker_array.markers.push_back(id_marker);
     }
+
+    // Display obstacles
+    visualization_msgs::msg::MarkerArray obstacles_marker_array{};
+    for (const auto& obstacle : this->config_["obstacles"])
+    {
+        visualization_msgs::msg::Marker box;
+        box.header.frame_id = "map";
+        box.header.stamp = now();
+        box.ns = "obstacles";
+        box.id = obstacle["id"].as<int>();
+        box.type = visualization_msgs::msg::Marker::CUBE;
+        box.action = visualization_msgs::msg::Marker::ADD;
+
+        // AABB parameters
+        box.pose.position.x = obstacle["x"].as<double>();
+        box.pose.position.y = obstacle["y"].as<double>();
+        box.pose.position.z = obstacle["z"].as<double>();           // center of the box
+        box.pose.orientation.w = 1.0;        // no rotation (AABB)
+
+        box.scale.x = obstacle["size_x"].as<double>();  // width
+        box.scale.y = obstacle["size_y"].as<double>();  // depth
+        box.scale.z = obstacle["size_z"].as<double>();   // height
+
+        // Gray color
+        box.color.r = 0.5;
+        box.color.g = 0.5;
+        box.color.b = 0.5;
+        box.color.a = 0.8; // semi-transparent
+
+        box.lifetime = rclcpp::Duration(0,0); // forever
+        
+        obstacles_marker_array.markers.push_back(box);
+    }
+
+    // Display targets
+    visualization_msgs::msg::MarkerArray targets_marker_array{};
+    for (const auto& target : this->config_["targets"])
+    {
+        visualization_msgs::msg::Marker sphere;
+        sphere.header.frame_id = "map";
+        sphere.header.stamp = now();
+        sphere.ns = "targets";
+        sphere.id = target["id"].as<int>();
+        sphere.type = visualization_msgs::msg::Marker::SPHERE;
+        sphere.action = visualization_msgs::msg::Marker::ADD;
+
+        // Sphere parameters
+        sphere.pose.position.x = target["x"].as<double>();
+        sphere.pose.position.y = target["y"].as<double>();
+        sphere.pose.position.z = target["z"].as<double>();
+        sphere.pose.orientation.w = 1.0;        // no rotation
+
+        double radius = target["radius"].as<double>();
+        sphere.scale.x = 2 * radius;  // diameter
+        sphere.scale.y = 2 * radius;  // diameter
+        sphere.scale.z = 2 * radius;   // diameter
+
+        if (target["is_sink"])
+        {
+            // Green color
+            sphere.color.r = 0.0;
+            sphere.color.g = 1.0;
+            sphere.color.b = 0.0;
+        }
+        else
+        {
+            // Red color
+            sphere.color.r = 1.0;
+            sphere.color.g = 0.0;
+            sphere.color.b = 0.0;
+        }
+        sphere.color.a = 0.5; // semi-transparent
+
+        sphere.lifetime = rclcpp::Duration(0,0); // forever
+        
+        targets_marker_array.markers.push_back(sphere);
+    }
+
     this->pose_array_pub_->publish(pose_array);
     this->id_markers_pub_->publish(id_marker_array);
+    this->obstacles_pub_->publish(obstacles_marker_array);
+    this->targets_pub_->publish(targets_marker_array);
 }
 
 

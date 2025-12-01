@@ -7,6 +7,8 @@
 #include <ns3/internet-module.h>
 #include <ns3/propagation-loss-model.h>
 #include <ns3/buildings-module.h>
+#include <ns3/spectrum-module.h>
+#include "ns3/three-gpp-v2v-propagation-loss-model.h"
 
 // Home-made ns-3 apps
 #include <applications/flocking-application.h>
@@ -199,6 +201,29 @@ void BasicWifiAdhoc::ConfigureNs3()
     // Set the seed for the random number generator
     SeedManager::SetRun(getYamlValue<int>(this->config_, "seed"));
 
+    // Initialize the buildings in the environment
+    if (YAML::Node buildings = this->config_["obstacles"])
+    {
+        for (const auto& building : buildings)
+        {
+            double x_min = building["x"].as<double>() - building["size_x"].as<double>() / 2;
+            double y_min = building["y"].as<double>() - building["size_y"].as<double>() / 2;
+            double z_min = 0.0;
+            double x_max = building["x"].as<double>() + building["size_x"].as<double>() / 2;
+            double y_max = building["y"].as<double>() + building["size_y"].as<double>() / 2;
+            double z_max = building["size_z"].as<double>();
+            Ptr<Building> ns3_building = CreateObject<Building>();
+            ns3_building->SetBoundaries(Box(x_min, x_max, y_min, y_max, z_min, z_max));
+            ns3_building->SetBuildingType(Building::Office);
+            ns3_building->SetExtWallsType(Building::ConcreteWithWindows);
+            ns3_building->SetNFloors(1);
+            ns3_building->SetNRoomsX(1);
+            ns3_building->SetNRoomsY(1);
+
+            RCLCPP_DEBUG(this->get_logger(), "Created a building with boundaries (%f, %f, %f, %f) and height %f", x_min, y_min, x_max, y_max, z_max);
+        }
+    }
+
     // Initialize an empty node container
     this->nodes = NodeContainer();
 
@@ -243,13 +268,38 @@ void BasicWifiAdhoc::ConfigureNs3()
     this->wifiMacHelper_->SetType("ns3::AdhocWifiMac");
 
     // --- PHY layer ---
-    this->wifiPhyHelper_ = std::make_unique<YansWifiPhyHelper>();
-    YansWifiChannelHelper yansChannel = YansWifiChannelHelper::Default();
+    // This implements the Spectrum WifiPhy module using the 3GPP V2V Urban Propagation Loss Model
+    this->wifiPhyHelper_ = std::make_unique<SpectrumWifiPhyHelper>();
+    SpectrumWifiPhyHelper *spectrumPhyHelper = dynamic_cast<SpectrumWifiPhyHelper *>(this->wifiPhyHelper_.get());
 
-    if (auto YansWifiPtr = dynamic_cast<YansWifiPhyHelper*>(this->wifiPhyHelper_.get()))
-    {
-        YansWifiPtr->SetChannel(yansChannel.Create());
-    }
+    Ptr<MultiModelSpectrumChannel> spectrumChannel = CreateObject<MultiModelSpectrumChannel>();
+
+    // create the channel condition model
+    Ptr<ChannelConditionModel> m_condModel = CreateObject<ThreeGppV2vUrbanChannelConditionModel>();
+    m_condModel->SetAttribute("UpdatePeriod", TimeValue(MilliSeconds(100)));
+
+    // create the propagation loss model and add it to the channel condition
+    Ptr<PropagationLossModel> propagationLossModel = CreateObject<ThreeGppV2vUrbanPropagationLossModel>();
+    propagationLossModel->SetAttribute("Frequency", DoubleValue(getYamlValue<double>(this->config_, "frequency")));
+    propagationLossModel->SetAttribute("ShadowingEnabled", BooleanValue(false));
+    propagationLossModel->SetAttribute("ChannelConditionModel", PointerValue(m_condModel));
+    spectrumChannel->AddPropagationLossModel(propagationLossModel);
+
+    // Create the delay model and add it to the channel condition
+    Ptr<ConstantSpeedPropagationDelayModel> delayModel = CreateObject<ConstantSpeedPropagationDelayModel>();
+    spectrumChannel->SetPropagationDelayModel(delayModel);
+
+    spectrumPhyHelper->SetChannel(spectrumChannel);
+    spectrumPhyHelper->SetErrorRateModel(getYamlValue<std::string>(this->config_, "error_rate_model"));
+    spectrumPhyHelper->Set("TxPowerStart", DoubleValue(16)); // dBm
+    spectrumPhyHelper->Set("TxPowerEnd", DoubleValue(16));
+    // Note: There is a unique ns3::WifiPhy attribute, named ChannelSettings, that enables to set channel number, channel width, frequency band and primary20 index for each segment all together.
+    // When a parameter is set to 0, the default value is used, depending on the previously set WifiStandard.
+
+    if (getYamlValue<double>(this->config_, "frequency") == 2.4e9)
+        spectrumPhyHelper->Set("ChannelSettings", StringValue("{0, 0, BAND_2_4GHZ, 0}"));
+    else if (getYamlValue<double>(this->config_, "frequency") == 5e9)
+        spectrumPhyHelper->Set("ChannelSettings", StringValue("{0, 0, BAND_5GHZ, 0}"));
 
     // --- IP / ROUTING ---
     this->internetHelper_ = std::make_unique<InternetStackHelper>();

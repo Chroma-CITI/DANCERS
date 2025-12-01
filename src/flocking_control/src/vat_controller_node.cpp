@@ -47,7 +47,7 @@ public:
         // Create the object that holds the flocking configuration defined in the configuration file
 
         // Get the fixed altitude option
-        if (YAML::Node altitude_param = this->config_["target_altitude"])
+        if (YAML::Node altitude_param = this->config_["fixed_altitude"])
         {
             this->flocking_options.desired_fixed_altitude = altitude_param.as<float>();
         }
@@ -81,6 +81,29 @@ public:
             getYamlValue<float>(this->config_, "r_obstacle_perception")
         };
 
+        // Get the obstacles from the configuration file
+        if (YAML::Node obstacles = this->config_["obstacles"])
+        {
+            for (const auto& obstacle : obstacles)
+            {
+                cuboid::obstacle_t obs{};
+                obs.id = obstacle["id"].as<int>();
+                obs.center = Eigen::Vector3d(
+                    obstacle["x"].as<double>(), 
+                    obstacle["y"].as<double>(), 
+                    obstacle["z"].as<double>());
+                obs.size_x = obstacle["size_x"].as<double>();
+                obs.size_y = obstacle["size_y"].as<double>();
+                obs.size_z = obstacle["size_z"].as<double>();
+
+                this->obstacles_->push_back(std::move(obs));
+            }
+        }
+        else
+        {
+            RCLCPP_WARN(this->get_logger(), "No obstacle defined in config file.");
+        }
+
         // Get the targets from the configuration file
         if (YAML::Node targets_node = this->config_["targets"])
         {
@@ -101,7 +124,10 @@ public:
                 this->targets_.push_back(target);
             }
         }
-
+        else
+        {
+            RCLCPP_WARN(this->get_logger(), "No target defined in config file.");
+        }
         
         // Create the service
         service_ = this->create_service<dancers_msgs::srv::GetAgentVelocities>("get_agents_velocities",
