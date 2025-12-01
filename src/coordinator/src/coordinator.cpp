@@ -1,4 +1,5 @@
 #include <thread>
+#include <chrono>
 
 // Main ROS2 lib
 #include <rclcpp/rclcpp.hpp>
@@ -6,7 +7,6 @@
 // ROS2 message for clock
 #include <rosgraph_msgs/msg/clock.hpp>
 
-#include <yaml-cpp/yaml.h>
 #include <yaml_util.hpp>
 
 // Protobuf messages for DANCERS
@@ -35,7 +35,7 @@ class Coordinator : public rclcpp::Node
 public:
     Coordinator() : Node("coordinator")
     {
-        // Declare two parameters for this ros2 node
+        // Declare the config_file parameter for this ros2 node
         auto param_desc = rcl_interfaces::msg::ParameterDescriptor();
         param_desc.description = "Path to the YAML configuration file.";
         this->declare_parameter("config_file", "", param_desc);
@@ -79,9 +79,11 @@ public:
         // Run the physics and network threads handling communication with the connectors
         this->phy_protobuf_thread = std::thread(&Coordinator::run_phy_protobuf_client_, this);
         this->net_protobuf_thread = std::thread(&Coordinator::run_net_protobuf_client_, this);
+        this->real_time_thread = std::thread(&Coordinator::run_real_time_thread_, this);
 
         phy_protobuf_thread.join();
         net_protobuf_thread.join();
+        real_time_thread.join();
 
         if (getYamlValue<bool>(this->config_, "save_compute_time"))
         {
@@ -101,7 +103,7 @@ private:
 
     rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_publisher_;
 
-    boost::fibers::barrier rendezvous_threads{2};
+    boost::fibers::barrier rendezvous_threads{3};
 
     std::string compressed_physics_to_network_data;
     std::string compressed_network_to_physics_data;
@@ -111,9 +113,11 @@ private:
 
     void run_phy_protobuf_client_();
     void run_net_protobuf_client_();
+    void run_real_time_thread_();
 
     std::thread phy_protobuf_thread;
     std::thread net_protobuf_thread;
+    std::thread real_time_thread;
 
     std::string ros_ws_path;
 
@@ -368,6 +372,50 @@ void Coordinator::run_net_protobuf_client_()
     }
 }
 
+/**
+ * @brief Thread function that limits the speed of simulation (if specified)
+ * 
+ * If a real_time_factor is specified in the config file, the function will sleep for the appropriate amount of time between each synchronization window. If not, the function will run as fast as possible.
+ */
+void Coordinator::run_real_time_thread_()
+{
+    RCLCPP_DEBUG(this->get_logger(), "Starting real time factor thread.");
+    double RTF;
+    try
+    {
+        RTF = getYamlValue<double>(this->config_, "real_time_factor");
+    }
+    catch (std::runtime_error &e)
+    {
+        RCLCPP_WARN(this->get_logger(), "The real_time_factor parameter was not found in the config, running at max speed.");
+        RTF = std::numeric_limits<double>::infinity();
+    }
+
+    try
+    {
+        rclcpp::Time simulation_length = rclcpp::Time(getYamlValue<int64_t>(this->config_, "simulation_length") * 1e9, RCL_ROS_TIME);
+        uint32_t sync_window = getYamlValue<uint32_t>(this->config_, "sync_window");
+        uint64_t time_to_sleep = (uint64_t)(sync_window / RTF);
+
+        while(this->current_sim_time < simulation_length || simulation_length == rclcpp::Time(0.0, RCL_ROS_TIME))
+        {
+            std::this_thread::sleep_for(std::chrono::microseconds(time_to_sleep));
+
+            this->rendezvous_threads.wait();
+        }
+    
+    } // end try
+    catch (std::exception &e)
+    {
+        RCLCPP_ERROR(this->get_logger(), e.what());
+        exit(EXIT_FAILURE);
+    }
+    catch (...)
+    {
+        RCLCPP_ERROR(this->get_logger(), "Error happened in the Real time factor thread !");
+        exit(EXIT_FAILURE);
+    }
+}
 
 int main(int argc, char **argv)
 {
