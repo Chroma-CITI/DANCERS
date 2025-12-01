@@ -4,8 +4,6 @@
 // Main ROS2 lib
 #include <rclcpp/rclcpp.hpp>
 
-#include <yaml-cpp/yaml.h>
-
 // Protobuf messages for DANCERS
 #include <protobuf_msgs/dancers_update.pb.h>
 
