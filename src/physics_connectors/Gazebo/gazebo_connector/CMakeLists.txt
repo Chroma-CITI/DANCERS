@@ -14,6 +14,7 @@ find_package(dancers_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(gz-sim8 REQUIRED)
 find_package(gz-common5 REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 set(GZ_SIM_VER ${gz-sim8_VERSION_MAJOR})
 set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
@@ -24,6 +25,7 @@ ament_target_dependencies(gazebo_connector
   rclcpp
   connector_core
   dancers_msgs
+  geometry_msgs
 )
 
 target_link_libraries(gazebo_connector

@@ -15,6 +15,9 @@
 // Costum ROS2 messages
 #include <dancers_msgs/msg/agent_struct.hpp>
 
+// ROS2 messages
+#include <geometry_msgs/msg/point.hpp>
+
 // Protobuf messages
 #include <protobuf_msgs/pose_vector.pb.h>
 
@@ -29,8 +32,6 @@ public:
         RCLCPP_INFO(this->get_logger(), "GazeboConnector (PHY) started");
 
         this->ReadConfigFile();
-
-        this->ConfigureGazebo();
 
         // Check that the PX4 Autopilot exists at config_["path_to_px4_autopilot"] and has been built
         this->path_to_px4_autopilot = getYamlValue<std::string>(this->config_, "path_to_px4_autopilot");
@@ -50,6 +51,31 @@ public:
             }
         }
 
+        // Since we are using the PX4 Autopilot, we need to check some environment variables before launching Gazebo
+        // Set the env. var. GZ_SIM_RESOURCE_PATH and GZ_SIM_SERVER_CONFIG_PATH to find models and server.config
+        if (getenv("GZ_SIM_RESOURCE_PATH") == NULL)
+        {
+            setenv("GZ_SIM_RESOURCE_PATH", (this->path_to_px4_autopilot+"/Tools/simulation/gz/models").c_str(), 0);
+            RCLCPP_INFO(this->get_logger(), "Using GZ_SIM_RESOURCE_PATH=%s", (this->path_to_px4_autopilot+"/Tools/simulation/gz/server.config").c_str());
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "Using already set GZ_SIM_RESOURCE_PATH=%s", getenv("GZ_SIM_RESOURCE_PATH"));
+        }
+        if (getenv("GZ_SIM_SERVER_CONFIG_PATH") == NULL)
+        {
+            setenv("GZ_SIM_SERVER_CONFIG_PATH", (this->path_to_px4_autopilot+"/Tools/simulation/gz/server.config").c_str(), 0);
+            RCLCPP_INFO(this->get_logger(), "Using GZ_SIM_SERVER_CONFIG_PATH=%s", (this->path_to_px4_autopilot+"/Tools/simulation/gz/server.config").c_str());
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "Using already set GZ_SIM_SERVER_CONFIG_PATH=%s", getenv("GZ_SIM_RESOURCE_PATH"));
+        }
+
+        // Starts the Gazebo server with the right world
+        this->LaunchGazebo();
+
+        // Initializes the agents present at the start of the simulation
         this->InitAgents();
 
         // Start Loop() in a separate thread so constructor can finish
@@ -100,6 +126,11 @@ private:
                 auto agent = this->agents_.find(waypoint.agent_id());
                 if (agent != this->agents_.end())
                 {
+                    geometry_msgs::msg::Point wp;
+                    wp.set__x(waypoint.x() + agent->second->initial_position.x());
+                    wp.set__y(waypoint.y() + agent->second->initial_position.y());
+                    wp.set__z(waypoint.z() + agent->second->initial_position.z());
+                    this->waypoint_publishers_[agent->first]->publish(wp);
                     RCLCPP_DEBUG(this->get_logger(), "Received waypoint for agent %d: (%f, %f, %f)", waypoint.agent_id(), waypoint.x(), waypoint.y(), waypoint.z());
                 }
                 else
@@ -153,7 +184,7 @@ private:
 
     void InitAgents();
 
-    void ConfigureGazebo();
+    void LaunchGazebo();
 
     // Gazebo callbacks
     void GzPoseInfoClbk(const gz::msgs::Pose_V &pose_msg);
@@ -167,8 +198,16 @@ private:
 
     std::map<uint32_t, std::unique_ptr<Agent>> agents_;
     mutable std::shared_mutex agents_mutex_;
+
+    // publishers
+    std::map<uint32_t, rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr> waypoint_publishers_;
 };
 
+/**
+ * @brief Initializes the agents present at the start of the simulation 
+ * 
+ * It works by calling a callback that actually spawns the robots, with a custom ROS2 message of type AgentStruct
+ */
 void GazeboConnector::InitAgents()
 {
     int n_columns = (int)sqrt(getYamlValue<int>(this->config_, "robots_number"));
@@ -198,11 +237,15 @@ void GazeboConnector::InitAgents()
         agent_ros_msg.state.velocity.y = 0.0;
         agent_ros_msg.state.velocity.z = 0.0;
 
-
         this->SpawnUavClbk(agent_ros_msg);
     }
 }
 
+/**
+ * @brief Callback that adds a UAV to the simulation
+ * 
+ * With the PX4 Autopilot and Gazebo, spawning a UAV consists in starting the autopilot in a separate thread. This methods requires the PX4 Autopilot to be pre-built.  
+ */
 void GazeboConnector::SpawnUavClbk(const dancers_msgs::msg::AgentStruct msg)
 {
     // Abort if the agent already exists.
@@ -222,6 +265,7 @@ void GazeboConnector::SpawnUavClbk(const dancers_msgs::msg::AgentStruct msg)
         "PX4_SYS_AUTOSTART=" + std::to_string(airframe) + " " +
         "PX4_SIM_MODEL=gz_" + getYamlValue<std::string>(this->config_, "robot_model") + " " +
         "PX4_GZ_MODEL_POSE=" + std::to_string(msg.state.position.x) + "," + std::to_string(msg.state.position.y) + "," + std::to_string(msg.state.position.z) + ",0,0,0,0 " +
+        "PX4_PARAM_NAV_DLL_ACT=0 " +
         this->path_to_px4_autopilot + "/build/px4_sitl_default/bin/px4 " +
         "-i " + std::to_string(msg.agent_id) +
         " > dancers_data/"+getYamlValue<std::string>(this->config_, "experiment_name")+"/instance_"+getYamlValue<std::string>(this->config_, "instance_id")+"/results/px4_" + std::to_string(msg.agent_id) + ".log 2>&1";
@@ -234,6 +278,13 @@ void GazeboConnector::SpawnUavClbk(const dancers_msgs::msg::AgentStruct msg)
             std::cerr << "[PX4-Launcher] PX4 exited with code " << ret << std::endl;
     }).detach();
 
+    // Create a publisher for the waypoint of this agent
+    this->waypoint_publishers_[msg.agent_id] = 
+        this->create_publisher<geometry_msgs::msg::Point>(
+            "px4_" + std::to_string(msg.agent_id) + "/waypoint",
+            10
+    );
+
     // Finally, create the Agent object and add it to the map
     {
         std::unique_lock lock(this->agents_mutex_);
@@ -243,16 +294,24 @@ void GazeboConnector::SpawnUavClbk(const dancers_msgs::msg::AgentStruct msg)
             RCLCPP_ERROR(this->get_logger(), "Failed to insert new agent %d in the map. Something went wrong, aborting.", msg.agent_id);
             exit(EXIT_FAILURE);
         }
-        // auto& [id, agent_ptr] = *it;
-
+        auto& [id, agent_ptr] = *it;
+        agent_ptr->initial_position = agent_ptr->position;
+        agent_ptr->initial_position_saved = true;
     }
 }
 
-void GazeboConnector::ConfigureGazebo()
+/**
+ * @brief Configures and starts te Gazebo server
+ * 
+ * We use the Gazebo libraries to configure the server and starting. It is useful to keep a pointer to the gz::sim::Server object for future use.
+ * Interactions with the server can also happen with the gz::transport library, because not everything can be done with the ServerConfig.
+ */
+void GazeboConnector::LaunchGazebo()
 {
     gz::sim::ServerConfig serverConfig;
     serverConfig.SetSdfFile(getYamlValue<std::string>(this->config_, "world_file"));
     serverConfig.SetSeed(getYamlValue<unsigned int>(this->config_, "seed"));
+    serverConfig.SetUpdateRate(std::numeric_limits<double>::infinity());
 
     // Instantiate server
     this->server_ptr = std::make_unique<gz::sim::Server>(serverConfig);
