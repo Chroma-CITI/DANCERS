@@ -218,6 +218,43 @@ def launch_sim_components_in_tmux(
     else:
         print(f"Session '{session_name}' created and commands launched (not attached).")
 
+def run_additional_commands_in_tmux(session_id, commands, attach=False):
+    """
+    Run additional commands inside an existing tmux session as new windows.
+
+    Args:
+        session_name (str): Name of the tmux session (e.g., 'dancers_1').
+        commands (list[str]): Commands to execute, each in its own new tmux window.
+    """
+    if shutil.which("tmux") is None:
+        raise EnvironmentError("tmux not found in PATH. Please install tmux to use this function.")
+    
+    session_name = f"dancers_{session_id}"
+
+    # Check session exists
+    session_exists = (
+        subprocess.run(["tmux", "has-session", "-t", session_name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    )
+    if not session_exists:
+        raise RuntimeError(f"tmux session '{session_name}' does not exist. Launch it first.")
+    
+    # prepend ROS_DOMAIN_ID to each command
+    env_prefix = f"ROS_DOMAIN_ID={session_id}"
+    commands = [f"{env_prefix} {cmd}" for cmd in commands]
+
+
+    for i, cmd in enumerate(commands, start=1):
+        subprocess.run(["tmux", "split-window", "-t", session_name, cmd], check=True)
+        subprocess.run(["tmux", "select-layout", "-t", session_name, "tiled"], check=True)
+
+        print(f"Launched extra command in new pane: {cmd}")
+    
+    # finally attach if requested
+    if attach:
+        print(f"Attaching to tmux session '{session_name}'...")
+        subprocess.run(["tmux", "attach-session", "-t", session_name])
+
 def main():
     # --- User parameters (easy to edit) ---
     base_params = {

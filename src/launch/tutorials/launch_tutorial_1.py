@@ -271,8 +271,8 @@ def main():
     }
     
     empty_connectors_params = {
-        "net_sleep_time": 1000000,
-        "phy_sleep_time": 1000000,
+        "net_sleep_time": 1,
+        "phy_sleep_time": 1,
     }
     
     base_params.update(empty_connectors_params)
