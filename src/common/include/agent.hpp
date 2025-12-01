@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <map>
 #include <dancers_msgs/msg/agent_struct.hpp>
 
 /**
@@ -70,9 +71,20 @@ struct Agent
     std::map<uint32_t, NeighborInfo> neighbors;
     uint32_t node_container_index;
     double channel_busy_time;
+
+    std::string getNeighborsString()
+    {
+        std::string s = "Neighbors:";
+        for (auto& [neigh_id, neigh_struct] : neighbors)
+        {
+            s += "[" + std::to_string(neigh_id) + "]\n";
+        }
+
+        return s;
+    }
 };
 
-Agent AgentFromRosMsg(dancers_msgs::msg::AgentStruct agent)
+inline Agent AgentFromRosMsg(dancers_msgs::msg::AgentStruct agent)
 {
     Agent a;
     a.id = agent.agent_id;
@@ -99,7 +111,7 @@ Agent AgentFromRosMsg(dancers_msgs::msg::AgentStruct agent)
     return a;
 }
 
-dancers_msgs::msg::AgentStruct RosMsgFromAgent(Agent agent)
+inline dancers_msgs::msg::AgentStruct RosMsgFromAgent(const Agent agent)
 {
     dancers_msgs::msg::AgentStruct msg;
     msg.agent_id = agent.id;
