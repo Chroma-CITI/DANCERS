@@ -20,6 +20,7 @@ find_package(Eigen3 REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
+# ***** mini_dancers *****
 add_executable(mini_dancers src/mini_dancers.cpp)
 
 ament_target_dependencies(mini_dancers
@@ -40,9 +41,31 @@ target_include_directories(mini_dancers PRIVATE
   ${CMAKE_SOURCE_DIR}/../common/include
 )
 
+# ***** mini_dancers_velocity *****
+add_executable(mini_dancers_velocity src/mini_dancers_velocity.cpp)
+
+ament_target_dependencies(mini_dancers_velocity
+  rclcpp
+  connector_core
+  dancers_msgs
+  visualization_msgs
+  geometry_msgs
+)
+
+target_link_libraries(mini_dancers_velocity
+  Boost::iostreams
+  Eigen3::Eigen
+)
+
+target_include_directories(mini_dancers_velocity PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}
+  ${CMAKE_SOURCE_DIR}/../common/include
+)
+
 INSTALL(
   TARGETS
   mini_dancers
+  mini_dancers_velocity
   DESTINATION lib/${PROJECT_NAME}
 )
 
