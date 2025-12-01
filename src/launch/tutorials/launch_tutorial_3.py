@@ -260,7 +260,7 @@ def run_additional_commands_in_tmux(session_id, commands, attach=False):
 
 
 def main():
-    # --- User parameters (easy to edit) ---
+    # --- User parameters ---
     base_params = {
         "experiment_name": "tutorial_3",
         "simulation_length": 100,

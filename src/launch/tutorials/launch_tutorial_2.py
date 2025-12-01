@@ -256,7 +256,7 @@ def run_additional_commands_in_tmux(session_id, commands, attach=False):
         subprocess.run(["tmux", "attach-session", "-t", session_name])
 
 def main():
-    # --- User parameters (easy to edit) ---
+    # --- User parameters ---
     base_params = {
         "experiment_name": "tutorial_2",
         "simulation_length": 100,

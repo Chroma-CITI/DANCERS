@@ -9,6 +9,8 @@ import shutil
 import shlex
 import subprocess
 import time
+import random
+import math 
 
 def prepare_experiment_folder(experiment_name):
     """
@@ -158,6 +160,8 @@ def launch_sim_components_in_tmux(
     
     # you can add the following string between "run" and the name of the package to run within gdb :
     # --prefix 'gdb -ex run --args'
+    # You can also add the following at the end of the line to change the log level of each node :
+    # --log-level debug
     # default commands (replace config path)
     if commands is None:
         commands = [
@@ -261,8 +265,105 @@ def run_additional_commands_in_tmux(session_id, commands, attach=False):
         subprocess.run(["tmux", "attach-session", "-t", session_name])
 
 
+def generate_random_aabbs(config, seed=None, max_attempts=1000):
+    """
+    Generate random AABBs with position (center) and size for use as obstacles.
+
+    Output format:
+    {
+        "obstacles": [
+            {
+                "id": i,
+                "x": center_x,
+                "y": center_y,
+                "z": height/2,
+                "size_x": width,
+                "size_y": depth,
+                "size_z": height
+            }, ...
+        ]
+    }
+
+    The obstacles are axis-aligned boxes placed randomly in a given area,
+    with radii and heights drawn from Gaussian distributions and respecting
+    a minimum clearance between obstacles.
+    """
+
+    if seed is not None:
+        random.seed(seed)
+
+    num = config["num_obstacles"]
+    mean_r = config["mean_radius"]
+    std_r = config["std_dev_radius"]
+    mean_h = config["mean_height"]
+    std_h = config["std_dev_height"]
+    cx = config["area_center_x"]
+    cy = config["area_center_y"]
+    sx = config["area_size_x"]
+    sy = config["area_size_y"]
+    clearance = config["min_clearance"]
+
+    obstacles = {"obstacles": []}
+    placed_centers = []  # (x, y, radius_equivalent)
+
+    for i in range(num):
+        attempts = 0
+        placed = False
+
+        # Draw radius and height
+        radius = max(0.1, random.gauss(mean_r, std_r))
+        height = max(0.1, random.gauss(mean_h, std_h))
+
+        # AABB size is twice the radius (square footprint)
+        size_x = 2 * radius
+        size_y = 2 * radius
+        size_z = height
+
+        while attempts < max_attempts:
+            attempts += 1
+
+            # Sample random center position in 2D area
+            x = random.uniform(cx - sx/2, cx + sx/2)
+            y = random.uniform(cy - sy/2, cy + sy/2)
+
+            # Clearance check
+            valid = True
+            for (ox, oy, oradius) in placed_centers:
+                dist = math.hypot(x - ox, y - oy)
+                if dist < (radius + oradius + clearance):
+                    valid = False
+                    break
+
+            if not valid:
+                continue
+
+            # Place obstacle
+            placed_centers.append((x, y, radius))
+
+            obstacles["obstacles"].append({
+                "id": i + 1,
+                "x": x,
+                "y": y,
+                "z": height / 2.0,  # center of the AABB vertically
+                "size_x": size_x,
+                "size_y": size_y,
+                "size_z": size_z
+            })
+
+            placed = True
+            break
+
+        if not placed:
+            raise RuntimeError(
+                f"Could not place obstacle {i+1} after {max_attempts} attempts. "
+                f"Try increasing the area size or reducing clearance."
+            )
+
+    return obstacles
+
+
 def main():
-    # --- User parameters (easy to edit) ---
+    # --- User parameters ---
     base_params = {
         "experiment_name": "tutorial_4",
         "simulation_length": 200,
@@ -284,13 +385,15 @@ def main():
 
         "save_compute_time": False,
         
-        # "real_time_factor": 0.5
+        "real_time_factor": 1.0
     }
         
     networking_params = {
         "wifi_standard": "802.11ax",
-        "wifi_phy_mode": "HeMcs0",
-        "short_guard_interval_supported": True,
+        "wifi_phy_mode": "HeMcs7",
+        "short_guard_interval_supported": False,
+        "frequency": 5e9,
+        "error_rate_model": "ns3::NistErrorRateModel",
         
         "flocking_flow": {
             "packet_size": 0,
@@ -316,9 +419,9 @@ def main():
     flocking_controller_params = {
         "request_commands_period": 10000,    # in us | The time between two command requests made to the controller
         "should_controller_publish_commands": False,
-        "v_max": 10,
-        "p_tar": 5,
-        "r_0_tar": 4,
+        "v_max": 3,
+        "p_tar": 4,
+        "r_0_tar": 5,
         "a_frict": 4.16,
         "p_frict": 3.2,
         "r_0_frict": 85.3,
@@ -334,26 +437,40 @@ def main():
         "v_shill": 13.622,
         "p_los": 0,
         "r_los_obst_inflation": 0,
-        "r_obstacle_perception": 20
+        "r_obstacle_perception": 20,
+        "fixed_altitude": 10.0,
+        "min_altitude": 5.0             # Unused if fixed_altitude is defined!
     }
     
     targets = {
         "targets": [
             {
                 "id": 1,
-                "x":10.0,
-                "y":10.0,
-                "z":10.0,
-                "radius": 10.0,
-                "global": False,
+                "x": 120.0,
+                "y": 120.0,
+                "z": 20.0,
+                "radius": 4.0,  # does not change the flocking force, see r_0_tar
+                "global": True,
                 "assigned_agents": [0],
                 "is_sink": False
             }
         ]
     }
     
+    random_obstacles_config = {
+        "num_obstacles": 12,
+        "mean_radius": 5,
+        "std_dev_radius": 1,
+        "mean_height": 20,
+        "std_dev_height": 4,
+        "area_center_x": 60,
+        "area_center_y": 60,
+        "area_size_x": 100,
+        "area_size_y": 100,
+        "min_clearance": 5.0
+    }
+    
     obstacles = {
-        
     }
     
     base_params.update(networking_params)
@@ -381,6 +498,8 @@ def main():
     instance_id = 1
     for cfg in configs:
         for seed in seeds:
+            random_obstacles = generate_random_aabbs(random_obstacles_config, seed=seed)
+            cfg.update(random_obstacles)
             cfg_with_seed = cfg.copy()
             cfg_with_seed["seed"] = seed
             path = generate_config_file(cfg_with_seed, instance_id=instance_id)
