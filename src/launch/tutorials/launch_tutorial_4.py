@@ -381,7 +381,7 @@ def main():
         "phy_ip_server_address": "127.0.0.1",
         "phy_ip_server_port": 10000,
         
-        "robots_number": 4,
+        "robots_number": 6,
 
         "save_compute_time": False,
         
@@ -390,7 +390,7 @@ def main():
         
     networking_params = {
         "wifi_standard": "802.11ax",
-        "wifi_phy_mode": "HeMcs7",
+        "wifi_phy_mode": "HeMcs4",
         "short_guard_interval_supported": False,
         "frequency": 5e9,
         "error_rate_model": "ns3::NistErrorRateModel",
@@ -438,7 +438,6 @@ def main():
         "p_los": 0,
         "r_los_obst_inflation": 0,
         "r_obstacle_perception": 20,
-        "fixed_altitude": 10.0,
         "min_altitude": 5.0             # Unused if fixed_altitude is defined!
     }
     
@@ -449,9 +448,9 @@ def main():
                 "x": 120.0,
                 "y": 120.0,
                 "z": 20.0,
-                "radius": 4.0,  # does not change the flocking force, see r_0_tar
+                "radius": 4.0,  # does not change the flocking attraction force, see r_0_tar
                 "global": True,
-                "assigned_agents": [0],
+                "assigned_agents": [],
                 "is_sink": False
             }
         ]
@@ -459,15 +458,15 @@ def main():
     
     random_obstacles_config = {
         "num_obstacles": 12,
-        "mean_radius": 5,
+        "mean_radius": 6,
         "std_dev_radius": 1,
-        "mean_height": 20,
+        "mean_height": 30,
         "std_dev_height": 4,
         "area_center_x": 60,
         "area_center_y": 60,
         "area_size_x": 100,
         "area_size_y": 100,
-        "min_clearance": 5.0
+        "min_clearance": 3.0
     }
     
     obstacles = {
