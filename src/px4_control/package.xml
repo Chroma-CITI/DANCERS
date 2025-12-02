@@ -13,6 +13,7 @@
   <test_depend>ament_lint_common</test_depend>
 
   <depend>geometry_msgs</depend>
+  <depend>dancers_msgs</depend>
   <depend>px4_msgs</depend>
 
   <export>
