@@ -76,17 +76,18 @@ dancers_msgs::msg::VelocityHeading VATController::getVelocityHeading(std::shared
     }
     else if (this->VAT_options_.desired_min_altitude.has_value() && self_agent->position[2] < this->VAT_options_.desired_min_altitude.value())
     {
+
         // Proportional controller for minimal altitude
         const float altitude_error = this->VAT_options_.desired_min_altitude.value() - self_agent->position[2];
 
-        velocity_heading.velocity.z = 0.1 * altitude_error;
+        velocity_heading.velocity.z = std::max(0.5, 0.1 * altitude_error);
     }
     else
     {
         // Otherwise, unbiased 3D flocking
         velocity_heading.velocity.z = summed_velocity[2];
-    }
 
+    }
     return velocity_heading;
 }
 
