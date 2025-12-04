@@ -19,6 +19,15 @@ RUN apt update && apt install -y --no-install-recommends \
     nano \
     gdb
 
+# ========== MicroXRCE-DDS Agent ==========
+RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git && \
+    cd Micro-XRCE-DDS-Agent && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
 # ========== user ==========
 ARG USERNAME=choreographer
 
@@ -65,10 +74,10 @@ RUN sudo curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/
 WORKDIR /home/$USERNAME
 # Get the PX4 Autopilot sources (Latest version by default, uncomment for fixed version)
 # RUN git clone https://github.com/PX4/PX4-Autopilot.git --recursive
-RUN git clone https://github.com/PX4/PX4-Autopilot.git --recursive --branch release/1.16
+RUN git clone https://github.com/PX4/PX4-Autopilot.git PX4-Autopilot-1.16 --recursive --branch release/1.16
 
 
-WORKDIR /home/$USERNAME/PX4-Autopilot
+WORKDIR /home/$USERNAME/PX4-Autopilot-1.16
 # We need this commit to fix compatibility between Gazebo Harmonic and PX4 1.16
 # RUN git fetch https://github.com/jmackay2/PX4-Autopilot.git fix_gazebo_harmonic:fix_gazebo_harmonic
 # RUN git config --global user.name "$USERNAME" && \
@@ -78,12 +87,19 @@ WORKDIR /home/$USERNAME/PX4-Autopilot
 # Build the PX4 Autopilot 
 RUN ./Tools/setup/ubuntu.sh
 
-WORKDIR /home/$USERNAME/PX4-Autopilot
+WORKDIR /home/$USERNAME/PX4-Autopilot-1.16
 
 # build the sitl executable
 RUN make px4_sitl_default
 
 # ========== QGroundControl ==========
+# AppImages rely on FUSE, that is not easily usable in docker. Thus, it is needed to extract the content of the appimage in order to launch the executable directly
+WORKDIR /home/$USERNAME
+RUN wget https://d176tv9ibo4jno.cloudfront.net/latest/QGroundControl-x86_64.AppImage
+RUN chmod +x QGroundControl-x86_64.AppImage
+RUN ./QGroundControl-x86_64.AppImage --appimage-extract
+RUN sudo ln -s ~/squashfs-root/AppRun /usr/local/bin/QGroundControl.AppImage
+
 # Uncomment if you want to install QGroundControl inside the docker container, however it's hard to launch it from within the docker because docker prevents 
 # the installation of 'fuse' that AppImages require. The cleaner approach would be build it from source, but even easier is to run QGC outside 
 # of the docker container and open the container's network.
@@ -112,3 +128,4 @@ WORKDIR /home/$USERNAME/sim_ws
 
 # Build all the ROS nodes (-i to run bash iteratively so that ~/.bashrc does not exit early | CMAKE -w flag to disable CMAKE warnings)
 RUN /bin/bash -c -i "colcon build --cmake-args -DCMAKE_CXX_FLAGS='-w'"
+
