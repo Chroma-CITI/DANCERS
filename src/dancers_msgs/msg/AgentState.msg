@@ -1,2 +1,3 @@
 geometry_msgs/Vector3 position
-dancers_msgs/VelocityHeading velocity_heading
+geometry_msgs/Vector3 velocity
+float64 heading

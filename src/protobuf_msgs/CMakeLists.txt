@@ -34,7 +34,7 @@ message(STATUS "home dir: " ${CMAKE_HOME_DIRECTORY})
 # Copy protobuf generated headers from the build space to the devel space so
 # that they can be used by other catkin packages. Note that the copying of
 # generated protobuf headers must happen after they are built, which is only
-# triggered when they are included in a target. This behavior is achived by
+# triggered when they are included in a target. This behavior is achieved by
 # setting the TARGET field of add_custom_command() appropriately.
 set(PROTO_HDRS_DEVEL_DIR ${CMAKE_INSTALL_PREFIX}/include/${PROJECT_NAME}/)
 file(MAKE_DIRECTORY ${PROTO_HDRS_DEVEL_DIR})
