@@ -121,7 +121,7 @@ class VATController
 
         /* ----------- Flocking behaviors ----------- */
         /**
-         * @brief Flocking behavior that aligns the agent with the alignement of its neighbors of a given neighbor type.
+         * @brief Flocking behavior that aligns the agent with the alignment of its neighbors of a given neighbor type.
          * @param self_agent Current agent states.
          * @param neighbors List of all neighbors.
          * @param params Flocking parameters to use.
@@ -148,7 +148,7 @@ class VATController
         Eigen::Vector3d repulsionTerm(std::shared_ptr<const Agent>& self_agent, std::vector<std::shared_ptr<const NeighborInfo>>& neighbors, const VATController::VAT_params_t& role_params);
 
         /**
-         * @brief Flocking behavior that pushes the heading of the agent perpendicaly from the nearest obstacle surfaces.
+         * @brief Flocking behavior that pushes the heading of the agent perpendicular to the nearest obstacle surfaces.
          * @param self_agent Current agent states.
          * @param obstacles 3D Obstacles that present in the environment.
          * @param params Flocking parameters to use.
