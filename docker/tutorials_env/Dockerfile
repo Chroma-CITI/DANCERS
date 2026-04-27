@@ -120,7 +120,7 @@ RUN sudo ln -s ~/squashfs-root/AppRun /usr/local/bin/QGroundControl.AppImage
 ARG CACHE_BUST=1
 WORKDIR /home/$USERNAME
 # Get the source of the DANCERS components
-RUN git clone -b v1.0 https://github.com/Chroma-CITI/DANCERS sim_ws --recursive
+RUN git clone https://github.com/Chroma-CITI/DANCERS sim_ws --recursive
 
 ENV ROS_WS=/home/$USERNAME/sim_ws
 
